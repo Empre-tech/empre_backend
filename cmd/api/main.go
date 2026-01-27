@@ -1,3 +1,23 @@
+// @title Empre Backend API
+// @version 1.0
+// @description Interactive API documentation for the Local Discovery App.
+// @termsOfService http://swagger.io/terms/
+
+// @contact.name API Support
+// @contact.url http://www.swagger.io/support
+// @contact.email support@swagger.io
+
+// @license.name Apache 2.0
+// @license.url http://www.apache.org/licenses/LICENSE-2.0.html
+
+// @host localhost:8080
+// @BasePath /
+// @query.collection.format multi
+
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
+// @description Type "Bearer <your-token>" to authenticate.
 package main
 
 import (
@@ -11,6 +31,11 @@ import (
 	"empre_backend/internal/repository"
 	"empre_backend/internal/services"
 	"empre_backend/internal/websocket"
+
+	_ "empre_backend/docs"
+
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 
 	"github.com/gin-gonic/gin"
 )
@@ -103,6 +128,9 @@ func main() {
 		{
 			imagesProtected.POST("/upload", mediaHandler.Upload)
 		}
+
+		// Swagger Documentation
+		api.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	}
 
 	// Health Check

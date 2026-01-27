@@ -21,6 +21,13 @@ func NewChatHandler(hub *websocket.Hub, service *services.ChatService) *ChatHand
 	}
 }
 
+// HandleWebSocket initiates a real-time chat connection
+// @Summary WebSocket Chat
+// @Description Upgrade to WebSocket for real-time messaging
+// @Tags Chat
+// @Security BearerAuth
+// @Param token query string true "JWT Token"
+// @Router /api/chat/ws [get]
 func (h *ChatHandler) HandleWebSocket(c *gin.Context) {
 	// Get User ID from context (set by auth middleware)
 	userIDVal, exists := c.Get("userID")
@@ -33,6 +40,15 @@ func (h *ChatHandler) HandleWebSocket(c *gin.Context) {
 	websocket.ServeWs(h.Hub, c, userID)
 }
 
+// FindAllConversations retrieves all active conversations for the user
+// @Summary List conversations
+// @Description Get a list of the last message from each active conversation
+// @Tags Chat
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {array} models.Message
+// @Failure 500 {object} map[string]string
+// @Router /api/chat/conversations [get]
 func (h *ChatHandler) FindAllConversations(c *gin.Context) {
 	userIDVal, _ := c.Get("userID")
 	userID := userIDVal.(uuid.UUID)
@@ -46,6 +62,18 @@ func (h *ChatHandler) FindAllConversations(c *gin.Context) {
 	c.JSON(http.StatusOK, conversations)
 }
 
+// FindMessagesHistory retrieves full message history between a user and an entity
+// @Summary Message history
+// @Description Get all messages in a conversation with a specific business
+// @Tags Chat
+// @Produce json
+// @Security BearerAuth
+// @Param entity_id path string true "Entity ID"
+// @Param user_id query string false "User ID (Owner only usage)"
+// @Success 200 {array} models.Message
+// @Failure 400 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /api/chat/history/{entity_id} [get]
 func (h *ChatHandler) FindMessagesHistory(c *gin.Context) {
 	entityIDStr := c.Param("entity_id")
 	userIDStr := c.Query("user_id")

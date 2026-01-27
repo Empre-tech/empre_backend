@@ -29,6 +29,17 @@ type LoginRequest struct {
 	Password string `json:"password" binding:"required"`
 }
 
+// Register handles user registration
+// @Summary Register a new user
+// @Description Create a new user account with email and password
+// @Tags Auth
+// @Accept json
+// @Produce json
+// @Param request body RegisterRequest true "Registration Info"
+// @Success 201 {object} map[string]string
+// @Failure 400 {object} map[string]string
+// @Failure 49 {object} map[string]string
+// @Router /api/auth/register [post]
 func (h *AuthHandler) Register(c *gin.Context) {
 	var req RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -51,6 +62,17 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"message": "User registered successfully"})
 }
 
+// Login handles user authentication
+// @Summary User login
+// @Description Authenticate user and return JWT token
+// @Tags Auth
+// @Accept json
+// @Produce json
+// @Param request body LoginRequest true "Login Credentials"
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} map[string]string
+// @Failure 401 {object} map[string]string
+// @Router /api/auth/login [post]
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

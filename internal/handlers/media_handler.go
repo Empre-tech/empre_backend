@@ -27,6 +27,16 @@ func NewMediaHandler(storageService *services.StorageService, db *gorm.DB) *Medi
 }
 
 // FindMedia proxies the image from S3 to the client using a secure mapping
+// FindMedia retrieves an image from S3 via a secure mapping
+// @Summary Get image by secure ID
+// @Description Fetch image binary data using its secure UUID mapping
+// @Tags Media
+// @Produce image/png,image/jpeg,image/webp
+// @Param id path string true "Media ID"
+// @Success 200 {file} binary
+// @Failure 400 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Router /api/images/{id} [get]
 func (h *MediaHandler) FindMedia(c *gin.Context) {
 	idStr := c.Param("id")
 
@@ -62,6 +72,18 @@ func (h *MediaHandler) FindMedia(c *gin.Context) {
 }
 
 // Upload handles manual uploads and creates a secure mapping entry
+// Upload handles manual image uploads
+// @Summary Upload a general image
+// @Description Upload an image to S3 and get a secure UUID mapping
+// @Tags Media
+// @Accept multipart/form-data
+// @Produce json
+// @Security BearerAuth
+// @Param file formData file true "Image File"
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /api/images/upload [post]
 func (h *MediaHandler) Upload(c *gin.Context) {
 	file, err := c.FormFile("file")
 	if err != nil {

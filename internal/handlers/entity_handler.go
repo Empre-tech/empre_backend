@@ -41,6 +41,18 @@ type CreateEntityRequest struct {
 	Gallery     []string `json:"gallery"` // List of Media IDs (UUIDs)
 }
 
+// Create handles entity creation
+// @Summary Create a new entity
+// @Description Register a new business entity with basic details
+// @Tags Entities
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param request body CreateEntityRequest true "Entity Info"
+// @Success 201 {object} models.Entity
+// @Failure 401 {object} map[string]string
+// @Failure 400 {object} map[string]string
+// @Router /api/entities [post]
 func (h *EntityHandler) Create(c *gin.Context) {
 	userID, exists := c.Get("userID")
 	if !exists {
@@ -95,6 +107,16 @@ func (h *EntityHandler) Create(c *gin.Context) {
 	c.JSON(http.StatusCreated, entity)
 }
 
+// FindByID retrieves an entity by its UUID
+// @Summary Find entity by ID
+// @Description Get full details of a specific business entity
+// @Tags Entities
+// @Produce json
+// @Param id path string true "Entity ID"
+// @Success 200 {object} models.Entity
+// @Failure 400 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Router /api/entities/{id} [get]
 func (h *EntityHandler) FindByID(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := uuid.Parse(idStr)
@@ -112,6 +134,18 @@ func (h *EntityHandler) FindByID(c *gin.Context) {
 	c.JSON(http.StatusOK, entity)
 }
 
+// FindAll retrieves all entities with optional filters
+// @Summary Find all entities
+// @Description Search entities with geographic and category filters
+// @Tags Entities
+// @Produce json
+// @Param lat query number false "Latitude"
+// @Param long query number false "Longitude"
+// @Param radius query number false "Radius in meters"
+// @Param category query string false "Category UUID"
+// @Success 200 {array} models.Entity
+// @Failure 500 {object} map[string]string
+// @Router /api/entities [get]
 func (h *EntityHandler) FindAll(c *gin.Context) {
 	latStr := c.Query("lat")
 	longStr := c.Query("long")
@@ -139,6 +173,15 @@ func (h *EntityHandler) FindAll(c *gin.Context) {
 	c.JSON(http.StatusOK, entities)
 }
 
+// FindAllByOwner retrieves all entities for the authenticated owner
+// @Summary Find my entities
+// @Description Get all business entities owned by the current user
+// @Tags Entities
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {array} models.Entity
+// @Failure 500 {object} map[string]string
+// @Router /api/entities/mine [get]
 func (h *EntityHandler) FindAllByOwner(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	entities, err := h.Service.Repo.FindAllByOwner(userID.(uuid.UUID))
@@ -149,6 +192,20 @@ func (h *EntityHandler) FindAllByOwner(c *gin.Context) {
 	c.JSON(http.StatusOK, entities)
 }
 
+// Update modifies an existing entity
+// @Summary Update entity
+// @Description Update details of a specific business entity (Owner only)
+// @Tags Entities
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "Entity ID"
+// @Param request body CreateEntityRequest true "Update Info"
+// @Success 200 {object} models.Entity
+// @Failure 400 {object} map[string]string
+// @Failure 403 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Router /api/entities/{id} [put]
 func (h *EntityHandler) Update(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := uuid.Parse(idStr)
@@ -216,6 +273,18 @@ func (h *EntityHandler) Update(c *gin.Context) {
 	c.JSON(http.StatusOK, existing)
 }
 
+// Delete removes an existing entity
+// @Summary Delete entity
+// @Description Remove a specific business entity (Owner only)
+// @Tags Entities
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "Entity ID"
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} map[string]string
+// @Failure 403 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Router /api/entities/{id} [delete]
 func (h *EntityHandler) Delete(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := uuid.Parse(idStr)
@@ -245,6 +314,21 @@ func (h *EntityHandler) Delete(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Entity deleted successfully"})
 }
 
+// UploadImage handles direct image uploads for an entity
+// @Summary Upload entity image
+// @Description Upload a profile, banner, or gallery image for a specific entity
+// @Tags Entities
+// @Accept multipart/form-data
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "Entity ID"
+// @Param file formData file true "Image File"
+// @Param type formData string true "Image Type (profile, banner, gallery)"
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} map[string]string
+// @Failure 403 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /api/entities/{id}/images [post]
 func (h *EntityHandler) UploadImage(c *gin.Context) {
 	idStr := c.Param("id")
 	entityID, err := uuid.Parse(idStr)
