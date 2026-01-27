@@ -5,25 +5,24 @@ import (
 
 	"empre_backend/config"
 	"empre_backend/internal/models"
+	"empre_backend/internal/repository"
 	"empre_backend/pkg/utils"
 
 	"golang.org/x/crypto/bcrypt"
-	"gorm.io/gorm"
 )
 
 type AuthService struct {
-	DB     *gorm.DB
+	Repo   *repository.UserRepository
 	Config *config.Config
 }
 
-func NewAuthService(db *gorm.DB, cfg *config.Config) *AuthService {
-	return &AuthService{DB: db, Config: cfg}
+func NewAuthService(repo *repository.UserRepository, cfg *config.Config) *AuthService {
+	return &AuthService{Repo: repo, Config: cfg}
 }
 
 func (s *AuthService) Register(user *models.User) error {
 	// Check if user exists
-	var existingUser models.User
-	if err := s.DB.Where("email = ?", user.Email).First(&existingUser).Error; err == nil {
+	if _, err := s.Repo.FindByEmail(user.Email); err == nil {
 		return errors.New("email already registered")
 	}
 
@@ -35,12 +34,12 @@ func (s *AuthService) Register(user *models.User) error {
 	user.PasswordHash = string(hashedPassword)
 
 	// Save User
-	return s.DB.Create(user).Error
+	return s.Repo.Create(user)
 }
 
 func (s *AuthService) Login(email, password string) (string, error) {
-	var user models.User
-	if err := s.DB.Where("email = ?", email).First(&user).Error; err != nil {
+	user, err := s.Repo.FindByEmail(email)
+	if err != nil {
 		return "", errors.New("Invalid email or password")
 	}
 

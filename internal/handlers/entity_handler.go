@@ -5,9 +5,7 @@ import (
 	"empre_backend/internal/services"
 	"fmt"
 	"net/http"
-	"path/filepath"
 	"strconv"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -15,16 +13,16 @@ import (
 )
 
 type EntityHandler struct {
-	Service        *services.EntityService
-	StorageService *services.StorageService
-	DB             *gorm.DB
+	Service      *services.EntityService
+	MediaService *services.MediaService
+	DB           *gorm.DB
 }
 
-func NewEntityHandler(service *services.EntityService, storageService *services.StorageService, db *gorm.DB) *EntityHandler {
+func NewEntityHandler(service *services.EntityService, mediaService *services.MediaService, db *gorm.DB) *EntityHandler {
 	return &EntityHandler{
-		Service:        service,
-		StorageService: storageService,
-		DB:             db,
+		Service:      service,
+		MediaService: mediaService,
+		DB:           db,
 	}
 }
 
@@ -363,10 +361,7 @@ func (h *EntityHandler) UploadImage(c *gin.Context) {
 		return
 	}
 
-	// 3. Process Upload
-	ext := strings.ToLower(filepath.Ext(file.Filename))
-	s3Key := fmt.Sprintf("entities/%s/%s/%s%s", entityID.String(), imageType, uuid.New().String(), ext)
-
+	// 3. Process Upload via MediaService
 	f, err := file.Open()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not open file"})
@@ -374,23 +369,10 @@ func (h *EntityHandler) UploadImage(c *gin.Context) {
 	}
 	defer f.Close()
 
-	contentType := file.Header.Get("Content-Type")
-	err = h.StorageService.UploadFile(s3Key, f, contentType)
+	folder := fmt.Sprintf("entities/%s/%s", entityID.String(), imageType)
+	media, err := h.MediaService.UploadAndMap(folder, file.Filename, f, file.Header.Get("Content-Type"), file.Size)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload to S3", "details": err.Error()})
-		return
-	}
-
-	// 4. Create Media mapping
-	media := models.Media{
-		S3Key:        s3Key,
-		OriginalName: file.Filename,
-		ContentType:  contentType,
-		Size:         file.Size,
-	}
-
-	if err := h.DB.Create(&media).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save image metadata"})
 		return
 	}
 

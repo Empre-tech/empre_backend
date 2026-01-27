@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"empre_backend/internal/models"
 	"empre_backend/internal/services"
 	"fmt"
 	"io"
@@ -11,18 +10,15 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"gorm.io/gorm"
 )
 
 type MediaHandler struct {
-	storageService *services.StorageService
-	db             *gorm.DB
+	Service *services.MediaService
 }
 
-func NewMediaHandler(storageService *services.StorageService, db *gorm.DB) *MediaHandler {
+func NewMediaHandler(service *services.MediaService) *MediaHandler {
 	return &MediaHandler{
-		storageService: storageService,
-		db:             db,
+		Service: service,
 	}
 }
 
@@ -46,25 +42,16 @@ func (h *MediaHandler) FindMedia(c *gin.Context) {
 		return
 	}
 
-	// 1. Lookup mapping in Database
-	var media models.Media
-	if err := h.db.First(&media, "id = ?", id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Image metadata not found"})
-		return
-	}
-
-	// 2. Fetch from S3 using the hidden S3Key
-	body, contentType, err := h.storageService.GetFile(media.S3Key)
+	// 1. Fetch from S3 via MediaService (which handles the ID -> S3Key lookup)
+	body, contentType, err := h.Service.GetFile(id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Physical image file not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "Physical image file not found or metadata missing"})
 		return
 	}
 	defer body.Close()
 
 	if contentType != "" {
 		c.Header("Content-Type", contentType)
-	} else if media.ContentType != "" {
-		c.Header("Content-Type", media.ContentType)
 	}
 
 	c.Header("Cache-Control", "public, max-age=31536000")
@@ -97,9 +84,7 @@ func (h *MediaHandler) Upload(c *gin.Context) {
 		return
 	}
 
-	// 1. Construct internal S3 Key (completely hidden from response)
-	s3Key := fmt.Sprintf("uploads/%s%s", uuid.New().String(), ext)
-
+	// 1. Process Upload and Map via MediaService
 	f, err := file.Open()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not open file"})
@@ -107,32 +92,13 @@ func (h *MediaHandler) Upload(c *gin.Context) {
 	}
 	defer f.Close()
 
-	contentType := file.Header.Get("Content-Type")
-
-	// 2. Upload to S3
-	err = h.storageService.UploadFile(s3Key, f, contentType)
+	media, err := h.Service.UploadAndMap("uploads", file.Filename, f, file.Header.Get("Content-Type"), file.Size)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to upload to S3",
-			"details": err.Error(),
-		})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload to S3", "details": err.Error()})
 		return
 	}
 
-	// 3. Create Media mapping record
-	media := models.Media{
-		S3Key:        s3Key,
-		OriginalName: file.Filename,
-		ContentType:  contentType,
-		Size:         file.Size,
-	}
-
-	if err := h.db.Create(&media).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save image metadata"})
-		return
-	}
-
-	// 4. Return the SECURE Proxy URL using ONLY the mapping ID
+	// 2. Return the SECURE Proxy URL
 	proxyURL := fmt.Sprintf("/api/images/%s", media.ID.String())
 
 	c.JSON(http.StatusOK, gin.H{

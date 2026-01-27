@@ -56,34 +56,32 @@ func main() {
 	// Initialize Router
 	r := gin.Default()
 
-	// Initialize Services & Handlers
-	// Auth
-	authService := services.NewAuthService(database.DB, cfg)
-	authHandler := handlers.NewAuthHandler(authService)
-
-	// Storage & Media
-	storageService := services.NewStorageService(cfg)
-	mediaHandler := handlers.NewMediaHandler(storageService, database.DB)
-
-	// Entity
-	entityRepo := repository.NewEntityRepository(database.DB)
-	entityService := services.NewEntityService(entityRepo)
-	entityHandler := handlers.NewEntityHandler(entityService, storageService, database.DB)
-
-	// Category
+	// Initialize Repositories
+	userRepo := repository.NewUserRepository(database.DB)
 	categoryRepo := repository.NewCategoryRepository(database.DB)
+	entityRepo := repository.NewEntityRepository(database.DB)
+	mediaRepo := repository.NewMediaRepository(database.DB)
+	chatRepo := repository.NewChatRepository(database.DB)
+
+	// Initialize Services
+	storageService := services.NewStorageService(cfg)
+	authService := services.NewAuthService(userRepo, cfg)
+	userService := services.NewUserService(userRepo)
+	mediaService := services.NewMediaService(mediaRepo, storageService)
+	entityService := services.NewEntityService(entityRepo)
 	categoryService := services.NewCategoryService(categoryRepo)
+	chatService := services.NewChatService(chatRepo)
+
+	// Initialize Handlers
+	authHandler := handlers.NewAuthHandler(authService)
+	userHandler := handlers.NewUserHandler(userService, mediaService)
+	mediaHandler := handlers.NewMediaHandler(mediaService)
+	entityHandler := handlers.NewEntityHandler(entityService, mediaService, database.DB)
 	categoryHandler := handlers.NewCategoryHandler(categoryService)
 
-	// Chat / WebSocket
-	chatRepo := repository.NewChatRepository(database.DB)
-	chatService := services.NewChatService(chatRepo)
 	wsHub := websocket.NewHub(database.DB)
 	go wsHub.Run()
 	chatHandler := handlers.NewChatHandler(wsHub, chatService)
-
-	// User
-	userHandler := handlers.NewUserHandler(database.DB, storageService)
 
 	// Routes
 	api := r.Group("/api")
@@ -136,7 +134,7 @@ func main() {
 		usersProtected := api.Group("/users")
 		usersProtected.Use(middleware.AuthMiddleware(cfg))
 		{
-			usersProtected.GET("/me", userHandler.GetMe)
+			usersProtected.GET("/me", userHandler.FindMe)
 			usersProtected.POST("/profile/image", userHandler.UploadProfileImage)
 		}
 

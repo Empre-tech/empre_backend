@@ -1,31 +1,27 @@
 package handlers
 
 import (
-	"empre_backend/internal/models"
 	"empre_backend/internal/services"
 	"fmt"
 	"net/http"
-	"path/filepath"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"gorm.io/gorm"
 )
 
 type UserHandler struct {
-	DB             *gorm.DB
-	StorageService *services.StorageService
+	Service      *services.UserService
+	MediaService *services.MediaService
 }
 
-func NewUserHandler(db *gorm.DB, storageService *services.StorageService) *UserHandler {
+func NewUserHandler(service *services.UserService, mediaService *services.MediaService) *UserHandler {
 	return &UserHandler{
-		DB:             db,
-		StorageService: storageService,
+		Service:      service,
+		MediaService: mediaService,
 	}
 }
 
-// GetMe returns the authenticated user's profile
+// FindMe returns the authenticated user's profile
 // @Summary Get current user
 // @Description Get profile details of the currently authenticated user
 // @Tags Users
@@ -35,11 +31,12 @@ func NewUserHandler(db *gorm.DB, storageService *services.StorageService) *UserH
 // @Failure 401 {object} map[string]string
 // @Failure 404 {object} map[string]string
 // @Router /api/users/me [get]
-func (h *UserHandler) GetMe(c *gin.Context) {
-	userID, _ := c.Get("userID")
+func (h *UserHandler) FindMe(c *gin.Context) {
+	userIDVal, _ := c.Get("userID")
+	userID := userIDVal.(uuid.UUID)
 
-	var user models.User
-	if err := h.DB.First(&user, "id = ?", userID).Error; err != nil {
+	user, err := h.Service.FindByID(userID)
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
 	}
@@ -69,10 +66,7 @@ func (h *UserHandler) UploadProfileImage(c *gin.Context) {
 		return
 	}
 
-	// 1. Process Upload to S3
-	ext := strings.ToLower(filepath.Ext(file.Filename))
-	s3Key := fmt.Sprintf("users/%s/profile/%s%s", userID.String(), uuid.New().String(), ext)
-
+	// 1. Process Upload and Map via MediaService
 	f, err := file.Open()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not open file"})
@@ -80,30 +74,17 @@ func (h *UserHandler) UploadProfileImage(c *gin.Context) {
 	}
 	defer f.Close()
 
-	contentType := file.Header.Get("Content-Type")
-	err = h.StorageService.UploadFile(s3Key, f, contentType)
+	folder := fmt.Sprintf("users/%s/profile", userID.String())
+	media, err := h.MediaService.UploadAndMap(folder, file.Filename, f, file.Header.Get("Content-Type"), file.Size)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload to S3", "details": err.Error()})
 		return
 	}
 
-	// 2. Create Media mapping
-	media := models.Media{
-		S3Key:        s3Key,
-		OriginalName: file.Filename,
-		ContentType:  contentType,
-		Size:         file.Size,
-	}
-
-	if err := h.DB.Create(&media).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save image metadata"})
-		return
-	}
-
 	proxyURL := fmt.Sprintf("/api/images/%s", media.ID.String())
 
-	// 3. Update User
-	if err := h.DB.Model(&models.User{}).Where("id = ?", userID).Update("profile_picture_url", proxyURL).Error; err != nil {
+	// 2. Update User Profile Picture via UserService
+	if err := h.Service.UpdateProfilePicture(userID, proxyURL); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user profile"})
 		return
 	}
