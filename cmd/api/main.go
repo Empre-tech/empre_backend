@@ -82,6 +82,9 @@ func main() {
 	go wsHub.Run()
 	chatHandler := handlers.NewChatHandler(wsHub, chatService)
 
+	// User
+	userHandler := handlers.NewUserHandler(database.DB, storageService)
+
 	// Routes
 	api := r.Group("/api")
 	{
@@ -127,6 +130,14 @@ func main() {
 		imagesProtected.Use(middleware.AuthMiddleware(cfg))
 		{
 			imagesProtected.POST("/upload", mediaHandler.Upload)
+		}
+
+		// Users (Protected)
+		usersProtected := api.Group("/users")
+		usersProtected.Use(middleware.AuthMiddleware(cfg))
+		{
+			usersProtected.GET("/me", userHandler.GetMe)
+			usersProtected.POST("/profile/image", userHandler.UploadProfileImage)
 		}
 
 		// Swagger Documentation

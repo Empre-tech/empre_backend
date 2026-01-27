@@ -179,6 +179,33 @@ definitions:
         description: Customer
         type: string
     type: object
+  models.Role:
+    enum:
+    - user
+    - admin
+    type: string
+    x-enum-varnames:
+    - RoleUser
+    - RoleAdmin
+  models.User:
+    properties:
+      created_at:
+        type: string
+      email:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      phone:
+        type: string
+      profile_picture_url:
+        type: string
+      role:
+        $ref: '#/definitions/models.Role'
+      updated_at:
+        type: string
+    type: object
   models.VerificationStatus:
     enum:
     - pending
@@ -853,6 +880,70 @@ paths:
       summary: Upload a general image
       tags:
       - Media
+  /api/users/me:
+    get:
+      description: Get profile details of the currently authenticated user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.User'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get current user
+      tags:
+      - Users
+  /api/users/profile/image:
+    post:
+      consumes:
+      - multipart/form-data
+      description: Upload a new profile picture for the authenticated user
+      parameters:
+      - description: Image File
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Upload profile image
+      tags:
+      - Users
 securityDefinitions:
   BearerAuth:
     description: Type "Bearer <your-token>" to authenticate.
