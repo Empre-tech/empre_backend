@@ -12,6 +12,19 @@ import (
 	"gorm.io/gorm"
 )
 
+// PaginationMeta contains metadata for paginated responses
+type PaginationMeta struct {
+	Total    int64 `json:"total"`
+	Page     int   `json:"page"`
+	PageSize int   `json:"page_size"`
+}
+
+// EntityPaginatedResponse is the top-level response for paginated entity queries
+type EntityPaginatedResponse struct {
+	Data []models.Entity `json:"data"`
+	Meta PaginationMeta  `json:"meta"`
+}
+
 type EntityHandler struct {
 	Service      *services.EntityService
 	MediaService *services.MediaService
@@ -141,7 +154,9 @@ func (h *EntityHandler) FindByID(c *gin.Context) {
 // @Param long query number false "Longitude"
 // @Param radius query number false "Radius in meters"
 // @Param category query string false "Category UUID"
-// @Success 200 {array} models.Entity
+// @Param page query int false "Page number" default(1)
+// @Param pageSize query int false "Items per page" default(20)
+// @Success 200 {object} EntityPaginatedResponse
 // @Failure 500 {object} map[string]string
 // @Router /api/entities [get]
 func (h *EntityHandler) FindAll(c *gin.Context) {
@@ -149,6 +164,8 @@ func (h *EntityHandler) FindAll(c *gin.Context) {
 	longStr := c.Query("long")
 	radiusStr := c.Query("radius")
 	categoryID := c.Query("category")
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "20"))
 
 	var lat, long, radius float64
 
@@ -162,13 +179,20 @@ func (h *EntityHandler) FindAll(c *gin.Context) {
 		radius, _ = strconv.ParseFloat(radiusStr, 64)
 	}
 
-	entities, err := h.Service.FindAll(lat, long, radius, categoryID)
+	entities, total, err := h.Service.FindAll(lat, long, radius, categoryID, page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, entities)
+	c.JSON(http.StatusOK, EntityPaginatedResponse{
+		Data: entities,
+		Meta: PaginationMeta{
+			Total:    total,
+			Page:     page,
+			PageSize: pageSize,
+		},
+	})
 }
 
 // FindAllByOwner retrieves all entities for the authenticated owner

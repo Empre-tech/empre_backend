@@ -41,14 +41,21 @@ func (s *EntityService) FindByID(id uuid.UUID) (*models.Entity, error) {
 	return entity, err
 }
 
-func (s *EntityService) FindAll(lat, long, radius float64, categoryID string) ([]models.Entity, error) {
-	entities, err := s.Repo.FindAll(lat, long, radius, categoryID)
+func (s *EntityService) FindAll(lat, long, radius float64, categoryID string, page, pageSize int) ([]models.Entity, int64, error) {
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+
+	entities, total, err := s.Repo.FindAll(lat, long, radius, categoryID, page, pageSize)
 	if err == nil {
 		for i := range entities {
 			s.populateMediaURLs(&entities[i])
 		}
 	}
-	return entities, err
+	return entities, total, err
 }
 
 func (s *EntityService) FindAllByOwner(ownerID uuid.UUID) ([]models.Entity, error) {

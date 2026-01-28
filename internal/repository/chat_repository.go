@@ -29,10 +29,19 @@ func (r *ChatRepository) FindAllConversations(userID uuid.UUID) ([]models.Messag
 	return messages, err
 }
 
-func (r *ChatRepository) FindMessagesHistory(entityID, userID uuid.UUID) ([]models.Message, error) {
+func (r *ChatRepository) FindMessagesHistory(entityID, userID uuid.UUID, page, pageSize int) ([]models.Message, int64, error) {
 	var messages []models.Message
-	err := r.DB.Where("entity_id = ? AND user_id = ?", entityID, userID).
-		Order("created_at ASC").
-		Find(&messages).Error
-	return messages, err
+	var total int64
+
+	db := r.DB.Model(&models.Message{}).Where("entity_id = ? AND user_id = ?", entityID, userID)
+
+	// Count total messages
+	db.Count(&total)
+
+	// Apply Pagination (Last messages first, but ordered ascending for the chat view)
+	// Usually chat history is fetched from newest to oldest for pagination
+	offset := (page - 1) * pageSize
+	err := db.Order("created_at DESC").Limit(pageSize).Offset(offset).Find(&messages).Error
+
+	return messages, total, err
 }

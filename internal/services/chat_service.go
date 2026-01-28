@@ -19,6 +19,12 @@ func (s *ChatService) FindAllConversations(userID uuid.UUID) ([]models.Message, 
 	return s.repo.FindAllConversations(userID)
 }
 
-func (s *ChatService) FindMessagesHistory(entityID, userID uuid.UUID) ([]models.Message, error) {
-	return s.repo.FindMessagesHistory(entityID, userID)
+func (s *ChatService) FindMessagesHistory(entityID, userID uuid.UUID, page, pageSize int) ([]models.Message, int64, error) {
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 50 // Default for chat is usually larger
+	}
+	return s.repo.FindMessagesHistory(entityID, userID, page, pageSize)
 }

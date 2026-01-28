@@ -30,8 +30,9 @@ func (r *EntityRepository) FindByID(id uuid.UUID) (*models.Entity, error) {
 	return &entity, err
 }
 
-func (r *EntityRepository) FindAll(lat, long, radius float64, categoryID string) ([]models.Entity, error) {
+func (r *EntityRepository) FindAll(lat, long, radius float64, categoryID string, page, pageSize int) ([]models.Entity, int64, error) {
 	var entities []models.Entity
+	var total int64
 
 	db := r.DB.Model(&models.Entity{}).Preload("Category").Preload("Photos.Media")
 
@@ -58,9 +59,14 @@ func (r *EntityRepository) FindAll(lat, long, radius float64, categoryID string)
 			Where("longitude BETWEEN ? AND ?", minLong, maxLong)
 	}
 
-	err := db.Find(&entities).Error
+	// Count total records before applying pagination
+	db.Count(&total)
 
-	return entities, err
+	// Apply Pagination
+	offset := (page - 1) * pageSize
+	err := db.Limit(pageSize).Offset(offset).Find(&entities).Error
+
+	return entities, total, err
 }
 
 func (r *EntityRepository) FindAllByOwner(ownerID uuid.UUID) ([]models.Entity, error) {

@@ -454,16 +454,27 @@ const docTemplate = `{
                         "description": "User ID (Owner only usage)",
                         "name": "user_id",
                         "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 50,
+                        "description": "Items per page",
+                        "name": "pageSize",
+                        "in": "query"
                     }
                 ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/models.Message"
-                            }
+                            "$ref": "#/definitions/handlers.ChatPaginatedResponse"
                         }
                     },
                     "400": {
@@ -545,16 +556,27 @@ const docTemplate = `{
                         "description": "Category UUID",
                         "name": "category",
                         "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 20,
+                        "description": "Items per page",
+                        "name": "pageSize",
+                        "in": "query"
                     }
                 ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/models.Entity"
-                            }
+                            "$ref": "#/definitions/handlers.EntityPaginatedResponse"
                         }
                     },
                     "500": {
@@ -1132,6 +1154,20 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "handlers.ChatPaginatedResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.Message"
+                    }
+                },
+                "meta": {
+                    "$ref": "#/definitions/handlers.PaginationMeta"
+                }
+            }
+        },
         "handlers.CreateCategoryRequest": {
             "type": "object",
             "required": [
@@ -1185,6 +1221,20 @@ const docTemplate = `{
                 }
             }
         },
+        "handlers.EntityPaginatedResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.Entity"
+                    }
+                },
+                "meta": {
+                    "$ref": "#/definitions/handlers.PaginationMeta"
+                }
+            }
+        },
         "handlers.LoginRequest": {
             "type": "object",
             "required": [
@@ -1197,6 +1247,20 @@ const docTemplate = `{
                 },
                 "password": {
                     "type": "string"
+                }
+            }
+        },
+        "handlers.PaginationMeta": {
+            "type": "object",
+            "properties": {
+                "page": {
+                    "type": "integer"
+                },
+                "page_size": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
                 }
             }
         },

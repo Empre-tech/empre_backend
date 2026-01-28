@@ -1,13 +1,21 @@
 package handlers
 
 import (
+	"empre_backend/internal/models"
 	"empre_backend/internal/services"
 	"empre_backend/internal/websocket"
 	"net/http"
 
+	"strconv"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
+
+type ChatPaginatedResponse struct {
+	Data []models.Message `json:"data"`
+	Meta PaginationMeta   `json:"meta"`
+}
 
 type ChatHandler struct {
 	Hub     *websocket.Hub
@@ -70,7 +78,9 @@ func (h *ChatHandler) FindAllConversations(c *gin.Context) {
 // @Security BearerAuth
 // @Param entity_id path string true "Entity ID"
 // @Param user_id query string false "User ID (Owner only usage)"
-// @Success 200 {array} models.Message
+// @Param page query int false "Page number" default(1)
+// @Param pageSize query int false "Items per page" default(50)
+// @Success 200 {object} ChatPaginatedResponse
 // @Failure 400 {object} map[string]string
 // @Failure 500 {object} map[string]string
 // @Router /api/chat/history/{entity_id} [get]
@@ -101,11 +111,21 @@ func (h *ChatHandler) FindMessagesHistory(c *gin.Context) {
 		targetUserID = currentUserID
 	}
 
-	messages, err := h.service.FindMessagesHistory(entityID, targetUserID)
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "50"))
+
+	messages, total, err := h.service.FindMessagesHistory(entityID, targetUserID, page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, messages)
+	c.JSON(http.StatusOK, ChatPaginatedResponse{
+		Data: messages,
+		Meta: PaginationMeta{
+			Total:    total,
+			Page:     page,
+			PageSize: pageSize,
+		},
+	})
 }
