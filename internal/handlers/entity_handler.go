@@ -182,7 +182,7 @@ func (h *EntityHandler) FindAll(c *gin.Context) {
 // @Router /api/entities/mine [get]
 func (h *EntityHandler) FindAllByOwner(c *gin.Context) {
 	userID, _ := c.Get("userID")
-	entities, err := h.Service.Repo.FindAllByOwner(userID.(uuid.UUID))
+	entities, err := h.Service.FindAllByOwner(userID.(uuid.UUID))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -396,7 +396,7 @@ func (h *EntityHandler) UploadImage(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"id":   media.ID,
-		"url":  proxyURL,
+		"url":  media.URL,
 		"type": imageType,
 	})
 }

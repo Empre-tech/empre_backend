@@ -13,4 +13,5 @@ type Media struct {
 	ContentType  string    `json:"content_type"`
 	Size         int64     `json:"size"`
 	CreatedAt    time.Time `json:"created_at"`
+	URL          string    `gorm:"-" json:"url"` // Virtual field
 }

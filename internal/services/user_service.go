@@ -8,15 +8,25 @@ import (
 )
 
 type UserService struct {
-	Repo *repository.UserRepository
+	Repo         *repository.UserRepository
+	MediaService *MediaService
 }
 
-func NewUserService(repo *repository.UserRepository) *UserService {
-	return &UserService{Repo: repo}
+func NewUserService(repo *repository.UserRepository, mediaService *MediaService) *UserService {
+	return &UserService{
+		Repo:         repo,
+		MediaService: mediaService,
+	}
 }
 
 func (s *UserService) FindByID(id uuid.UUID) (*models.User, error) {
-	return s.Repo.FindByID(id)
+	user, err := s.Repo.FindByID(id)
+	if err == nil && user != nil {
+		if user.ProfilePictureURL != "" && user.ProfilePictureURL[0] == '/' {
+			user.ProfilePictureURL = s.MediaService.BaseURL + user.ProfilePictureURL
+		}
+	}
+	return user, err
 }
 
 func (s *UserService) UpdateProfilePicture(userID uuid.UUID, url string) error {

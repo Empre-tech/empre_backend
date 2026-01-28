@@ -81,9 +81,8 @@ func (h *UserHandler) UploadProfileImage(c *gin.Context) {
 		return
 	}
 
+	// 2. Update User Profile Picture via UserService (store relative path)
 	proxyURL := fmt.Sprintf("/api/images/%s", media.ID.String())
-
-	// 2. Update User Profile Picture via UserService
 	if err := h.Service.UpdateProfilePicture(userID, proxyURL); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user profile"})
 		return
@@ -91,6 +90,6 @@ func (h *UserHandler) UploadProfileImage(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"id":  media.ID,
-		"url": proxyURL,
+		"url": media.URL,
 	})
 }

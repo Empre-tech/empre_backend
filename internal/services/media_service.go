@@ -14,12 +14,14 @@ import (
 type MediaService struct {
 	Repo           *repository.MediaRepository
 	StorageService *StorageService
+	BaseURL        string
 }
 
-func NewMediaService(repo *repository.MediaRepository, storageService *StorageService) *MediaService {
+func NewMediaService(repo *repository.MediaRepository, storageService *StorageService, baseURL string) *MediaService {
 	return &MediaService{
 		Repo:           repo,
 		StorageService: storageService,
+		BaseURL:        baseURL,
 	}
 }
 
@@ -45,6 +47,7 @@ func (s *MediaService) UploadAndMap(folder string, filename string, body io.Read
 		return nil, err
 	}
 
+	s.PopulateURL(media)
 	return media, nil
 }
 
@@ -64,4 +67,10 @@ func (s *MediaService) LinkToEntity(entityID, mediaID uuid.UUID, order int) erro
 		Order:    order,
 	}
 	return s.Repo.CreateEntityPhoto(photo)
+}
+
+func (s *MediaService) PopulateURL(media *models.Media) {
+	if media != nil && media.ID != uuid.Nil {
+		media.URL = fmt.Sprintf("%s/api/images/%s", s.BaseURL, media.ID.String())
+	}
 }

@@ -1358,6 +1358,10 @@ const docTemplate = `{
                 },
                 "size": {
                     "type": "integer"
+                },
+                "url": {
+                    "description": "Virtual field",
+                    "type": "string"
                 }
             }
         },

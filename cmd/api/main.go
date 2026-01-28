@@ -65,10 +65,10 @@ func main() {
 
 	// Initialize Services
 	storageService := services.NewStorageService(cfg)
+	mediaService := services.NewMediaService(mediaRepo, storageService, cfg.AppURL)
 	authService := services.NewAuthService(userRepo, cfg)
-	userService := services.NewUserService(userRepo)
-	mediaService := services.NewMediaService(mediaRepo, storageService)
-	entityService := services.NewEntityService(entityRepo)
+	userService := services.NewUserService(userRepo, mediaService)
+	entityService := services.NewEntityService(entityRepo, mediaService)
 	categoryService := services.NewCategoryService(categoryRepo)
 	chatService := services.NewChatService(chatRepo)
 

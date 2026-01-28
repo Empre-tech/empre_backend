@@ -20,6 +20,7 @@ type Config struct {
 	S3SessionToken string
 	S3Bucket       string
 	S3Region       string
+	AppURL         string
 }
 
 func LoadConfig() *Config {
@@ -41,6 +42,7 @@ func LoadConfig() *Config {
 		S3SessionToken: getEnv("S3_SESSION_TOKEN", ""),
 		S3Bucket:       getEnv("S3_BUCKET", ""),
 		S3Region:       getEnv("S3_REGION", "us-east-1"),
+		AppURL:         getEnv("APP_URL", "http://localhost:8080"),
 	}
 }
 

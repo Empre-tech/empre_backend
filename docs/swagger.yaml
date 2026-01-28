@@ -153,6 +153,9 @@ definitions:
         type: string
       size:
         type: integer
+      url:
+        description: Virtual field
+        type: string
     type: object
   models.Message:
     properties:

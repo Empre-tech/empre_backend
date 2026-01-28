@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"empre_backend/internal/services"
-	"fmt"
 	"io"
 	"net/http"
 	"path/filepath"
@@ -99,10 +98,9 @@ func (h *MediaHandler) Upload(c *gin.Context) {
 	}
 
 	// 2. Return the SECURE Proxy URL
-	proxyURL := fmt.Sprintf("/api/images/%s", media.ID.String())
 
 	c.JSON(http.StatusOK, gin.H{
 		"id":  media.ID,
-		"url": proxyURL,
+		"url": media.URL,
 	})
 }
