@@ -1,0 +1,11 @@
+.git
+.github
+.env
+api
+bin/
+docs/swagger.json.metadata.json
+*.md
+*.log
+docker-compose*
+Dockerfile
+.dockerignore
