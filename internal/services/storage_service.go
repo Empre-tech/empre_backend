@@ -20,16 +20,19 @@ type StorageService struct {
 }
 
 func NewStorageService(cfg *appConfig.Config) *StorageService {
-	if cfg.S3AccessKey == "" || cfg.S3SecretKey == "" {
-		log.Println("Warning: S3 credentials not provided. Storage service will not work.")
-		return &StorageService{}
+	var opts []func(*aws_config.LoadOptions) error
+	opts = append(opts, aws_config.WithRegion(cfg.S3Region))
+
+	// If keys are provided, use static credentials (useful for local development)
+	// Otherwise, LoadDefaultConfig will automatically look for IAM Roles in EC2
+	if cfg.S3AccessKey != "" && cfg.S3SecretKey != "" {
+		creds := credentials.NewStaticCredentialsProvider(cfg.S3AccessKey, cfg.S3SecretKey, cfg.S3SessionToken)
+		opts = append(opts, aws_config.WithCredentialsProvider(creds))
+	} else {
+		log.Println("Note: S3 keys not provided in .env. Using AWS Default Credential Chain (IAM Roles).")
 	}
 
-	creds := credentials.NewStaticCredentialsProvider(cfg.S3AccessKey, cfg.S3SecretKey, cfg.S3SessionToken)
-	awsCfg, err := aws_config.LoadDefaultConfig(context.TODO(),
-		aws_config.WithRegion(cfg.S3Region),
-		aws_config.WithCredentialsProvider(creds),
-	)
+	awsCfg, err := aws_config.LoadDefaultConfig(context.TODO(), opts...)
 	if err != nil {
 		log.Fatal("Unable to load SDK config, ", err)
 	}
