@@ -7,10 +7,7 @@
 // @contact.url http://www.swagger.io/support
 // @contact.email support@swagger.io
 
-// @license.name Apache 2.0
 // @license.url http://www.apache.org/licenses/LICENSE-2.0.html
-
-// @host localhost:8080
 // @BasePath /
 // @query.collection.format multi
 
@@ -56,6 +53,9 @@ func main() {
 	// Initialize Router
 	r := gin.Default()
 
+	// Enable CORS
+	r.Use(middleware.CORSMiddleware())
+
 	// Initialize Repositories
 	userRepo := repository.NewUserRepository(database.DB)
 	categoryRepo := repository.NewCategoryRepository(database.DB)
@@ -93,24 +93,35 @@ func main() {
 		}
 
 		entities := api.Group("/entities")
-		entities.GET("", entityHandler.FindAll)
-		entities.GET("/:id", entityHandler.FindByID)
+		{
+			// Public viewing (Discovery)
+			entities.GET("", entityHandler.FindAll)
+			entities.GET("/:id", entityHandler.FindByID)
+
+			// Protected mutations
+			entitiesProtected := entities.Use(middleware.AuthMiddleware(cfg))
+			{
+				entitiesProtected.POST("", entityHandler.Create)
+				entitiesProtected.GET("/mine", entityHandler.FindAllByOwner)
+				entitiesProtected.PUT("/:id", entityHandler.Update)
+				entitiesProtected.DELETE("/:id", entityHandler.Delete)
+				entitiesProtected.POST("/:id/images", entityHandler.UploadImage)
+			}
+		}
 
 		categories := api.Group("/categories")
-		categories.GET("", categoryHandler.FindAll)
-		categories.GET("/:id", categoryHandler.FindByID)
-		categories.POST("", categoryHandler.Create)
-		categories.PUT("/:id", categoryHandler.Update)
-		categories.DELETE("/:id", categoryHandler.Delete)
-
-		// Protected Routes
-		entitiesProtected := entities.Use(middleware.AuthMiddleware(cfg))
 		{
-			entitiesProtected.POST("", entityHandler.Create)
-			entitiesProtected.GET("/mine", entityHandler.FindAllByOwner)
-			entitiesProtected.PUT("/:id", entityHandler.Update)
-			entitiesProtected.DELETE("/:id", entityHandler.Delete)
-			entitiesProtected.POST("/:id/images", entityHandler.UploadImage)
+			// Public viewing
+			categories.GET("", categoryHandler.FindAll)
+			categories.GET("/:id", categoryHandler.FindByID)
+
+			// Protected mutations
+			categoriesProtected := categories.Use(middleware.AuthMiddleware(cfg))
+			{
+				categoriesProtected.POST("", categoryHandler.Create)
+				categoriesProtected.PUT("/:id", categoryHandler.Update)
+				categoriesProtected.DELETE("/:id", categoryHandler.Delete)
+			}
 		}
 
 		// WebSocket & Chat History
@@ -122,7 +133,7 @@ func main() {
 			chatGroup.GET("/history/:entity_id", chatHandler.FindMessagesHistory)
 		}
 
-		// Images (Public Proxy + Protected Upload)
+		// Images (Public Proxy for <img> tags)
 		api.GET("/images/:id", mediaHandler.FindMedia)
 		imagesProtected := api.Group("/images")
 		imagesProtected.Use(middleware.AuthMiddleware(cfg))
@@ -139,7 +150,7 @@ func main() {
 		}
 
 		// Swagger Documentation
-		api.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+		api.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler, ginSwagger.DefaultModelsExpandDepth(2), ginSwagger.PersistAuthorization(true)))
 	}
 
 	// Health Check

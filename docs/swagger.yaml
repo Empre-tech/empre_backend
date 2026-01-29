@@ -246,7 +246,6 @@ definitions:
     - StatusPending
     - StatusVerified
     - StatusRejected
-host: localhost:8080
 info:
   contact:
     email: support@swagger.io
@@ -254,7 +253,6 @@ info:
     url: http://www.swagger.io/support
   description: Interactive API documentation for the Local Discovery App.
   license:
-    name: Apache 2.0
     url: http://www.apache.org/licenses/LICENSE-2.0.html
   termsOfService: http://swagger.io/terms/
   title: Empre Backend API
