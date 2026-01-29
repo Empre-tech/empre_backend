@@ -23,7 +23,7 @@ jobs:
       - name: Deploy container
         run: |
           ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
-            docker pull ${{ secrets.DOCKER_IMAGE }}
+            docker pull gioleonp/empre-backend:v2
 
             docker stop empre-back || true
             docker rm empre-back || true
@@ -40,5 +40,5 @@ jobs:
               -e S3_BUCKET=${{ secrets.S3_BUCKET }} \
               -e S3_REGION=${{ secrets.S3_REGION }} \
               -e APP_URL=${{ secrets.APP_URL }} \
-              ${{ secrets.DOCKER_IMAGE }}
+              gioleonp/empre-backend:v2
           EOF
