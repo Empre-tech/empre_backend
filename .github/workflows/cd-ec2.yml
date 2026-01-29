@@ -1,0 +1,44 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy container
+        run: |
+          ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+            docker pull ${{ secrets.DOCKER_IMAGE }}
+
+            docker stop empre-back || true
+            docker rm empre-back || true
+
+            docker run -d \
+              --name empre-back \
+              -p 8080:8080 \
+              -e DB_HOST=${{ secrets.DB_HOST }} \
+              -e DB_USER=${{ secrets.DB_USER }} \
+              -e DB_PASSWORD=${{ secrets.DB_PASSWORD }} \
+              -e DB_NAME=${{ secrets.DB_NAME }} \
+              -e DB_PORT=${{ secrets.DB_PORT }} \
+              -e JWT_SECRET=${{ secrets.JWT_SECRET }} \
+              -e S3_BUCKET=${{ secrets.S3_BUCKET }} \
+              -e S3_REGION=${{ secrets.S3_REGION }} \
+              -e APP_URL=${{ secrets.APP_URL }} \
+              ${{ secrets.DOCKER_IMAGE }}
+          EOF
