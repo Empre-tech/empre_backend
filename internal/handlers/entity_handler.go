@@ -40,16 +40,17 @@ func NewEntityHandler(service *services.EntityService, mediaService *services.Me
 }
 
 type CreateEntityRequest struct {
-	Name        string   `json:"name" binding:"required"`
-	Description string   `json:"description"`
-	Category    string   `json:"category"`
-	Address     string   `json:"address"`
-	City        string   `json:"city"`
-	Latitude    float64  `json:"latitude"`
-	Longitude   float64  `json:"longitude"`
-	BannerURL   string   `json:"banner_url"`
-	ProfileURL  string   `json:"profile_url"`
-	Gallery     []string `json:"gallery"` // List of Media IDs (UUIDs)
+	Name           string     `json:"name" binding:"required"`
+	Description    string     `json:"description"`
+	Category       string     `json:"category"`
+	Address        string     `json:"address"`
+	City           string     `json:"city"`
+	ContactInfo    string     `json:"contact_info"`
+	Latitude       float64    `json:"latitude"`
+	Longitude      float64    `json:"longitude"`
+	ProfileMediaID *uuid.UUID `json:"profile_media_id"`
+	BannerMediaID  *uuid.UUID `json:"banner_media_id"`
+	Gallery        []string   `json:"gallery"` // List of Media IDs (UUIDs)
 }
 
 // Create handles entity creation
@@ -85,16 +86,17 @@ func (h *EntityHandler) Create(c *gin.Context) {
 	}
 
 	entity := models.Entity{
-		OwnerID:     userID.(uuid.UUID),
-		Name:        req.Name,
-		Description: req.Description,
-		CategoryID:  categoryID,
-		Address:     req.Address,
-		City:        req.City,
-		Latitude:    req.Latitude,
-		Longitude:   req.Longitude,
-		BannerURL:   req.BannerURL,
-		ProfileURL:  req.ProfileURL,
+		OwnerID:        userID.(uuid.UUID),
+		Name:           req.Name,
+		Description:    req.Description,
+		CategoryID:     categoryID,
+		Address:        req.Address,
+		City:           req.City,
+		ContactInfo:    req.ContactInfo,
+		Latitude:       req.Latitude,
+		Longitude:      req.Longitude,
+		ProfileMediaID: req.ProfileMediaID,
+		BannerMediaID:  req.BannerMediaID,
 	}
 
 	// Handle Gallery
@@ -115,7 +117,10 @@ func (h *EntityHandler) Create(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, entity)
+	// Re-fetch to populate all media URLs and associations correctly for the response
+	fullEntity, _ := h.Service.FindByID(entity.ID)
+
+	c.JSON(http.StatusCreated, fullEntity)
 }
 
 // FindByID retrieves an entity by its UUID
@@ -259,10 +264,15 @@ func (h *EntityHandler) Update(c *gin.Context) {
 	existing.Description = req.Description
 	existing.Address = req.Address
 	existing.City = req.City
+	existing.ContactInfo = req.ContactInfo
 	existing.Latitude = req.Latitude
 	existing.Longitude = req.Longitude
-	existing.BannerURL = req.BannerURL
-	existing.ProfileURL = req.ProfileURL
+	if req.ProfileMediaID != nil {
+		existing.ProfileMediaID = req.ProfileMediaID
+	}
+	if req.BannerMediaID != nil {
+		existing.BannerMediaID = req.BannerMediaID
+	}
 
 	if req.Category != "" {
 		catID, _ := uuid.Parse(req.Category)
@@ -292,7 +302,10 @@ func (h *EntityHandler) Update(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, existing)
+	// Re-fetch to populate all media URLs and associations correctly for the response
+	fullEntity, _ := h.Service.FindByID(existing.ID)
+
+	c.JSON(http.StatusOK, fullEntity)
 }
 
 // Delete removes an existing entity
@@ -400,15 +413,13 @@ func (h *EntityHandler) UploadImage(c *gin.Context) {
 		return
 	}
 
-	proxyURL := fmt.Sprintf("/api/images/%s", media.ID.String())
-
 	// 5. Update Entity
 	switch imageType {
 	case "profile":
-		existing.ProfileURL = proxyURL
+		existing.ProfileMediaID = &media.ID
 		h.Service.UpdateEntity(existing)
 	case "banner":
-		existing.BannerURL = proxyURL
+		existing.BannerMediaID = &media.ID
 		h.Service.UpdateEntity(existing)
 	case "gallery":
 		photo := models.EntityPhoto{

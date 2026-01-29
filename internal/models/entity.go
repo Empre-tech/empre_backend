@@ -22,20 +22,24 @@ type Location struct {
 
 type Entity struct {
 	ID          uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
-	OwnerID     uuid.UUID `gorm:"type:uuid;not null" json:"owner_id"`
+	OwnerID     uuid.UUID `gorm:"type:uuid;not null;index" json:"owner_id"`
 	Name        string    `gorm:"not null" json:"name"`
 	Description string    `json:"description"`
-	CategoryID  uuid.UUID `gorm:"type:uuid;not null" json:"category_id"` // e.g., "Food", "Services"
+	CategoryID  uuid.UUID `gorm:"type:uuid;not null;index" json:"category_id"` // e.g., "Food", "Services"
 	Address     string    `json:"address"`
 	City        string    `json:"city"`
 	ContactInfo string    `json:"contact_info"`
-	BannerURL   string    `json:"banner_url"`
-	ProfileURL  string    `json:"profile_url"`
+
+	BannerMediaID  *uuid.UUID `gorm:"type:uuid" json:"banner_media_id,omitempty"`
+	ProfileMediaID *uuid.UUID `gorm:"type:uuid" json:"profile_media_id,omitempty"`
+
+	BannerURL  string `gorm:"-" json:"banner_url"`
+	ProfileURL string `gorm:"-" json:"profile_url"`
 	// PostGIS Geography Point (SRID 4326)
 	// PostGIS Geography Point (SRID 4326)
 	// Location           string             `gorm:"type:geography(POINT,4326)" json:"-"`
-	Latitude           float64            `gorm:"type:float" json:"latitude"`
-	Longitude          float64            `gorm:"type:float" json:"longitude"`
+	Latitude           float64            `gorm:"type:float;index" json:"latitude"`
+	Longitude          float64            `gorm:"type:float;index" json:"longitude"`
 	VerificationStatus VerificationStatus `gorm:"type:varchar(20);default:'pending'" json:"verification_status"`
 	IsVerified         bool               `gorm:"default:false" json:"is_verified"` // Check dorado
 	CreatedAt          time.Time          `json:"created_at"`
@@ -46,6 +50,9 @@ type Entity struct {
 	Owner    User          `gorm:"foreignKey:OwnerID" json:"-"`
 	Category Category      `gorm:"foreignKey:CategoryID" json:"category"`
 	Photos   []EntityPhoto `gorm:"foreignKey:EntityID" json:"photos"`
+
+	ProfileMedia *Media `gorm:"foreignKey:ProfileMediaID;references:ID" json:"-"`
+	BannerMedia  *Media `gorm:"foreignKey:BannerMediaID;references:ID" json:"-"`
 }
 
 // BeforeSave hook to update Location field from Lat/Long

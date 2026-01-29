@@ -26,7 +26,9 @@ func (r *EntityRepository) Update(entity *models.Entity) error {
 
 func (r *EntityRepository) FindByID(id uuid.UUID) (*models.Entity, error) {
 	var entity models.Entity
-	err := r.DB.Preload("Category").Preload("Photos.Media").First(&entity, "id = ?", id).Error
+	err := r.DB.Joins("Category").Joins("ProfileMedia").Joins("BannerMedia").Preload("Photos", func(db *gorm.DB) *gorm.DB {
+		return db.Joins("Media")
+	}).First(&entity, "entities.id = ?", id).Error
 	return &entity, err
 }
 
@@ -34,7 +36,9 @@ func (r *EntityRepository) FindAll(lat, long, radius float64, categoryID string,
 	var entities []models.Entity
 	var total int64
 
-	db := r.DB.Model(&models.Entity{}).Preload("Category").Preload("Photos.Media")
+	db := r.DB.Model(&models.Entity{}).Joins("Category").Joins("ProfileMedia").Joins("BannerMedia").Preload("Photos", func(db *gorm.DB) *gorm.DB {
+		return db.Joins("Media")
+	})
 
 	// Filter by Category
 	if categoryID != "" {
@@ -71,7 +75,9 @@ func (r *EntityRepository) FindAll(lat, long, radius float64, categoryID string,
 
 func (r *EntityRepository) FindAllByOwner(ownerID uuid.UUID) ([]models.Entity, error) {
 	var entities []models.Entity
-	err := r.DB.Preload("Category").Preload("Photos.Media").Where("owner_id = ?", ownerID).Find(&entities).Error
+	err := r.DB.Joins("Category").Joins("ProfileMedia").Joins("BannerMedia").Preload("Photos", func(db *gorm.DB) *gorm.DB {
+		return db.Joins("Media")
+	}).Where("entities.owner_id = ?", ownerID).Find(&entities).Error
 	return entities, err
 }
 

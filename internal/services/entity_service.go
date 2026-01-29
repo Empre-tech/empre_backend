@@ -5,6 +5,7 @@ import (
 
 	"empre_backend/internal/models"
 	"empre_backend/internal/repository"
+	"sync"
 
 	"github.com/google/uuid"
 )
@@ -51,9 +52,15 @@ func (s *EntityService) FindAll(lat, long, radius float64, categoryID string, pa
 
 	entities, total, err := s.Repo.FindAll(lat, long, radius, categoryID, page, pageSize)
 	if err == nil {
+		var wg sync.WaitGroup
 		for i := range entities {
-			s.populateMediaURLs(&entities[i])
+			wg.Add(1)
+			go func(index int) {
+				defer wg.Done()
+				s.populateMediaURLs(&entities[index])
+			}(i)
 		}
+		wg.Wait()
 	}
 	return entities, total, err
 }
@@ -61,9 +68,15 @@ func (s *EntityService) FindAll(lat, long, radius float64, categoryID string, pa
 func (s *EntityService) FindAllByOwner(ownerID uuid.UUID) ([]models.Entity, error) {
 	entities, err := s.Repo.FindAllByOwner(ownerID)
 	if err == nil {
+		var wg sync.WaitGroup
 		for i := range entities {
-			s.populateMediaURLs(&entities[i])
+			wg.Add(1)
+			go func(index int) {
+				defer wg.Done()
+				s.populateMediaURLs(&entities[index])
+			}(i)
 		}
+		wg.Wait()
 	}
 	return entities, err
 }
@@ -76,15 +89,53 @@ func (s *EntityService) populateMediaURLs(e *models.Entity) {
 	if e == nil {
 		return
 	}
-	// Prepend BaseURL to relative paths for consistency
-	if e.ProfileURL != "" && e.ProfileURL[0] == '/' {
-		e.ProfileURL = s.MediaService.BaseURL + e.ProfileURL
-	}
-	if e.BannerURL != "" && e.BannerURL[0] == '/' {
-		e.BannerURL = s.MediaService.BaseURL + e.BannerURL
+
+	var wg sync.WaitGroup
+
+	// 1. Profile Image
+	if e.ProfileMediaID != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if e.ProfileMedia != nil {
+				s.MediaService.PopulateURL(e.ProfileMedia)
+				e.ProfileURL = e.ProfileMedia.URL
+			} else {
+				media, err := s.MediaService.Repo.FindByID(*e.ProfileMediaID)
+				if err == nil {
+					s.MediaService.PopulateURL(media)
+					e.ProfileURL = media.URL
+				}
+			}
+		}()
 	}
 
-	for i := range e.Photos {
-		s.MediaService.PopulateURL(&e.Photos[i].Media)
+	// 2. Banner Image
+	if e.BannerMediaID != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if e.BannerMedia != nil {
+				s.MediaService.PopulateURL(e.BannerMedia)
+				e.BannerURL = e.BannerMedia.URL
+			} else {
+				media, err := s.MediaService.Repo.FindByID(*e.BannerMediaID)
+				if err == nil {
+					s.MediaService.PopulateURL(media)
+					e.BannerURL = media.URL
+				}
+			}
+		}()
 	}
+
+	// 3. Gallery Photos
+	for i := range e.Photos {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			s.MediaService.PopulateURL(&e.Photos[idx].Media)
+		}(i)
+	}
+
+	wg.Wait()
 }

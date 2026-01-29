@@ -22,18 +22,32 @@ func NewUserService(repo *repository.UserRepository, mediaService *MediaService)
 func (s *UserService) FindByID(id uuid.UUID) (*models.User, error) {
 	user, err := s.Repo.FindByID(id)
 	if err == nil && user != nil {
-		if user.ProfilePictureURL != "" && user.ProfilePictureURL[0] == '/' {
-			user.ProfilePictureURL = s.MediaService.BaseURL + user.ProfilePictureURL
-		}
+		s.populateProfileURL(user)
 	}
 	return user, err
 }
 
-func (s *UserService) UpdateProfilePicture(userID uuid.UUID, url string) error {
+func (s *UserService) UpdateProfilePicture(userID uuid.UUID, mediaID uuid.UUID) error {
 	user, err := s.Repo.FindByID(userID)
 	if err != nil {
 		return err
 	}
-	user.ProfilePictureURL = url
+	user.ProfileMediaID = &mediaID
 	return s.Repo.Update(user)
+}
+
+func (s *UserService) populateProfileURL(u *models.User) {
+	if u == nil {
+		return
+	}
+	if u.ProfileMedia != nil {
+		s.MediaService.PopulateURL(u.ProfileMedia)
+		u.ProfilePictureURL = u.ProfileMedia.URL
+	} else if u.ProfileMediaID != nil {
+		media, err := s.MediaService.Repo.FindByID(*u.ProfileMediaID)
+		if err == nil {
+			s.MediaService.PopulateURL(media)
+			u.ProfilePictureURL = media.URL
+		}
+	}
 }

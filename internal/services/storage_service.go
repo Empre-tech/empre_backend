@@ -8,6 +8,8 @@ import (
 
 	appConfig "empre_backend/config"
 
+	"time"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	aws_config "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
@@ -15,8 +17,9 @@ import (
 )
 
 type StorageService struct {
-	S3Client *s3.Client
-	Bucket   string
+	S3Client      *s3.Client
+	PresignClient *s3.PresignClient
+	Bucket        string
 }
 
 func NewStorageService(cfg *appConfig.Config) *StorageService {
@@ -38,10 +41,12 @@ func NewStorageService(cfg *appConfig.Config) *StorageService {
 	}
 
 	client := s3.NewFromConfig(awsCfg)
+	presignClient := s3.NewPresignClient(client)
 
 	return &StorageService{
-		S3Client: client,
-		Bucket:   cfg.S3Bucket,
+		S3Client:      client,
+		PresignClient: presignClient,
+		Bucket:        cfg.S3Bucket,
 	}
 }
 
@@ -78,4 +83,23 @@ func (s *StorageService) GetFile(filename string) (io.ReadCloser, string, error)
 	}
 
 	return result.Body, contentType, nil
+}
+
+func (s *StorageService) GetPresignedURL(filename string, expiration time.Duration) (string, error) {
+	if s.PresignClient == nil {
+		return "", fmt.Errorf("storage service not initialized")
+	}
+
+	request, err := s.PresignClient.PresignGetObject(context.TODO(), &s3.GetObjectInput{
+		Bucket: aws.String(s.Bucket),
+		Key:    aws.String(filename),
+	}, func(opts *s3.PresignOptions) {
+		opts.Expires = expiration
+	})
+
+	if err != nil {
+		return "", err
+	}
+
+	return request.URL, nil
 }

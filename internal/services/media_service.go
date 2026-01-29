@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"time"
+
 	"github.com/google/uuid"
 )
 
@@ -70,7 +72,11 @@ func (s *MediaService) LinkToEntity(entityID, mediaID uuid.UUID, order int) erro
 }
 
 func (s *MediaService) PopulateURL(media *models.Media) {
-	if media != nil && media.ID != uuid.Nil {
-		media.URL = fmt.Sprintf("%s/api/images/%s", s.BaseURL, media.ID.String())
+	if media != nil && media.S3Key != "" {
+		// Use presigned URL for 15 minutes
+		url, err := s.StorageService.GetPresignedURL(media.S3Key, 15*time.Minute)
+		if err == nil {
+			media.URL = url
+		}
 	}
 }

@@ -21,13 +21,13 @@ func (r *UserRepository) Create(user *models.User) error {
 
 func (r *UserRepository) FindByID(id uuid.UUID) (*models.User, error) {
 	var user models.User
-	err := r.DB.First(&user, "id = ?", id).Error
+	err := r.DB.Preload("ProfileMedia").First(&user, "id = ?", id).Error
 	return &user, err
 }
 
 func (r *UserRepository) FindByEmail(email string) (*models.User, error) {
 	var user models.User
-	err := r.DB.Where("email = ?", email).First(&user).Error
+	err := r.DB.Preload("ProfileMedia").Where("email = ?", email).First(&user).Error
 	return &user, err
 }
 

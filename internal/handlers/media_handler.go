@@ -2,10 +2,10 @@ package handlers
 
 import (
 	"empre_backend/internal/services"
-	"io"
 	"net/http"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -41,20 +41,24 @@ func (h *MediaHandler) FindMedia(c *gin.Context) {
 		return
 	}
 
-	// 1. Fetch from S3 via MediaService (which handles the ID -> S3Key lookup)
-	body, contentType, err := h.Service.GetFile(id)
+	// 1. Fetch from database to get the S3Key
+	media, err := h.Service.Repo.FindByID(id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Physical image file not found or metadata missing"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "Metadata for image not found"})
 		return
 	}
-	defer body.Close()
 
-	if contentType != "" {
-		c.Header("Content-Type", contentType)
+	// 2. Instead of proxying the bytes, we could just redirect to the Presigned URL
+	// But to keep <img> tags working without complex client-side changes,
+	// we keep proxying here, OR we redirect.
+	// Let's redirect to the Presigned URL (HTTP 302) to offload the server!
+	url, err := h.Service.StorageService.GetPresignedURL(media.S3Key, 15*time.Minute)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not generate temporary link"})
+		return
 	}
 
-	c.Header("Cache-Control", "public, max-age=31536000")
-	io.Copy(c.Writer, body)
+	c.Redirect(http.StatusFound, url)
 }
 
 // Upload handles manual uploads and creates a secure mapping entry
