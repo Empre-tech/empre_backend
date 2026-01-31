@@ -99,9 +99,14 @@ func (c *Client) writePump() {
 
 // ServeWs handles websocket requests from the peer.
 func ServeWs(hub *Hub, c *gin.Context, userID uuid.UUID) {
+	// Debug logging for handshake headers
+	upgrade := c.GetHeader("Upgrade")
+	connection := c.GetHeader("Connection")
+
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		log.Println(err)
+		log.Printf("WebSocket Upgrade Error (User: %s): %v | Upgrade: %s | Connection: %s\n",
+			userID, err, upgrade, connection)
 		return
 	}
 	client := &Client{Hub: hub, Conn: conn, Send: make(chan []byte, 256), UserID: userID}
