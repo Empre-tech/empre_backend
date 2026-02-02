@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"empre_backend/internal/dtos"
 	"empre_backend/internal/models"
 	"empre_backend/internal/services"
 	"fmt"
@@ -61,7 +62,7 @@ type CreateEntityRequest struct {
 // @Produce json
 // @Security BearerAuth
 // @Param request body CreateEntityRequest true "Entity Info"
-// @Success 201 {object} models.Entity
+// @Success 201 {object} dtos.EntityDetailDTO
 // @Failure 401 {object} map[string]string
 // @Failure 400 {object} map[string]string
 // @Router /api/entities [post]
@@ -120,7 +121,26 @@ func (h *EntityHandler) Create(c *gin.Context) {
 	// Re-fetch to populate all media URLs and associations correctly for the response
 	fullEntity, _ := h.Service.FindByID(entity.ID)
 
-	c.JSON(http.StatusCreated, fullEntity)
+	response := dtos.EntityDetailDTO{
+		ID:                 fullEntity.ID,
+		Name:               fullEntity.Name,
+		Description:        fullEntity.Description,
+		Category:           fullEntity.Category,
+		Address:            fullEntity.Address,
+		City:               fullEntity.City,
+		ContactInfo:        fullEntity.ContactInfo,
+		BannerURL:          fullEntity.BannerURL,
+		ProfileURL:         fullEntity.ProfileURL,
+		Latitude:           fullEntity.Latitude,
+		Longitude:          fullEntity.Longitude,
+		VerificationStatus: fullEntity.VerificationStatus,
+		IsVerified:         fullEntity.IsVerified,
+		OwnerID:            fullEntity.OwnerID,
+		CreatedAt:          fullEntity.CreatedAt,
+		Photos:             fullEntity.Photos,
+	}
+
+	c.JSON(http.StatusCreated, response)
 }
 
 // FindByID retrieves an entity by its UUID
@@ -129,7 +149,7 @@ func (h *EntityHandler) Create(c *gin.Context) {
 // @Tags Entities
 // @Produce json
 // @Param id path string true "Entity ID"
-// @Success 200 {object} models.Entity
+// @Success 200 {object} dtos.EntityDetailDTO
 // @Failure 400 {object} map[string]string
 // @Failure 404 {object} map[string]string
 // @Router /api/entities/{id} [get]
@@ -147,12 +167,31 @@ func (h *EntityHandler) FindByID(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, entity)
+	response := dtos.EntityDetailDTO{
+		ID:                 entity.ID,
+		Name:               entity.Name,
+		Description:        entity.Description,
+		Category:           entity.Category,
+		Address:            entity.Address,
+		City:               entity.City,
+		ContactInfo:        entity.ContactInfo,
+		BannerURL:          entity.BannerURL,
+		ProfileURL:         entity.ProfileURL,
+		Latitude:           entity.Latitude,
+		Longitude:          entity.Longitude,
+		VerificationStatus: entity.VerificationStatus,
+		IsVerified:         entity.IsVerified,
+		OwnerID:            entity.OwnerID,
+		CreatedAt:          entity.CreatedAt,
+		Photos:             entity.Photos,
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 // FindAll retrieves all entities with optional filters
 // @Summary Find all entities
-// @Description Search entities with geographic and category filters
+// @Description Search entities with geographic and category filters (Map View)
 // @Tags Entities
 // @Produce json
 // @Param lat query number false "Latitude"
@@ -190,9 +229,22 @@ func (h *EntityHandler) FindAll(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, EntityPaginatedResponse{
-		Data: entities,
-		Meta: PaginationMeta{
+	var dtosList []dtos.EntityMapDTO
+	for _, e := range entities {
+		dtosList = append(dtosList, dtos.EntityMapDTO{
+			ID:           e.ID,
+			Name:         e.Name,
+			CategoryName: e.Category.Name,
+			ProfileURL:   e.ProfileURL,
+			Latitude:     e.Latitude,
+			Longitude:    e.Longitude,
+			IsVerified:   e.IsVerified,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"data": dtosList,
+		"meta": PaginationMeta{
 			Total:    total,
 			Page:     page,
 			PageSize: pageSize,
@@ -206,7 +258,7 @@ func (h *EntityHandler) FindAll(c *gin.Context) {
 // @Tags Entities
 // @Produce json
 // @Security BearerAuth
-// @Success 200 {array} models.Entity
+// @Success 200 {array} dtos.EntityDetailDTO
 // @Failure 500 {object} map[string]string
 // @Router /api/entities/mine [get]
 func (h *EntityHandler) FindAllByOwner(c *gin.Context) {
@@ -216,7 +268,30 @@ func (h *EntityHandler) FindAllByOwner(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, entities)
+
+	var response []dtos.EntityDetailDTO
+	for _, entity := range entities {
+		response = append(response, dtos.EntityDetailDTO{
+			ID:                 entity.ID,
+			Name:               entity.Name,
+			Description:        entity.Description,
+			Category:           entity.Category,
+			Address:            entity.Address,
+			City:               entity.City,
+			ContactInfo:        entity.ContactInfo,
+			BannerURL:          entity.BannerURL,
+			ProfileURL:         entity.ProfileURL,
+			Latitude:           entity.Latitude,
+			Longitude:          entity.Longitude,
+			VerificationStatus: entity.VerificationStatus,
+			IsVerified:         entity.IsVerified,
+			OwnerID:            entity.OwnerID,
+			CreatedAt:          entity.CreatedAt,
+			Photos:             entity.Photos,
+		})
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 // Update modifies an existing entity

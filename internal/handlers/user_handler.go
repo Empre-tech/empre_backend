@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"empre_backend/internal/dtos"
 	"empre_backend/internal/services"
 	"fmt"
 	"net/http"
@@ -31,6 +32,16 @@ func NewUserHandler(service *services.UserService, mediaService *services.MediaS
 // @Failure 401 {object} map[string]string
 // @Failure 404 {object} map[string]string
 // @Router /api/users/me [get]
+// FindMe returns the authenticated user's profile
+// @Summary Get current user
+// @Description Get profile details of the currently authenticated user
+// @Tags Users
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} dtos.UserResponse
+// @Failure 401 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Router /api/users/me [get]
 func (h *UserHandler) FindMe(c *gin.Context) {
 	userIDVal, _ := c.Get("userID")
 	userID := userIDVal.(uuid.UUID)
@@ -41,7 +52,16 @@ func (h *UserHandler) FindMe(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, user)
+	response := dtos.UserResponse{
+		ID:                user.ID,
+		Name:              user.Name,
+		Email:             user.Email,
+		Phone:             user.Phone,
+		ProfilePictureURL: user.ProfilePictureURL,
+		Role:              user.Role,
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 // UploadProfileImage handles user profile picture upload

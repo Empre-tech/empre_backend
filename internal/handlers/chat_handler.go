@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"empre_backend/internal/dtos"
 	"empre_backend/internal/models"
 	"empre_backend/internal/services"
 	"empre_backend/internal/websocket"
@@ -51,11 +52,11 @@ func (h *ChatHandler) HandleWebSocket(c *gin.Context) {
 
 // FindAllConversations retrieves all active conversations for the user
 // @Summary List conversations
-// @Description Get a list of the last message from each active conversation
+// @Description Get a list of the last message from each active conversation, formatted as DTOs
 // @Tags Chat
 // @Produce json
 // @Security BearerAuth
-// @Success 200 {array} models.Message
+// @Success 200 {array} dtos.ConversationResponse
 // @Failure 500 {object} map[string]string
 // @Router /api/chat/conversations [get]
 func (h *ChatHandler) FindAllConversations(c *gin.Context) {
@@ -68,7 +69,45 @@ func (h *ChatHandler) FindAllConversations(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, conversations)
+	// Transform detailed models into lightweight DTOs
+	var response []dtos.ConversationResponse
+
+	for _, msg := range conversations {
+		dto := dtos.ConversationResponse{
+			ID:           msg.ID,
+			Content:      msg.Content,
+			CreatedAt:    msg.CreatedAt,
+			IsRead:       msg.IsRead,
+			SentByEntity: msg.SentByEntity,
+		}
+
+		// Determine "Other Party"
+		// If I am the user (msg.UserID == Me), the other party is the Entity.
+		// If I am the owner (Entity.OwnerID == Me), the other party is the User.
+		// Note: The repository already filters these correctly.
+
+		if msg.Entity.OwnerID == userID {
+			// I am the owner, talking to a User
+			dto.OtherParty = dtos.OtherPartyStats{
+				ID:         msg.User.ID,
+				Name:       msg.User.Name,
+				ProfileURL: msg.User.ProfilePictureURL,
+				Type:       "user",
+			}
+		} else {
+			// I am the user, talking to an Entity
+			dto.OtherParty = dtos.OtherPartyStats{
+				ID:         msg.Entity.ID,
+				Name:       msg.Entity.Name,
+				ProfileURL: msg.Entity.ProfileURL,
+				Type:       "entity",
+			}
+		}
+
+		response = append(response, dto)
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 // FindMessagesHistory retrieves full message history between a user and an entity
