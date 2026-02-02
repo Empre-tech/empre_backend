@@ -80,12 +80,12 @@ func (h *Hub) Run() {
 			newData, _ := json.Marshal(msg)
 
 			// Route message
-			h.routeMessage(&msg, newData)
+			h.RouteMessage(&msg, newData)
 		}
 	}
 }
 
-func (h *Hub) routeMessage(msg *models.Message, rawData []byte) {
+func (h *Hub) RouteMessage(msg *models.Message, rawData []byte) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 

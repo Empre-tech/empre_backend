@@ -18,4 +18,8 @@ type Message struct {
 	IsRead         bool           `gorm:"default:false" json:"is_read"`
 	CreatedAt      time.Time      `json:"created_at"`
 	DeletedAt      gorm.DeletedAt `gorm:"index" json:"-"`
+
+	// Associations
+	Entity Entity `gorm:"foreignKey:EntityID" json:"entity,omitempty"`
+	User   User   `gorm:"foreignKey:UserID" json:"user,omitempty"`
 }

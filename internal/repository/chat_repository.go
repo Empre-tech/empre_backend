@@ -22,7 +22,8 @@ func (r *ChatRepository) FindAllConversations(userID uuid.UUID) ([]models.Messag
 
 	// Complex query to get the last message of each unique (UserID, EntityID) pair
 	// This is a simplified version for MVP
-	err := r.DB.Where("user_id = ? OR exists (select 1 from entities where entities.id = messages.entity_id and entities.owner_id = ?)", userID, userID).
+	err := r.DB.Preload("Entity").Preload("User").
+		Where("user_id = ? OR exists (select 1 from entities where entities.id = messages.entity_id and entities.owner_id = ?)", userID, userID).
 		Order("created_at DESC").
 		Find(&messages).Error
 
@@ -44,4 +45,8 @@ func (r *ChatRepository) FindMessagesHistory(entityID, userID uuid.UUID, page, p
 	err := db.Order("created_at DESC").Limit(pageSize).Offset(offset).Find(&messages).Error
 
 	return messages, total, err
+}
+
+func (r *ChatRepository) CreateMessage(message *models.Message) error {
+	return r.DB.Create(message).Error
 }

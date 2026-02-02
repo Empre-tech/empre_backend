@@ -28,3 +28,7 @@ func (s *ChatService) FindMessagesHistory(entityID, userID uuid.UUID, page, page
 	}
 	return s.repo.FindMessagesHistory(entityID, userID, page, pageSize)
 }
+
+func (s *ChatService) SendMessage(message *models.Message) error {
+	return s.repo.CreateMessage(message)
+}

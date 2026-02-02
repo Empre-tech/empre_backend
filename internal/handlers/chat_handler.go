@@ -4,6 +4,7 @@ import (
 	"empre_backend/internal/models"
 	"empre_backend/internal/services"
 	"empre_backend/internal/websocket"
+	"encoding/json"
 	"net/http"
 
 	"strconv"
@@ -128,4 +129,48 @@ func (h *ChatHandler) FindMessagesHistory(c *gin.Context) {
 			PageSize: pageSize,
 		},
 	})
+}
+
+// SendMessage sends a message via REST and broadcasts it to WebSocket
+// @Summary Send a message
+// @Tags Chat
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param message body models.Message true "Message content"
+// @Success 201 {object} models.Message
+// @Failure 400 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /api/chat/message [post]
+func (h *ChatHandler) SendMessage(c *gin.Context) {
+	var msg models.Message
+	if err := c.ShouldBindJSON(&msg); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	userIDVal, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+	userID := userIDVal.(uuid.UUID)
+
+	// Set sender as current user
+	msg.SenderID = userID
+
+	// Save to DB
+	if err := h.service.SendMessage(&msg); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Broadcast via WebSocket
+	// We need to marshal it to JSON bytes for the Hub
+	// Note: In a cleaner architecture, Service might handle event emission,
+	// but for now Handler bridging is fine.
+	importJSON, _ := json.Marshal(msg)
+	h.Hub.RouteMessage(&msg, importJSON)
+
+	c.JSON(http.StatusCreated, msg)
 }
