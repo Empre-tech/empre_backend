@@ -19,10 +19,16 @@ func (r *CategoryRepository) Create(category *models.Category) error {
 	return r.DB.Create(category).Error
 }
 
-func (r *CategoryRepository) FindAll() ([]models.Category, error) {
+func (r *CategoryRepository) FindAll(page, pageSize int) ([]models.Category, int64, error) {
 	var categories []models.Category
-	err := r.DB.Find(&categories).Error
-	return categories, err
+	var total int64
+
+	db := r.DB.Model(&models.Category{})
+	db.Count(&total)
+
+	offset := (page - 1) * pageSize
+	err := db.Limit(pageSize).Offset(offset).Find(&categories).Error
+	return categories, total, err
 }
 
 func (r *CategoryRepository) FindByID(id uuid.UUID) (*models.Category, error) {

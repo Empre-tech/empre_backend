@@ -65,8 +65,15 @@ func (s *EntityService) FindAll(lat, long, radius float64, categoryID string, pa
 	return entities, total, err
 }
 
-func (s *EntityService) FindAllByOwner(ownerID uuid.UUID) ([]models.Entity, error) {
-	entities, err := s.Repo.FindAllByOwner(ownerID)
+func (s *EntityService) FindAllByOwner(ownerID uuid.UUID, page, pageSize int) ([]models.Entity, int64, error) {
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+
+	entities, total, err := s.Repo.FindAllByOwner(ownerID, page, pageSize)
 	if err == nil {
 		var wg sync.WaitGroup
 		for i := range entities {
@@ -78,7 +85,7 @@ func (s *EntityService) FindAllByOwner(ownerID uuid.UUID) ([]models.Entity, erro
 		}
 		wg.Wait()
 	}
-	return entities, err
+	return entities, total, err
 }
 
 func (s *EntityService) DeleteEntity(entity *models.Entity) error {

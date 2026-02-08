@@ -50,20 +50,25 @@ func (h *ChatHandler) HandleWebSocket(c *gin.Context) {
 	websocket.ServeWs(h.Hub, c, userID)
 }
 
-// FindAllConversations retrieves all active conversations for the user
+// FindAllConversations retrieves all active conversations for the user with pagination
 // @Summary List conversations
-// @Description Get a list of the last message from each active conversation, formatted as DTOs
+// @Description Get a paginated list of the last message from each active conversation, formatted as DTOs
 // @Tags Chat
 // @Produce json
 // @Security BearerAuth
-// @Success 200 {array} dtos.ConversationResponse
+// @Param page query int false "Page number" default(1)
+// @Param pageSize query int false "Items per page" default(20)
+// @Success 200 {object} map[string]interface{}
 // @Failure 500 {object} map[string]string
 // @Router /api/chat/conversations [get]
 func (h *ChatHandler) FindAllConversations(c *gin.Context) {
 	userIDVal, _ := c.Get("userID")
 	userID := userIDVal.(uuid.UUID)
 
-	conversations, err := h.service.FindAllConversations(userID)
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "20"))
+
+	conversations, total, err := h.service.FindAllConversations(userID, page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -82,10 +87,6 @@ func (h *ChatHandler) FindAllConversations(c *gin.Context) {
 		}
 
 		// Determine "Other Party"
-		// If I am the user (msg.UserID == Me), the other party is the Entity.
-		// If I am the owner (Entity.OwnerID == Me), the other party is the User.
-		// Note: The repository already filters these correctly.
-
 		if msg.Entity.OwnerID == userID {
 			// I am the owner, talking to a User
 			dto.OtherParty = dtos.OtherPartyStats{
@@ -107,7 +108,14 @@ func (h *ChatHandler) FindAllConversations(c *gin.Context) {
 		response = append(response, dto)
 	}
 
-	c.JSON(http.StatusOK, response)
+	c.JSON(http.StatusOK, gin.H{
+		"data": response,
+		"meta": gin.H{
+			"total":     total,
+			"page":      page,
+			"page_size": pageSize,
+		},
+	})
 }
 
 // FindMessagesHistory retrieves full message history between a user and an entity

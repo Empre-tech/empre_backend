@@ -7,16 +7,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// UserResponse is the standard exposure of a User.
-type UserResponse struct {
-	ID                uuid.UUID   `json:"id"`
-	Name              string      `json:"name"`
-	Email             string      `json:"email"`
-	Phone             string      `json:"phone,omitempty"`
-	ProfilePictureURL string      `json:"profile_picture_url"`
-	Role              models.Role `json:"role"`
-}
-
 // EntityMapDTO is a lightweight version for listing on maps.
 type EntityMapDTO struct {
 	ID           uuid.UUID `json:"id"`
@@ -33,7 +23,7 @@ type EntityDetailDTO struct {
 	ID                 uuid.UUID                 `json:"id"`
 	Name               string                    `json:"name"`
 	Description        string                    `json:"description"`
-	Category           models.Category           `json:"category"`
+	Category           CategoryResponse          `json:"category"`
 	Address            string                    `json:"address"`
 	City               string                    `json:"city"`
 	ContactInfo        string                    `json:"contact_info"`
@@ -46,6 +36,17 @@ type EntityDetailDTO struct {
 	OwnerID            uuid.UUID                 `json:"owner_id"`
 	CreatedAt          time.Time                 `json:"created_at"`
 
-	// Gallery
-	Photos []models.EntityPhoto `json:"photos,omitempty"`
+	// Simplified Gallery
+	Photos []PhotoResponse `json:"photos,omitempty"`
+}
+
+// EntityOwnerListDTO is for the owner's dashboard list.
+type EntityOwnerListDTO struct {
+	ID                 uuid.UUID                 `json:"id"`
+	Name               string                    `json:"name"`
+	CategoryName       string                    `json:"category_name"`
+	ProfileURL         string                    `json:"profile_url"`
+	VerificationStatus models.VerificationStatus `json:"verification_status"`
+	IsVerified         bool                      `json:"is_verified"`
+	CreatedAt          time.Time                 `json:"created_at"`
 }

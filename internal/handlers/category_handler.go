@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"empre_backend/internal/dtos"
 	"empre_backend/internal/models"
 	"empre_backend/internal/services"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -57,22 +59,42 @@ func (h *CategoryHandler) Create(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"message": "Category created successfully"})
 }
 
-// FindAll retrieves all categories
+// FindAll retrieves all categories with pagination
 // @Summary Find all categories
-// @Description Get a list of all business categories
+// @Description Get a paginated list of all business categories
 // @Tags Categories
 // @Produce json
-// @Success 200 {array} models.Category
+// @Param page query int false "Page number" default(1)
+// @Param pageSize query int false "Items per page" default(20)
+// @Success 200 {object} map[string]interface{}
 // @Failure 500 {object} map[string]string
 // @Router /api/categories [get]
 func (h *CategoryHandler) FindAll(c *gin.Context) {
-	categories, err := h.categoryService.FindAll()
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "20"))
+
+	categories, total, err := h.categoryService.FindAll(page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, categories)
+	var response []dtos.CategoryResponse
+	for _, cat := range categories {
+		response = append(response, dtos.CategoryResponse{
+			ID:   cat.ID,
+			Name: cat.Name,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"data": response,
+		"meta": gin.H{
+			"total":     total,
+			"page":      page,
+			"page_size": pageSize,
+		},
+	})
 }
 
 // FindByID retrieves a category by its UUID
@@ -81,7 +103,7 @@ func (h *CategoryHandler) FindAll(c *gin.Context) {
 // @Tags Categories
 // @Produce json
 // @Param id path string true "Category ID"
-// @Success 200 {object} models.Category
+// @Success 200 {object} dtos.CategoryResponse
 // @Failure 400 {object} map[string]string
 // @Failure 404 {object} map[string]string
 // @Router /api/categories/{id} [get]
@@ -99,7 +121,12 @@ func (h *CategoryHandler) FindByID(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, category)
+	response := dtos.CategoryResponse{
+		ID:   category.ID,
+		Name: category.Name,
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 // Update modifies an existing category

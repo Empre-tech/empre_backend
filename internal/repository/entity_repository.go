@@ -73,12 +73,19 @@ func (r *EntityRepository) FindAll(lat, long, radius float64, categoryID string,
 	return entities, total, err
 }
 
-func (r *EntityRepository) FindAllByOwner(ownerID uuid.UUID) ([]models.Entity, error) {
+func (r *EntityRepository) FindAllByOwner(ownerID uuid.UUID, page, pageSize int) ([]models.Entity, int64, error) {
 	var entities []models.Entity
-	err := r.DB.Joins("Category").Joins("ProfileMedia").Joins("BannerMedia").Preload("Photos", func(db *gorm.DB) *gorm.DB {
+	var total int64
+
+	db := r.DB.Model(&models.Entity{}).Where("entities.owner_id = ?", ownerID)
+	db.Count(&total)
+
+	offset := (page - 1) * pageSize
+	err := db.Joins("Category").Joins("ProfileMedia").Joins("BannerMedia").Preload("Photos", func(db *gorm.DB) *gorm.DB {
 		return db.Joins("Media")
-	}).Where("entities.owner_id = ?", ownerID).Find(&entities).Error
-	return entities, err
+	}).Limit(pageSize).Offset(offset).Find(&entities).Error
+
+	return entities, total, err
 }
 
 func (r *EntityRepository) Delete(entity *models.Entity) error {

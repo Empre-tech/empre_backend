@@ -121,11 +121,24 @@ func (h *EntityHandler) Create(c *gin.Context) {
 	// Re-fetch to populate all media URLs and associations correctly for the response
 	fullEntity, _ := h.Service.FindByID(entity.ID)
 
+	// Map to DTO
+	var photos []dtos.PhotoResponse
+	for _, p := range fullEntity.Photos {
+		photos = append(photos, dtos.PhotoResponse{
+			ID:    p.ID,
+			URL:   p.Media.URL,
+			Order: p.Order,
+		})
+	}
+
 	response := dtos.EntityDetailDTO{
-		ID:                 fullEntity.ID,
-		Name:               fullEntity.Name,
-		Description:        fullEntity.Description,
-		Category:           fullEntity.Category,
+		ID:          fullEntity.ID,
+		Name:        fullEntity.Name,
+		Description: fullEntity.Description,
+		Category: dtos.CategoryResponse{
+			ID:   fullEntity.Category.ID,
+			Name: fullEntity.Category.Name,
+		},
 		Address:            fullEntity.Address,
 		City:               fullEntity.City,
 		ContactInfo:        fullEntity.ContactInfo,
@@ -137,7 +150,7 @@ func (h *EntityHandler) Create(c *gin.Context) {
 		IsVerified:         fullEntity.IsVerified,
 		OwnerID:            fullEntity.OwnerID,
 		CreatedAt:          fullEntity.CreatedAt,
-		Photos:             fullEntity.Photos,
+		Photos:             photos,
 	}
 
 	c.JSON(http.StatusCreated, response)
@@ -167,11 +180,23 @@ func (h *EntityHandler) FindByID(c *gin.Context) {
 		return
 	}
 
+	var photos []dtos.PhotoResponse
+	for _, p := range entity.Photos {
+		photos = append(photos, dtos.PhotoResponse{
+			ID:    p.ID,
+			URL:   p.Media.URL,
+			Order: p.Order,
+		})
+	}
+
 	response := dtos.EntityDetailDTO{
-		ID:                 entity.ID,
-		Name:               entity.Name,
-		Description:        entity.Description,
-		Category:           entity.Category,
+		ID:          entity.ID,
+		Name:        entity.Name,
+		Description: entity.Description,
+		Category: dtos.CategoryResponse{
+			ID:   entity.Category.ID,
+			Name: entity.Category.Name,
+		},
 		Address:            entity.Address,
 		City:               entity.City,
 		ContactInfo:        entity.ContactInfo,
@@ -183,7 +208,7 @@ func (h *EntityHandler) FindByID(c *gin.Context) {
 		IsVerified:         entity.IsVerified,
 		OwnerID:            entity.OwnerID,
 		CreatedAt:          entity.CreatedAt,
-		Photos:             entity.Photos,
+		Photos:             photos,
 	}
 
 	c.JSON(http.StatusOK, response)
@@ -252,46 +277,50 @@ func (h *EntityHandler) FindAll(c *gin.Context) {
 	})
 }
 
-// FindAllByOwner retrieves all entities for the authenticated owner
+// FindAllByOwner retrieves all entities for the authenticated owner with pagination
 // @Summary Find my entities
-// @Description Get all business entities owned by the current user
+// @Description Get a paginated list of business entities owned by the current user
 // @Tags Entities
 // @Produce json
 // @Security BearerAuth
-// @Success 200 {array} dtos.EntityDetailDTO
+// @Param page query int false "Page number" default(1)
+// @Param pageSize query int false "Items per page" default(20)
+// @Success 200 {object} map[string]interface{}
 // @Failure 500 {object} map[string]string
 // @Router /api/entities/mine [get]
 func (h *EntityHandler) FindAllByOwner(c *gin.Context) {
 	userID, _ := c.Get("userID")
-	entities, err := h.Service.FindAllByOwner(userID.(uuid.UUID))
+
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "20"))
+
+	entities, total, err := h.Service.FindAllByOwner(userID.(uuid.UUID), page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	var response []dtos.EntityDetailDTO
+	var response []dtos.EntityOwnerListDTO
 	for _, entity := range entities {
-		response = append(response, dtos.EntityDetailDTO{
+		response = append(response, dtos.EntityOwnerListDTO{
 			ID:                 entity.ID,
 			Name:               entity.Name,
-			Description:        entity.Description,
-			Category:           entity.Category,
-			Address:            entity.Address,
-			City:               entity.City,
-			ContactInfo:        entity.ContactInfo,
-			BannerURL:          entity.BannerURL,
+			CategoryName:       entity.Category.Name,
 			ProfileURL:         entity.ProfileURL,
-			Latitude:           entity.Latitude,
-			Longitude:          entity.Longitude,
 			VerificationStatus: entity.VerificationStatus,
 			IsVerified:         entity.IsVerified,
-			OwnerID:            entity.OwnerID,
 			CreatedAt:          entity.CreatedAt,
-			Photos:             entity.Photos,
 		})
 	}
 
-	c.JSON(http.StatusOK, response)
+	c.JSON(http.StatusOK, gin.H{
+		"data": response,
+		"meta": gin.H{
+			"total":     total,
+			"page":      page,
+			"page_size": pageSize,
+		},
+	})
 }
 
 // Update modifies an existing entity
