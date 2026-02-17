@@ -3,6 +3,7 @@ package handlers
 import (
 	"empre_backend/internal/dtos"
 	"empre_backend/internal/services"
+	"empre_backend/pkg/utils"
 	"fmt"
 	"net/http"
 
@@ -86,7 +87,14 @@ func (h *UserHandler) UploadProfileImage(c *gin.Context) {
 		return
 	}
 
-	// 1. Process Upload and Map via MediaService
+	// 1. Validate Image (MIME-type sniffing)
+	contentType, err := utils.ValidateImage(file)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 2. Process Upload and Map via MediaService
 	f, err := file.Open()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not open file"})
@@ -95,7 +103,7 @@ func (h *UserHandler) UploadProfileImage(c *gin.Context) {
 	defer f.Close()
 
 	folder := fmt.Sprintf("users/%s/profile", userID.String())
-	media, err := h.MediaService.UploadAndMap(folder, file.Filename, f, file.Header.Get("Content-Type"), file.Size)
+	media, err := h.MediaService.UploadAndMap(folder, file.Filename, f, contentType, file.Size)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload to S3", "details": err.Error()})
 		return

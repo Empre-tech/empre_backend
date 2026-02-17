@@ -2,9 +2,8 @@ package handlers
 
 import (
 	"empre_backend/internal/services"
+	"empre_backend/pkg/utils"
 	"net/http"
-	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -81,13 +80,14 @@ func (h *MediaHandler) Upload(c *gin.Context) {
 		return
 	}
 
-	ext := strings.ToLower(filepath.Ext(file.Filename))
-	if ext != ".jpg" && ext != ".jpeg" && ext != ".png" && ext != ".webp" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported file format"})
+	// 1. Validate Image (MIME-type sniffing)
+	contentType, err := utils.ValidateImage(file)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// 1. Process Upload and Map via MediaService
+	// 2. Process Upload and Map via MediaService
 	f, err := file.Open()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not open file"})
@@ -95,7 +95,7 @@ func (h *MediaHandler) Upload(c *gin.Context) {
 	}
 	defer f.Close()
 
-	media, err := h.Service.UploadAndMap("uploads", file.Filename, f, file.Header.Get("Content-Type"), file.Size)
+	media, err := h.Service.UploadAndMap("uploads", file.Filename, f, contentType, file.Size)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload to S3", "details": err.Error()})
 		return

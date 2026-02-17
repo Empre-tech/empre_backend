@@ -45,7 +45,15 @@ func main() {
 	database.ConnectDB(cfg)
 
 	// Auto Migrate
-	err := database.DB.AutoMigrate(&models.User{}, &models.Entity{}, &models.Message{}, &models.Category{}, &models.Media{}, &models.EntityPhoto{})
+	err := database.DB.AutoMigrate(
+		&models.User{},
+		&models.Entity{},
+		&models.Message{},
+		&models.Category{},
+		&models.Media{},
+		&models.EntityPhoto{},
+		&models.PasswordResetToken{},
+	)
 	if err != nil {
 		log.Fatal("Migration failed: ", err)
 	}
@@ -62,11 +70,22 @@ func main() {
 	entityRepo := repository.NewEntityRepository(database.DB)
 	mediaRepo := repository.NewMediaRepository(database.DB)
 	chatRepo := repository.NewChatRepository(database.DB)
+	passwordResetRepo := repository.NewPasswordResetRepository(database.DB)
 
 	// Initialize Services
 	storageService := services.NewStorageService(cfg)
 	mediaService := services.NewMediaService(mediaRepo, storageService, cfg.AppURL)
-	authService := services.NewAuthService(userRepo, cfg)
+
+	var mailerService services.MailerService
+	if cfg.SMTPHost != "" {
+		mailerService = services.NewSMTPMailer(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPass, cfg.SMTPSender)
+		log.Println("Email Service: SMTP initialized")
+	} else {
+		mailerService = services.NewConsoleMailer()
+		log.Println("Email Service: Console fallback initialized")
+	}
+
+	authService := services.NewAuthService(userRepo, passwordResetRepo, mailerService, cfg)
 	userService := services.NewUserService(userRepo, mediaService)
 	entityService := services.NewEntityService(entityRepo, mediaService)
 	categoryService := services.NewCategoryService(categoryRepo)
@@ -90,6 +109,8 @@ func main() {
 		{
 			auth.POST("/register", authHandler.Register)
 			auth.POST("/login", authHandler.Login)
+			auth.POST("/password-reset/request", authHandler.RequestPasswordReset)
+			auth.POST("/password-reset/reset", authHandler.ResetPassword)
 		}
 
 		entities := api.Group("/entities")

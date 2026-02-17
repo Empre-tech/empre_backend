@@ -78,6 +78,107 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/auth/password-reset/request": {
+            "post": {
+                "description": "Send a reset link to the user's email",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Request password reset",
+                "parameters": [
+                    {
+                        "description": "User Email",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ForgotPasswordRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/auth/password-reset/reset": {
+            "post": {
+                "description": "Update password using a valid reset token",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Reset password",
+                "parameters": [
+                    {
+                        "description": "Token and New Password",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ResetPasswordRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/auth/register": {
             "post": {
                 "description": "Create a new user account with email and password",
@@ -135,7 +236,7 @@ const docTemplate = `{
         },
         "/api/categories": {
             "get": {
-                "description": "Get a list of all business categories",
+                "description": "Get a paginated list of all business categories",
                 "produces": [
                     "application/json"
                 ],
@@ -143,14 +244,28 @@ const docTemplate = `{
                     "Categories"
                 ],
                 "summary": "Find all categories",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 20,
+                        "description": "Items per page",
+                        "name": "pageSize",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/models.Category"
-                            }
+                            "type": "object",
+                            "additionalProperties": true
                         }
                     },
                     "500": {
@@ -246,7 +361,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/models.Category"
+                            "$ref": "#/definitions/dtos.CategoryResponse"
                         }
                     },
                     "400": {
@@ -395,7 +510,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Get a list of the last message from each active conversation",
+                "description": "Get a paginated list of the last message from each active conversation, formatted as DTOs",
                 "produces": [
                     "application/json"
                 ],
@@ -403,14 +518,28 @@ const docTemplate = `{
                     "Chat"
                 ],
                 "summary": "List conversations",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 20,
+                        "description": "Items per page",
+                        "name": "pageSize",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/models.Message"
-                            }
+                            "type": "object",
+                            "additionalProperties": true
                         }
                     },
                     "500": {
@@ -497,6 +626,62 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/chat/message": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Chat"
+                ],
+                "summary": "Send a message",
+                "parameters": [
+                    {
+                        "description": "Message content",
+                        "name": "message",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/models.Message"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/models.Message"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/chat/ws": {
             "get": {
                 "security": [
@@ -523,7 +708,7 @@ const docTemplate = `{
         },
         "/api/entities": {
             "get": {
-                "description": "Search entities with geographic and category filters",
+                "description": "Search entities with geographic and category filters (Map View)",
                 "produces": [
                     "application/json"
                 ],
@@ -621,7 +806,7 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/models.Entity"
+                            "$ref": "#/definitions/dtos.EntityDetailDTO"
                         }
                     },
                     "400": {
@@ -652,7 +837,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Get all business entities owned by the current user",
+                "description": "Get a paginated list of business entities owned by the current user",
                 "produces": [
                     "application/json"
                 ],
@@ -660,14 +845,28 @@ const docTemplate = `{
                     "Entities"
                 ],
                 "summary": "Find my entities",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 20,
+                        "description": "Items per page",
+                        "name": "pageSize",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/models.Entity"
-                            }
+                            "type": "object",
+                            "additionalProperties": true
                         }
                     },
                     "500": {
@@ -705,7 +904,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/models.Entity"
+                            "$ref": "#/definitions/dtos.EntityDetailDTO"
                         }
                     },
                     "400": {
@@ -1055,13 +1254,18 @@ const docTemplate = `{
                 "security": [
                     {
                         "BearerAuth": []
+                    },
+                    {
+                        "BearerAuth": []
                     }
                 ],
-                "description": "Get profile details of the currently authenticated user",
+                "description": "Get profile details of the currently authenticated user\nGet profile details of the currently authenticated user",
                 "produces": [
+                    "application/json",
                     "application/json"
                 ],
                 "tags": [
+                    "Users",
                     "Users"
                 ],
                 "summary": "Get current user",
@@ -1069,7 +1273,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/models.User"
+                            "$ref": "#/definitions/dtos.UserResponse"
                         }
                     },
                     "401": {
@@ -1153,6 +1357,111 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "dtos.CategoryResponse": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "dtos.EntityDetailDTO": {
+            "type": "object",
+            "properties": {
+                "address": {
+                    "type": "string"
+                },
+                "banner_url": {
+                    "type": "string"
+                },
+                "category": {
+                    "$ref": "#/definitions/dtos.CategoryResponse"
+                },
+                "city": {
+                    "type": "string"
+                },
+                "contact_info": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "is_verified": {
+                    "type": "boolean"
+                },
+                "latitude": {
+                    "type": "number"
+                },
+                "longitude": {
+                    "type": "number"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "owner_id": {
+                    "type": "string"
+                },
+                "photos": {
+                    "description": "Simplified Gallery",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dtos.PhotoResponse"
+                    }
+                },
+                "profile_url": {
+                    "type": "string"
+                },
+                "verification_status": {
+                    "$ref": "#/definitions/models.VerificationStatus"
+                }
+            }
+        },
+        "dtos.PhotoResponse": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "order": {
+                    "type": "integer"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "dtos.UserResponse": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "phone": {
+                    "type": "string"
+                },
+                "profile_picture_url": {
+                    "type": "string"
+                },
+                "role": {
+                    "$ref": "#/definitions/models.Role"
+                }
+            }
+        },
         "handlers.ChatPaginatedResponse": {
             "type": "object",
             "properties": {
@@ -1187,13 +1496,16 @@ const docTemplate = `{
                 "address": {
                     "type": "string"
                 },
-                "banner_url": {
+                "banner_media_id": {
                     "type": "string"
                 },
                 "category": {
                     "type": "string"
                 },
                 "city": {
+                    "type": "string"
+                },
+                "contact_info": {
                     "type": "string"
                 },
                 "description": {
@@ -1215,7 +1527,7 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
-                "profile_url": {
+                "profile_media_id": {
                     "type": "string"
                 }
             }
@@ -1231,6 +1543,17 @@ const docTemplate = `{
                 },
                 "meta": {
                     "$ref": "#/definitions/handlers.PaginationMeta"
+                }
+            }
+        },
+        "handlers.ForgotPasswordRequest": {
+            "type": "object",
+            "required": [
+                "email"
+            ],
+            "properties": {
+                "email": {
+                    "type": "string"
                 }
             }
         },
@@ -1286,6 +1609,22 @@ const docTemplate = `{
                 }
             }
         },
+        "handlers.ResetPasswordRequest": {
+            "type": "object",
+            "required": [
+                "password",
+                "token"
+            ],
+            "properties": {
+                "password": {
+                    "type": "string",
+                    "minLength": 6
+                },
+                "token": {
+                    "type": "string"
+                }
+            }
+        },
         "handlers.UpdateCategoryRequest": {
             "type": "object",
             "required": [
@@ -1318,6 +1657,9 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "address": {
+                    "type": "string"
+                },
+                "banner_media_id": {
                     "type": "string"
                 },
                 "banner_url": {
@@ -1367,6 +1709,9 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/models.EntityPhoto"
                     }
+                },
+                "profile_media_id": {
+                    "type": "string"
                 },
                 "profile_url": {
                     "type": "string"
@@ -1434,11 +1779,16 @@ const docTemplate = `{
                 "content": {
                     "type": "string"
                 },
-                "conversation_id": {
-                    "type": "string"
-                },
                 "created_at": {
                     "type": "string"
+                },
+                "entity": {
+                    "description": "Associations",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/models.Entity"
+                        }
+                    ]
                 },
                 "entity_id": {
                     "description": "Business",
@@ -1457,6 +1807,9 @@ const docTemplate = `{
                 "sent_by_entity": {
                     "description": "True if owner responding as business",
                     "type": "boolean"
+                },
+                "user": {
+                    "$ref": "#/definitions/models.User"
                 },
                 "user_id": {
                     "description": "Customer",
@@ -1491,6 +1844,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "phone": {
+                    "type": "string"
+                },
+                "profile_media_id": {
                     "type": "string"
                 },
                 "profile_picture_url": {

@@ -21,6 +21,11 @@ type Config struct {
 	S3Bucket       string
 	S3Region       string
 	AppURL         string
+	SMTPHost       string
+	SMTPPort       string
+	SMTPUser       string
+	SMTPPass       string
+	SMTPSender     string
 }
 
 func LoadConfig() *Config {
@@ -43,6 +48,11 @@ func LoadConfig() *Config {
 		S3Bucket:       getEnv("S3_BUCKET", ""),
 		S3Region:       getEnv("S3_REGION", "us-east-1"),
 		AppURL:         getEnv("APP_URL", "http://localhost:8080"),
+		SMTPHost:       getEnv("SMTP_HOST", ""),
+		SMTPPort:       getEnv("SMTP_PORT", "587"),
+		SMTPUser:       getEnv("SMTP_USER", ""),
+		SMTPPass:       getEnv("SMTP_PASS", ""),
+		SMTPSender:     getEnv("SMTP_SENDER", ""),
 	}
 }
 

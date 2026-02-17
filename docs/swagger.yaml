@@ -1,5 +1,74 @@
 basePath: /
 definitions:
+  dtos.CategoryResponse:
+    properties:
+      id:
+        type: string
+      name:
+        type: string
+    type: object
+  dtos.EntityDetailDTO:
+    properties:
+      address:
+        type: string
+      banner_url:
+        type: string
+      category:
+        $ref: '#/definitions/dtos.CategoryResponse'
+      city:
+        type: string
+      contact_info:
+        type: string
+      created_at:
+        type: string
+      description:
+        type: string
+      id:
+        type: string
+      is_verified:
+        type: boolean
+      latitude:
+        type: number
+      longitude:
+        type: number
+      name:
+        type: string
+      owner_id:
+        type: string
+      photos:
+        description: Simplified Gallery
+        items:
+          $ref: '#/definitions/dtos.PhotoResponse'
+        type: array
+      profile_url:
+        type: string
+      verification_status:
+        $ref: '#/definitions/models.VerificationStatus'
+    type: object
+  dtos.PhotoResponse:
+    properties:
+      id:
+        type: string
+      order:
+        type: integer
+      url:
+        type: string
+    type: object
+  dtos.UserResponse:
+    properties:
+      email:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      phone:
+        type: string
+      profile_picture_url:
+        type: string
+      role:
+        $ref: '#/definitions/models.Role'
+    type: object
   handlers.ChatPaginatedResponse:
     properties:
       data:
@@ -20,11 +89,13 @@ definitions:
     properties:
       address:
         type: string
-      banner_url:
+      banner_media_id:
         type: string
       category:
         type: string
       city:
+        type: string
+      contact_info:
         type: string
       description:
         type: string
@@ -39,7 +110,7 @@ definitions:
         type: number
       name:
         type: string
-      profile_url:
+      profile_media_id:
         type: string
     required:
     - name
@@ -52,6 +123,13 @@ definitions:
         type: array
       meta:
         $ref: '#/definitions/handlers.PaginationMeta'
+    type: object
+  handlers.ForgotPasswordRequest:
+    properties:
+      email:
+        type: string
+    required:
+    - email
     type: object
   handlers.LoginRequest:
     properties:
@@ -88,6 +166,17 @@ definitions:
     - name
     - password
     type: object
+  handlers.ResetPasswordRequest:
+    properties:
+      password:
+        minLength: 6
+        type: string
+      token:
+        type: string
+    required:
+    - password
+    - token
+    type: object
   handlers.UpdateCategoryRequest:
     properties:
       name:
@@ -109,6 +198,8 @@ definitions:
   models.Entity:
     properties:
       address:
+        type: string
+      banner_media_id:
         type: string
       banner_url:
         type: string
@@ -146,6 +237,8 @@ definitions:
         items:
           $ref: '#/definitions/models.EntityPhoto'
         type: array
+      profile_media_id:
+        type: string
       profile_url:
         type: string
       updated_at:
@@ -188,10 +281,12 @@ definitions:
     properties:
       content:
         type: string
-      conversation_id:
-        type: string
       created_at:
         type: string
+      entity:
+        allOf:
+        - $ref: '#/definitions/models.Entity'
+        description: Associations
       entity_id:
         description: Business
         type: string
@@ -205,6 +300,8 @@ definitions:
       sent_by_entity:
         description: True if owner responding as business
         type: boolean
+      user:
+        $ref: '#/definitions/models.User'
       user_id:
         description: Customer
         type: string
@@ -228,6 +325,8 @@ definitions:
       name:
         type: string
       phone:
+        type: string
+      profile_media_id:
         type: string
       profile_picture_url:
         type: string
@@ -294,6 +393,72 @@ paths:
       summary: User login
       tags:
       - Auth
+  /api/auth/password-reset/request:
+    post:
+      consumes:
+      - application/json
+      description: Send a reset link to the user's email
+      parameters:
+      - description: User Email
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.ForgotPasswordRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Request password reset
+      tags:
+      - Auth
+  /api/auth/password-reset/reset:
+    post:
+      consumes:
+      - application/json
+      description: Update password using a valid reset token
+      parameters:
+      - description: Token and New Password
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.ResetPasswordRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Reset password
+      tags:
+      - Auth
   /api/auth/register:
     post:
       consumes:
@@ -332,16 +497,26 @@ paths:
       - Auth
   /api/categories:
     get:
-      description: Get a list of all business categories
+      description: Get a paginated list of all business categories
+      parameters:
+      - default: 1
+        description: Page number
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: Items per page
+        in: query
+        name: pageSize
+        type: integer
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            items:
-              $ref: '#/definitions/models.Category'
-            type: array
+            additionalProperties: true
+            type: object
         "500":
           description: Internal Server Error
           schema:
@@ -437,7 +612,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/models.Category'
+            $ref: '#/definitions/dtos.CategoryResponse'
         "400":
           description: Bad Request
           schema:
@@ -497,16 +672,27 @@ paths:
       - Categories
   /api/chat/conversations:
     get:
-      description: Get a list of the last message from each active conversation
+      description: Get a paginated list of the last message from each active conversation,
+        formatted as DTOs
+      parameters:
+      - default: 1
+        description: Page number
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: Items per page
+        in: query
+        name: pageSize
+        type: integer
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            items:
-              $ref: '#/definitions/models.Message'
-            type: array
+            additionalProperties: true
+            type: object
         "500":
           description: Internal Server Error
           schema:
@@ -565,6 +751,41 @@ paths:
       summary: Message history
       tags:
       - Chat
+  /api/chat/message:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Message content
+        in: body
+        name: message
+        required: true
+        schema:
+          $ref: '#/definitions/models.Message'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.Message'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Send a message
+      tags:
+      - Chat
   /api/chat/ws:
     get:
       description: Upgrade to WebSocket for real-time messaging
@@ -582,7 +803,7 @@ paths:
       - Chat
   /api/entities:
     get:
-      description: Search entities with geographic and category filters
+      description: Search entities with geographic and category filters (Map View)
       parameters:
       - description: Latitude
         in: query
@@ -643,7 +864,7 @@ paths:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/models.Entity'
+            $ref: '#/definitions/dtos.EntityDetailDTO'
         "400":
           description: Bad Request
           schema:
@@ -716,7 +937,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/models.Entity'
+            $ref: '#/definitions/dtos.EntityDetailDTO'
         "400":
           description: Bad Request
           schema:
@@ -833,16 +1054,27 @@ paths:
       - Entities
   /api/entities/mine:
     get:
-      description: Get all business entities owned by the current user
+      description: Get a paginated list of business entities owned by the current
+        user
+      parameters:
+      - default: 1
+        description: Page number
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: Items per page
+        in: query
+        name: pageSize
+        type: integer
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            items:
-              $ref: '#/definitions/models.Entity'
-            type: array
+            additionalProperties: true
+            type: object
         "500":
           description: Internal Server Error
           schema:
@@ -926,14 +1158,17 @@ paths:
       - Media
   /api/users/me:
     get:
-      description: Get profile details of the currently authenticated user
+      description: |-
+        Get profile details of the currently authenticated user
+        Get profile details of the currently authenticated user
       produces:
+      - application/json
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/models.User'
+            $ref: '#/definitions/dtos.UserResponse'
         "401":
           description: Unauthorized
           schema:
@@ -948,8 +1183,10 @@ paths:
             type: object
       security:
       - BearerAuth: []
+      - BearerAuth: []
       summary: Get current user
       tags:
+      - Users
       - Users
   /api/users/profile/image:
     post:
