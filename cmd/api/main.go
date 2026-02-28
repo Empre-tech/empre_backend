@@ -53,6 +53,7 @@ func main() {
 		&models.Media{},
 		&models.EntityPhoto{},
 		&models.PasswordResetToken{},
+		&models.RefreshToken{},
 	)
 	if err != nil {
 		log.Fatal("Migration failed: ", err)
@@ -71,6 +72,7 @@ func main() {
 	mediaRepo := repository.NewMediaRepository(database.DB)
 	chatRepo := repository.NewChatRepository(database.DB)
 	passwordResetRepo := repository.NewPasswordResetRepository(database.DB)
+	refreshTokenRepo := repository.NewRefreshTokenRepository(database.DB)
 
 	// Initialize Services
 	storageService := services.NewStorageService(cfg)
@@ -85,7 +87,7 @@ func main() {
 		log.Println("Email Service: Console fallback initialized")
 	}
 
-	authService := services.NewAuthService(userRepo, passwordResetRepo, mailerService, cfg)
+	authService := services.NewAuthService(userRepo, passwordResetRepo, refreshTokenRepo, mailerService, cfg)
 	userService := services.NewUserService(userRepo, mediaService)
 	entityService := services.NewEntityService(entityRepo, mediaService)
 	categoryService := services.NewCategoryService(categoryRepo)
@@ -109,6 +111,7 @@ func main() {
 		{
 			auth.POST("/register", authHandler.Register)
 			auth.POST("/login", authHandler.Login)
+			auth.POST("/refresh", authHandler.RefreshToken)
 			auth.POST("/password-reset/request", authHandler.RequestPasswordReset)
 			auth.POST("/password-reset/reset", authHandler.ResetPassword)
 		}

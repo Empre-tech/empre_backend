@@ -17,14 +17,16 @@ import (
 type AuthService struct {
 	Repo              *repository.UserRepository
 	PasswordResetRepo *repository.PasswordResetRepository
+	RefreshTokenRepo  *repository.RefreshTokenRepository
 	Mailer            MailerService
 	Config            *config.Config
 }
 
-func NewAuthService(repo *repository.UserRepository, prRepo *repository.PasswordResetRepository, mailer MailerService, cfg *config.Config) *AuthService {
+func NewAuthService(repo *repository.UserRepository, prRepo *repository.PasswordResetRepository, rtRepo *repository.RefreshTokenRepository, mailer MailerService, cfg *config.Config) *AuthService {
 	return &AuthService{
 		Repo:              repo,
 		PasswordResetRepo: prRepo,
+		RefreshTokenRepo:  rtRepo,
 		Mailer:            mailer,
 		Config:            cfg,
 	}
@@ -47,24 +49,85 @@ func (s *AuthService) Register(user *models.User) error {
 	return s.Repo.Create(user)
 }
 
-func (s *AuthService) Login(email, password string) (string, error) {
+func (s *AuthService) Login(email, password string) (*utils.TokenResponse, error) {
 	user, err := s.Repo.FindByEmail(email)
 	if err != nil {
-		return "", errors.New("Invalid email or password")
+		return nil, errors.New("Invalid email or password")
 	}
 
 	// Verify Password
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
-		return "", errors.New("Invalid email or password")
+		return nil, errors.New("Invalid email or password")
 	}
 
-	// Generate Token
-	token, err := utils.GenerateToken(user.ID, string(user.Role), s.Config.JWTSecret)
+	// Generate Access Token
+	accessToken, err := utils.GenerateAccessToken(user.ID, string(user.Role), s.Config.JWTSecret)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	return token, nil
+	// Generate Refresh Token
+	refreshTokenStr := utils.GenerateRefreshToken()
+	refreshToken := &models.RefreshToken{
+		UserID:    user.ID,
+		Token:     refreshTokenStr,
+		ExpiresAt: time.Now().Add(30 * 24 * time.Hour), // 30 days
+	}
+
+	if err := s.RefreshTokenRepo.Create(refreshToken); err != nil {
+		return nil, err
+	}
+
+	return &utils.TokenResponse{
+		AccessToken:  accessToken,
+		RefreshToken: refreshTokenStr,
+	}, nil
+}
+
+func (s *AuthService) RefreshToken(tokenStr string) (*utils.TokenResponse, error) {
+	// 1. Find the refresh token
+	storedToken, err := s.RefreshTokenRepo.FindByToken(tokenStr)
+	if err != nil {
+		return nil, errors.New("invalid or expired refresh token")
+	}
+
+	// 2. Check expiration
+	if time.Now().After(storedToken.ExpiresAt) {
+		s.RefreshTokenRepo.Delete(storedToken)
+		return nil, errors.New("refresh token expired")
+	}
+
+	// 3. Find User
+	user, err := s.Repo.FindByID(storedToken.UserID)
+	if err != nil {
+		return nil, errors.New("user not found")
+	}
+
+	// 4. ROTATION: Delete the old token
+	s.RefreshTokenRepo.Delete(storedToken)
+
+	// 5. Generate NEW Access Token
+	newAccessToken, err := utils.GenerateAccessToken(user.ID, string(user.Role), s.Config.JWTSecret)
+	if err != nil {
+		return nil, err
+	}
+
+	// 6. Generate NEW Refresh Token
+	newRefreshTokenStr := utils.GenerateRefreshToken()
+	newRefreshToken := &models.RefreshToken{
+		UserID:    user.ID,
+		Token:     newRefreshTokenStr,
+		ExpiresAt: time.Now().Add(30 * 24 * time.Hour), // 30 days
+	}
+
+	if err := s.RefreshTokenRepo.Create(newRefreshToken); err != nil {
+		return nil, err
+	}
+
+	return &utils.TokenResponse{
+		AccessToken:  newAccessToken,
+		RefreshToken: newRefreshTokenStr,
+	}, nil
 }
 
 func (s *AuthService) RequestPasswordReset(email string) error {
