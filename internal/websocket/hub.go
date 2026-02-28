@@ -80,28 +80,32 @@ func (h *Hub) Run() {
 			newData, _ := json.Marshal(msg)
 
 			// Route message
-			h.RouteMessage(&msg, newData)
+			h.RouteMessage(&msg, newData, envelope.Client.UserID)
 		}
 	}
 }
 
-func (h *Hub) RouteMessage(msg *models.Message, rawData []byte) {
+func (h *Hub) RouteMessage(msg *models.Message, rawData []byte, senderID uuid.UUID) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	// 1. Always try to send to the Customer (UserID)
-	if client, ok := h.Clients[msg.UserID]; ok {
-		client.Send <- rawData
+	// 1. Send to the Customer (UserID) if they are not the sender
+	if msg.UserID != senderID {
+		if client, ok := h.Clients[msg.UserID]; ok {
+			client.Send <- rawData
+		}
 	}
 
 	// 2. Find the owner of the Entity (EntityID)
 	var entity models.Entity
 	if err := h.DB.Select("owner_id").First(&entity, "id = ?", msg.EntityID).Error; err == nil {
-		// If owner is online, send to them
-		if ownerClient, ok := h.Clients[entity.OwnerID]; ok {
-			// Don't send twice if customer is the owner (unlikely but possible in testing)
-			if entity.OwnerID != msg.UserID {
-				ownerClient.Send <- rawData
+		// If owner is online AND they are not the sender, send to them
+		if entity.OwnerID != senderID {
+			if ownerClient, ok := h.Clients[entity.OwnerID]; ok {
+				// Don't send twice if customer is the owner
+				if entity.OwnerID != msg.UserID {
+					ownerClient.Send <- rawData
+				}
 			}
 		}
 	}

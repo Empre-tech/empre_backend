@@ -213,11 +213,8 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	}
 
 	// Broadcast via WebSocket
-	// We need to marshal it to JSON bytes for the Hub
-	// Note: In a cleaner architecture, Service might handle event emission,
-	// but for now Handler bridging is fine.
-	importJSON, _ := json.Marshal(msg)
-	h.Hub.RouteMessage(&msg, importJSON)
+	jsonData, _ := json.Marshal(msg)
+	h.Hub.RouteMessage(&msg, jsonData, userID)
 
 	c.JSON(http.StatusCreated, msg)
 }
