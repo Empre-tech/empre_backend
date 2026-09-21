@@ -1,0 +1,3 @@
+# Normaliza saltos de linea entre Windows y Linux
+* text=auto
+*.sh text eol=lf

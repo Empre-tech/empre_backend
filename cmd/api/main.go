@@ -59,6 +59,9 @@ func main() {
 		log.Fatal("Migration failed: ", err)
 	}
 
+	// Seed default categories on a fresh database
+	database.SeedCategories(database.DB)
+
 	// Initialize Router
 	r := gin.Default()
 

@@ -30,42 +30,44 @@ Hemos implementado **Swagger UI** para que puedas probar la API interactivamente
 
 ## ⚙️ Configuración del Entorno (.env)
 
-Crea un archivo `.env` en la raíz del proyecto y configura las siguientes variables:
+Copia la plantilla y rellénala (el `.env` real **nunca** se sube a Git):
 
-```env
-PORT=8080
-DB_HOST=localhost
-DB_USER=postgres
-DB_PASSWORD=tu_password
-DB_NAME=empre_db
-DB_PORT=5432
-JWT_SECRET=tu_secreto_super_seguro
-
-# AWS S3 Configuration
-S3_ACCESS_KEY=TU_ACCESS_KEY
-S3_SECRET_KEY=TU_SECRET_KEY
-S3_SESSION_TOKEN=TU_SESSION_TOKEN (Solo si usas credenciales temporales de AWS)
-S3_BUCKET=nombre-de-tu-bucket
-S3_REGION=us-east-1
+```bash
+cp .env.example .env        # en PowerShell: copy .env.example .env
 ```
+
+Variables principales (ver `.env.example` para la lista completa):
+
+| Variable | Descripción |
+|---|---|
+| `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_PORT` | Postgres. Con Supabase usa el **Session pooler** (puerto 5432); el Transaction pooler (6543) no es compatible con los prepared statements. |
+| `DB_SSLMODE` | `disable` (por defecto), `require` o `verify-full`. Con Supabase se recomienda `require`. |
+| `JWT_SECRET` | Secreto largo y aleatorio (`openssl rand -hex 32`). |
+| `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_SESSION_TOKEN`, `S3_BUCKET`, `S3_REGION` | Almacenamiento de imágenes. El token de sesión solo aplica a credenciales temporales de AWS. |
+| `APP_URL` | URL pública del backend. |
+
+Al arrancar, el backend migra las tablas y, si la base está vacía, crea las categorías por defecto.
 
 ---
 
 ## 🚀 Instalación y Ejecución
 
-### 1. Clonar y descargar dependencias
+### Opción A: Docker (recomendada, no requiere Go)
 ```bash
-git clone <url-del-repo>
+git clone https://github.com/Empre-tech/empre_backend.git
 cd empre_backend
-go mod tidy
+cp .env.example .env        # y complétalo
+docker compose up --build
 ```
+El API queda en `http://localhost:8080` (Swagger en `/api/swagger/index.html`, salud en `/health`).
 
-### 2. Ejecutar el servidor
+### Opción B: Go local
 ```bash
+go mod tidy
 go run cmd/api/main.go
 ```
 
-### 3. Actualizar Documentación (Opcional)
+### Actualizar Documentación (opcional)
 Si añades nuevos endpoints o cambias los comentarios de los handlers, regenera la doc con:
 ```bash
 go run github.com/swaggo/swag/cmd/swag@latest init -g cmd/api/main.go
@@ -73,17 +75,21 @@ go run github.com/swaggo/swag/cmd/swag@latest init -g cmd/api/main.go
 
 ---
 
-## 📸 Sistema de Imágenes (Seguridad)
+## 📸 Sistema de Imágenes
 
-El sistema utiliza un **Proxy Seguro**. Nunca exponemos las URLs reales de AWS S3 al cliente.
-1.  **Mapeo**: El backend guarda la imagen en S3 con una ruta privada y genera un UUID en la DB.
-2.  **Servicio**: El cliente recibe `/api/images/{uuid}`.
-3.  **Proxy**: El backend recibe la solicitud, busca el path real de S3 en la DB, y envía los bytes del archivo al cliente.
+Las imágenes se guardan en un bucket privado de S3 y la base de datos guarda su ruta. Al leer un negocio o un usuario,
+el backend devuelve en `url` una **URL firmada de S3 que caduca a los 15 minutos**; para renovarla basta volver a pedir el recurso.
+- `POST /api/entities/:id/images` (multipart: `file` + `type` = `profile` | `banner` | `gallery`, solo el dueño) y
+  `POST /api/users/profile/image` (multipart: `file`).
+- Formatos aceptados: JPEG, PNG y WebP.
 
 ---
 
 ## 💬 Módulo de Chat
 
 El chat funciona mediante WebSockets en `/api/chat/ws`. 
-- Requiere autenticación vía token en la Query String: `?token=JWT_TOKEN`.
+- Autenticación: header `Authorization: Bearer JWT` (apps móviles) o, para clientes que no pueden enviar headers (navegador), `?token=JWT` en la URL.
+- El cliente envía `{"entity_id", "user_id", "sent_by_entity", "content"}` (contenido de 1 a 1000 caracteres). El servidor valida que quien envía sea el cliente o el dueño del negocio, guarda el mensaje y lo devuelve como eco (con su `id` real) al remitente además de entregarlo al destinatario si está conectado.
+- Cada frame del WebSocket lleva un único mensaje JSON (máx. 4096 bytes).
+- `GET /api/chat/conversations` devuelve `entity_id` en cada conversación; `GET /api/chat/history/:entity_id` (con `?user_id=` cuando consulta el dueño) devuelve el historial.
 - El historial se guarda automáticamente en la tabla `messages`.

@@ -14,6 +14,7 @@ type Config struct {
 	DBPassword     string
 	DBName         string
 	DBPort         string
+	DBSSLMode      string
 	JWTSecret      string
 	S3AccessKey    string
 	S3SecretKey    string
@@ -41,6 +42,7 @@ func LoadConfig() *Config {
 		DBPassword:     getEnv("DB_PASSWORD", "postgres"),
 		DBName:         getEnv("DB_NAME", "empre_db"),
 		DBPort:         getEnv("DB_PORT", "5432"),
+		DBSSLMode:      getEnv("DB_SSLMODE", "disable"),
 		JWTSecret:      getEnv("JWT_SECRET", "changeme"),
 		S3AccessKey:    getEnv("S3_ACCESS_KEY", ""),
 		S3SecretKey:    getEnv("S3_SECRET_KEY", ""),

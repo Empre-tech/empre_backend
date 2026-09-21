@@ -9,6 +9,7 @@ import (
 // ConversationResponse represents a summarized chat item for list views.
 type ConversationResponse struct {
 	ID           uuid.UUID       `json:"id"`             // Message ID
+	EntityID     uuid.UUID       `json:"entity_id"`      // Business the conversation belongs to
 	Content      string          `json:"content"`        // Latest message snippet
 	CreatedAt    time.Time       `json:"created_at"`     // Latest message time
 	IsRead       bool            `json:"is_read"`        // Read status

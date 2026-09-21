@@ -80,6 +80,7 @@ func (h *ChatHandler) FindAllConversations(c *gin.Context) {
 	for _, msg := range conversations {
 		dto := dtos.ConversationResponse{
 			ID:           msg.ID,
+			EntityID:     msg.EntityID,
 			Content:      msg.Content,
 			CreatedAt:    msg.CreatedAt,
 			IsRead:       msg.IsRead,

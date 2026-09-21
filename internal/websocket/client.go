@@ -3,6 +3,7 @@ package websocket
 import (
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -14,7 +15,7 @@ const (
 	writeWait      = 10 * time.Second
 	pongWait       = 60 * time.Second
 	pingPeriod     = (pongWait * 9) / 10
-	maxMessageSize = 512
+	maxMessageSize = 4096
 )
 
 var upgrader = websocket.Upgrader{
@@ -34,6 +35,14 @@ type Client struct {
 	Send chan []byte
 	// User ID
 	UserID uuid.UUID
+
+	closeOnce sync.Once
+}
+
+// closeSend closes the outbound channel exactly once (a client can be closed by
+// the hub both when it is replaced by a newer connection and when it disconnects).
+func (c *Client) closeSend() {
+	c.closeOnce.Do(func() { close(c.Send) })
 }
 
 func (c *Client) readPump() {
@@ -79,11 +88,7 @@ func (c *Client) writePump() {
 			}
 			w.Write(message)
 
-			// Add queued chat messages to the current websocket message.
-			n := len(c.Send)
-			for i := 0; i < n; i++ {
-				w.Write(<-c.Send)
-			}
+			// One JSON message per frame: clients can parse each frame directly.
 
 			if err := w.Close(); err != nil {
 				return
