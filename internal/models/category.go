@@ -13,6 +13,8 @@ type Category struct {
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
+
+	Subcategories []Subcategory `gorm:"foreignKey:CategoryID" json:"-"`
 }
 
 func (Category) TableName() string {

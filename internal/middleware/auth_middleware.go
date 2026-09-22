@@ -49,3 +49,17 @@ func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+// RequireAdmin only allows requests from users whose JWT role claim is "admin".
+// It must run after AuthMiddleware, which is what populates "role" in the context.
+func RequireAdmin() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		role, ok := c.Get("role")
+		if !ok || role != "admin" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}

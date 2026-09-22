@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -45,6 +46,7 @@ type CreateEntityRequest struct {
 	Name           string     `json:"name" binding:"required"`
 	Description    string     `json:"description"`
 	Category       string     `json:"category"`
+	SubcategoryIDs []string   `json:"subcategory_ids"`
 	Address        string     `json:"address"`
 	City           string     `json:"city"`
 	ContactInfo    string     `json:"contact_info"`
@@ -53,6 +55,19 @@ type CreateEntityRequest struct {
 	ProfileMediaID *uuid.UUID `json:"profile_media_id"`
 	BannerMediaID  *uuid.UUID `json:"banner_media_id"`
 	Gallery        []string   `json:"gallery"` // List of Media IDs (UUIDs)
+}
+
+// parseSubcategoryIDs converts the request's subcategory_ids strings to
+// UUIDs, silently skipping any that don't parse (mirrors how Gallery IDs are
+// handled elsewhere in this file).
+func parseSubcategoryIDs(ids []string) []uuid.UUID {
+	out := make([]uuid.UUID, 0, len(ids))
+	for _, idStr := range ids {
+		if id, err := uuid.Parse(idStr); err == nil {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 // Create handles entity creation
@@ -119,6 +134,13 @@ func (h *EntityHandler) Create(c *gin.Context) {
 		return
 	}
 
+	if len(req.SubcategoryIDs) > 0 {
+		if err := h.Service.SetEntitySubcategories(&entity, parseSubcategoryIDs(req.SubcategoryIDs)); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+	}
+
 	// Re-fetch to populate all media URLs and associations correctly for the response
 	fullEntity, _ := h.Service.FindByID(entity.ID)
 
@@ -133,7 +155,8 @@ func (h *EntityHandler) Create(c *gin.Context) {
 	}
 
 	response := dtos.EntityDetailDTO{
-		ID:          fullEntity.ID,
+		ID:            fullEntity.ID,
+		Subcategories: subcategoryDTOs(fullEntity.Subcategories),
 		Name:        fullEntity.Name,
 		Description: fullEntity.Description,
 		Category: dtos.CategoryResponse{
@@ -198,6 +221,7 @@ func (h *EntityHandler) FindByID(c *gin.Context) {
 			ID:   entity.Category.ID,
 			Name: entity.Category.Name,
 		},
+		Subcategories:      subcategoryDTOs(entity.Subcategories),
 		Address:            entity.Address,
 		City:               entity.City,
 		ContactInfo:        entity.ContactInfo,
@@ -224,6 +248,7 @@ func (h *EntityHandler) FindByID(c *gin.Context) {
 // @Param long query number false "Longitude"
 // @Param radius query number false "Radius in meters"
 // @Param category query string false "Category UUID"
+// @Param q query string false "Free-text search (name, description, address)"
 // @Param page query int false "Page number" default(1)
 // @Param pageSize query int false "Items per page" default(20)
 // @Success 200 {object} EntityPaginatedResponse
@@ -234,6 +259,7 @@ func (h *EntityHandler) FindAll(c *gin.Context) {
 	longStr := c.Query("long")
 	radiusStr := c.Query("radius")
 	categoryID := c.Query("category")
+	query := strings.TrimSpace(c.Query("q"))
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "20"))
 
@@ -249,7 +275,7 @@ func (h *EntityHandler) FindAll(c *gin.Context) {
 		radius, _ = strconv.ParseFloat(radiusStr, 64)
 	}
 
-	entities, total, err := h.Service.FindAll(lat, long, radius, categoryID, page, pageSize)
+	entities, total, err := h.Service.FindAll(lat, long, radius, categoryID, query, page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -311,6 +337,7 @@ func (h *EntityHandler) FindAllByOwner(c *gin.Context) {
 			VerificationStatus: entity.VerificationStatus,
 			IsVerified:         entity.IsVerified,
 			CreatedAt:          entity.CreatedAt,
+			Subcategories:      subcategoryDTOs(entity.Subcategories),
 		})
 	}
 
@@ -405,6 +432,13 @@ func (h *EntityHandler) Update(c *gin.Context) {
 	if err := h.Service.UpdateEntity(existing); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+
+	if req.SubcategoryIDs != nil {
+		if err := h.Service.SetEntitySubcategories(existing, parseSubcategoryIDs(req.SubcategoryIDs)); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
 	}
 
 	// Re-fetch to populate all media URLs and associations correctly for the response
@@ -546,4 +580,190 @@ func (h *EntityHandler) UploadImage(c *gin.Context) {
 		"url":  media.URL,
 		"type": imageType,
 	})
+}
+
+// DeleteImage removes one gallery photo from an entity (Owner only). Profile
+// and banner images are replaced by uploading a new one, not deleted here.
+// @Summary Delete a gallery photo
+// @Description Removes one photo from an entity's gallery (Owner only)
+// @Tags Entities
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "Entity ID"
+// @Param photoId path string true "Photo ID"
+// @Success 200 {object} map[string]string
+// @Failure 403 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Router /api/entities/{id}/images/{photoId} [delete]
+func (h *EntityHandler) DeleteImage(c *gin.Context) {
+	entityID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid entity ID"})
+		return
+	}
+	photoID, err := uuid.Parse(c.Param("photoId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid photo ID"})
+		return
+	}
+
+	userID, _ := c.Get("userID")
+	entity, err := h.Service.FindByID(entityID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Entity not found"})
+		return
+	}
+	if entity.OwnerID != userID.(uuid.UUID) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Unauthorized to modify this entity"})
+		return
+	}
+
+	result := h.DB.Where("id = ? AND entity_id = ?", photoID, entityID).Delete(&models.EntityPhoto{})
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
+		return
+	}
+	if result.RowsAffected == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Photo not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Photo deleted successfully"})
+}
+
+// FindAllByStatus lists entities filtered by moderation status (Admin only).
+// @Summary List entities by verification status
+// @Description Get a paginated list of business entities filtered by verification_status (pending, verified, rejected). Defaults to "pending".
+// @Tags Admin
+// @Produce json
+// @Security BearerAuth
+// @Param status query string false "Verification status filter" default(pending)
+// @Param page query int false "Page number" default(1)
+// @Param pageSize query int false "Items per page" default(20)
+// @Success 200 {object} map[string]interface{}
+// @Failure 403 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /api/admin/entities [get]
+func (h *EntityHandler) FindAllByStatus(c *gin.Context) {
+	status := models.VerificationStatus(c.DefaultQuery("status", string(models.StatusPending)))
+	switch status {
+	case models.StatusPending, models.StatusVerified, models.StatusRejected:
+		// valid
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid status. Use pending, verified or rejected"})
+		return
+	}
+
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "20"))
+
+	entities, total, err := h.Service.FindAllByStatus(status, page, pageSize)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	var response []dtos.EntityOwnerListDTO
+	for _, entity := range entities {
+		response = append(response, dtos.EntityOwnerListDTO{
+			ID:                 entity.ID,
+			Name:               entity.Name,
+			CategoryName:       entity.Category.Name,
+			ProfileURL:         entity.ProfileURL,
+			VerificationStatus: entity.VerificationStatus,
+			IsVerified:         entity.IsVerified,
+			CreatedAt:          entity.CreatedAt,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"data": response,
+		"meta": PaginationMeta{
+			Total:    total,
+			Page:     page,
+			PageSize: pageSize,
+		},
+	})
+}
+
+type VerifyEntityRequest struct {
+	// Nuevo estado: "verified" o "rejected" (también se acepta "pending" para revertir una revisión).
+	Status string `json:"status" binding:"required"`
+}
+
+// VerifyEntity approves or rejects a business entity (Admin only).
+// @Summary Verify or reject an entity
+// @Description Sets an entity's verification_status. "verified" also turns on the verified badge (is_verified).
+// @Tags Admin
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "Entity ID"
+// @Param request body VerifyEntityRequest true "New status"
+// @Success 200 {object} models.Entity
+// @Failure 400 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Router /api/admin/entities/{id}/verify [patch]
+func (h *EntityHandler) VerifyEntity(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+		return
+	}
+
+	var req VerifyEntityRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	status := models.VerificationStatus(req.Status)
+	switch status {
+	case models.StatusPending, models.StatusVerified, models.StatusRejected:
+		// valid
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid status. Use pending, verified or rejected"})
+		return
+	}
+
+	entity, err := h.Service.SetVerificationStatus(id, status)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Entity not found"})
+		return
+	}
+
+	var photos []dtos.PhotoResponse
+	for _, p := range entity.Photos {
+		photos = append(photos, dtos.PhotoResponse{
+			ID:    p.ID,
+			URL:   p.Media.URL,
+			Order: p.Order,
+		})
+	}
+
+	response := dtos.EntityDetailDTO{
+		ID:          entity.ID,
+		Name:        entity.Name,
+		Description: entity.Description,
+		Category: dtos.CategoryResponse{
+			ID:   entity.Category.ID,
+			Name: entity.Category.Name,
+		},
+		Subcategories:      subcategoryDTOs(entity.Subcategories),
+		Address:            entity.Address,
+		City:               entity.City,
+		ContactInfo:        entity.ContactInfo,
+		BannerURL:          entity.BannerURL,
+		ProfileURL:         entity.ProfileURL,
+		Latitude:           entity.Latitude,
+		Longitude:          entity.Longitude,
+		VerificationStatus: entity.VerificationStatus,
+		IsVerified:         entity.IsVerified,
+		OwnerID:            entity.OwnerID,
+		CreatedAt:          entity.CreatedAt,
+		Photos:             photos,
+	}
+
+	c.JSON(http.StatusOK, response)
 }

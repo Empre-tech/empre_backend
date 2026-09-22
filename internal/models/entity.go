@@ -47,9 +47,10 @@ type Entity struct {
 	DeletedAt          gorm.DeletedAt     `gorm:"index" json:"-"`
 
 	// Associations
-	Owner    User          `gorm:"foreignKey:OwnerID" json:"-"`
-	Category Category      `gorm:"foreignKey:CategoryID" json:"category"`
-	Photos   []EntityPhoto `gorm:"foreignKey:EntityID" json:"photos"`
+	Owner         User          `gorm:"foreignKey:OwnerID" json:"-"`
+	Category      Category      `gorm:"foreignKey:CategoryID" json:"category"`
+	Photos        []EntityPhoto `gorm:"foreignKey:EntityID" json:"photos"`
+	Subcategories []Subcategory `gorm:"many2many:entity_subcategories;" json:"-"`
 
 	ProfileMedia *Media `gorm:"foreignKey:ProfileMediaID;references:ID" json:"-"`
 	BannerMedia  *Media `gorm:"foreignKey:BannerMediaID;references:ID" json:"-"`

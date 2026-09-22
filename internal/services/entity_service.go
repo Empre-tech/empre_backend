@@ -42,7 +42,7 @@ func (s *EntityService) FindByID(id uuid.UUID) (*models.Entity, error) {
 	return entity, err
 }
 
-func (s *EntityService) FindAll(lat, long, radius float64, categoryID string, page, pageSize int) ([]models.Entity, int64, error) {
+func (s *EntityService) FindAll(lat, long, radius float64, categoryID, query string, page, pageSize int) ([]models.Entity, int64, error) {
 	if page <= 0 {
 		page = 1
 	}
@@ -50,7 +50,7 @@ func (s *EntityService) FindAll(lat, long, radius float64, categoryID string, pa
 		pageSize = 20
 	}
 
-	entities, total, err := s.Repo.FindAll(lat, long, radius, categoryID, page, pageSize)
+	entities, total, err := s.Repo.FindAll(lat, long, radius, categoryID, query, page, pageSize)
 	if err == nil {
 		var wg sync.WaitGroup
 		for i := range entities {
@@ -86,6 +86,54 @@ func (s *EntityService) FindAllByOwner(ownerID uuid.UUID, page, pageSize int) ([
 		wg.Wait()
 	}
 	return entities, total, err
+}
+
+func (s *EntityService) FindAllByStatus(status models.VerificationStatus, page, pageSize int) ([]models.Entity, int64, error) {
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+
+	entities, total, err := s.Repo.FindAllByStatus(status, page, pageSize)
+	if err == nil {
+		var wg sync.WaitGroup
+		for i := range entities {
+			wg.Add(1)
+			go func(index int) {
+				defer wg.Done()
+				s.populateMediaURLs(&entities[index])
+			}(i)
+		}
+		wg.Wait()
+	}
+	return entities, total, err
+}
+
+// SetVerificationStatus updates an entity's moderation status. "verified" also
+// flips the IsVerified badge; any other status (e.g. "rejected", "pending")
+// clears it.
+func (s *EntityService) SetVerificationStatus(id uuid.UUID, status models.VerificationStatus) (*models.Entity, error) {
+	entity, err := s.Repo.FindByID(id)
+	if err != nil {
+		return nil, err
+	}
+
+	entity.VerificationStatus = status
+	entity.IsVerified = status == models.StatusVerified
+
+	if err := s.Repo.Update(entity); err != nil {
+		return nil, err
+	}
+
+	s.populateMediaURLs(entity)
+	return entity, nil
+}
+
+// SetEntitySubcategories replaces the subcategories linked to an entity.
+func (s *EntityService) SetEntitySubcategories(entity *models.Entity, subcategoryIDs []uuid.UUID) error {
+	return s.Repo.SetSubcategories(entity, subcategoryIDs)
 }
 
 func (s *EntityService) DeleteEntity(entity *models.Entity) error {

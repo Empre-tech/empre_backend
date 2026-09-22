@@ -50,6 +50,7 @@ func main() {
 		&models.Entity{},
 		&models.Message{},
 		&models.Category{},
+		&models.Subcategory{},
 		&models.Media{},
 		&models.EntityPhoto{},
 		&models.PasswordResetToken{},
@@ -59,8 +60,9 @@ func main() {
 		log.Fatal("Migration failed: ", err)
 	}
 
-	// Seed default categories on a fresh database
+	// Seed default categories (and their subcategories) on a fresh database
 	database.SeedCategories(database.DB)
+	database.SeedSubcategories(database.DB)
 
 	// Initialize Router
 	r := gin.Default()
@@ -133,6 +135,7 @@ func main() {
 				entitiesProtected.PUT("/:id", entityHandler.Update)
 				entitiesProtected.DELETE("/:id", entityHandler.Delete)
 				entitiesProtected.POST("/:id/images", entityHandler.UploadImage)
+				entitiesProtected.DELETE("/:id/images/:photoId", entityHandler.DeleteImage)
 			}
 		}
 
@@ -174,6 +177,14 @@ func main() {
 		{
 			usersProtected.GET("/me", userHandler.FindMe)
 			usersProtected.POST("/profile/image", userHandler.UploadProfileImage)
+		}
+
+		// Admin (Protected, role=admin only)
+		adminGroup := api.Group("/admin")
+		adminGroup.Use(middleware.AuthMiddleware(cfg), middleware.RequireAdmin())
+		{
+			adminGroup.GET("/entities", entityHandler.FindAllByStatus)
+			adminGroup.PATCH("/entities/:id/verify", entityHandler.VerifyEntity)
 		}
 
 		// Swagger Documentation

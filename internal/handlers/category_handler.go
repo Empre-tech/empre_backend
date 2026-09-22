@@ -82,8 +82,9 @@ func (h *CategoryHandler) FindAll(c *gin.Context) {
 	var response []dtos.CategoryResponse
 	for _, cat := range categories {
 		response = append(response, dtos.CategoryResponse{
-			ID:   cat.ID,
-			Name: cat.Name,
+			ID:            cat.ID,
+			Name:          cat.Name,
+			Subcategories: subcategoryDTOs(cat.Subcategories),
 		})
 	}
 
@@ -95,6 +96,17 @@ func (h *CategoryHandler) FindAll(c *gin.Context) {
 			"page_size": pageSize,
 		},
 	})
+}
+
+func subcategoryDTOs(subs []models.Subcategory) []dtos.SubcategoryResponse {
+	if len(subs) == 0 {
+		return nil
+	}
+	out := make([]dtos.SubcategoryResponse, 0, len(subs))
+	for _, sc := range subs {
+		out = append(out, dtos.SubcategoryResponse{ID: sc.ID, Name: sc.Name, CategoryID: sc.CategoryID})
+	}
+	return out
 }
 
 // FindByID retrieves a category by its UUID
@@ -122,8 +134,9 @@ func (h *CategoryHandler) FindByID(c *gin.Context) {
 	}
 
 	response := dtos.CategoryResponse{
-		ID:   category.ID,
-		Name: category.Name,
+		ID:            category.ID,
+		Name:          category.Name,
+		Subcategories: subcategoryDTOs(category.Subcategories),
 	}
 
 	c.JSON(http.StatusOK, response)

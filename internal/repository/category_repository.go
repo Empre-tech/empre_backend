@@ -27,13 +27,17 @@ func (r *CategoryRepository) FindAll(page, pageSize int) ([]models.Category, int
 	db.Count(&total)
 
 	offset := (page - 1) * pageSize
-	err := db.Limit(pageSize).Offset(offset).Find(&categories).Error
+	err := db.Preload("Subcategories", func(db *gorm.DB) *gorm.DB {
+		return db.Order("subcategories.name ASC")
+	}).Limit(pageSize).Offset(offset).Find(&categories).Error
 	return categories, total, err
 }
 
 func (r *CategoryRepository) FindByID(id uuid.UUID) (*models.Category, error) {
 	var category models.Category
-	err := r.DB.First(&category, "id = ?", id).Error
+	err := r.DB.Preload("Subcategories", func(db *gorm.DB) *gorm.DB {
+		return db.Order("subcategories.name ASC")
+	}).First(&category, "id = ?", id).Error
 	return &category, err
 }
 

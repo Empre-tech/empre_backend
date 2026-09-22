@@ -28,21 +28,27 @@ func (r *EntityRepository) FindByID(id uuid.UUID) (*models.Entity, error) {
 	var entity models.Entity
 	err := r.DB.Joins("Category").Joins("ProfileMedia").Joins("BannerMedia").Preload("Photos", func(db *gorm.DB) *gorm.DB {
 		return db.Joins("Media")
-	}).First(&entity, "entities.id = ?", id).Error
+	}).Preload("Subcategories").First(&entity, "entities.id = ?", id).Error
 	return &entity, err
 }
 
-func (r *EntityRepository) FindAll(lat, long, radius float64, categoryID string, page, pageSize int) ([]models.Entity, int64, error) {
+func (r *EntityRepository) FindAll(lat, long, radius float64, categoryID, query string, page, pageSize int) ([]models.Entity, int64, error) {
 	var entities []models.Entity
 	var total int64
 
 	db := r.DB.Model(&models.Entity{}).Joins("Category").Joins("ProfileMedia").Joins("BannerMedia").Preload("Photos", func(db *gorm.DB) *gorm.DB {
 		return db.Joins("Media")
-	})
+	}).Preload("Subcategories")
 
 	// Filter by Category
 	if categoryID != "" {
 		db = db.Where("category_id = ?", categoryID)
+	}
+
+	// Filter by free-text search (name, description, address)
+	if query != "" {
+		like := "%" + query + "%"
+		db = db.Where("entities.name ILIKE ? OR entities.description ILIKE ? OR entities.address ILIKE ?", like, like, like)
 	}
 
 	// Filter by Location - NAIVE IMPLEMENTATION (Bounding Box)
@@ -83,9 +89,44 @@ func (r *EntityRepository) FindAllByOwner(ownerID uuid.UUID, page, pageSize int)
 	offset := (page - 1) * pageSize
 	err := db.Joins("Category").Joins("ProfileMedia").Joins("BannerMedia").Preload("Photos", func(db *gorm.DB) *gorm.DB {
 		return db.Joins("Media")
-	}).Limit(pageSize).Offset(offset).Find(&entities).Error
+	}).Preload("Subcategories").Limit(pageSize).Offset(offset).Find(&entities).Error
 
 	return entities, total, err
+}
+
+func (r *EntityRepository) FindAllByStatus(status models.VerificationStatus, page, pageSize int) ([]models.Entity, int64, error) {
+	var entities []models.Entity
+	var total int64
+
+	db := r.DB.Model(&models.Entity{})
+	if status != "" {
+		db = db.Where("verification_status = ?", status)
+	}
+	db.Count(&total)
+
+	offset := (page - 1) * pageSize
+	err := db.Joins("Category").Joins("ProfileMedia").Joins("BannerMedia").
+		Order("entities.created_at ASC").
+		Limit(pageSize).Offset(offset).Find(&entities).Error
+
+	return entities, total, err
+}
+
+// SetSubcategories replaces an entity's subcategory associations. Subcategory
+// rows are fetched by ID first (rather than synthesizing them from the IDs
+// alone) so GORM's association Replace only touches the join table and never
+// overwrites the subcategory's own Name/CategoryID.
+func (r *EntityRepository) SetSubcategories(entity *models.Entity, subcategoryIDs []uuid.UUID) error {
+	if len(subcategoryIDs) == 0 {
+		return r.DB.Model(entity).Association("Subcategories").Clear()
+	}
+
+	var subs []models.Subcategory
+	if err := r.DB.Where("id IN ?", subcategoryIDs).Find(&subs).Error; err != nil {
+		return err
+	}
+
+	return r.DB.Model(entity).Association("Subcategories").Replace(subs)
 }
 
 func (r *EntityRepository) Delete(entity *models.Entity) error {

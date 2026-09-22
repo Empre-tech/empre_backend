@@ -36,6 +36,8 @@ type EntityDetailDTO struct {
 	OwnerID            uuid.UUID                 `json:"owner_id"`
 	CreatedAt          time.Time                 `json:"created_at"`
 
+	Subcategories []SubcategoryResponse `json:"subcategories,omitempty"`
+
 	// Simplified Gallery
 	Photos []PhotoResponse `json:"photos,omitempty"`
 }
@@ -49,4 +51,5 @@ type EntityOwnerListDTO struct {
 	VerificationStatus models.VerificationStatus `json:"verification_status"`
 	IsVerified         bool                      `json:"is_verified"`
 	CreatedAt          time.Time                 `json:"created_at"`
+	Subcategories      []SubcategoryResponse     `json:"subcategories,omitempty"`
 }
