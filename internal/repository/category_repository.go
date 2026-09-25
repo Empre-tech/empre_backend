@@ -48,3 +48,21 @@ func (r *CategoryRepository) Update(category *models.Category) error {
 func (r *CategoryRepository) Delete(category *models.Category) error {
 	return r.DB.Delete(category).Error
 }
+
+func (r *CategoryRepository) CreateSubcategory(sub *models.Subcategory) error {
+	return r.DB.Create(sub).Error
+}
+
+func (r *CategoryRepository) FindSubcategoryByID(id uuid.UUID) (*models.Subcategory, error) {
+	var sub models.Subcategory
+	err := r.DB.First(&sub, "id = ?", id).Error
+	return &sub, err
+}
+
+func (r *CategoryRepository) UpdateSubcategory(sub *models.Subcategory) error {
+	return r.DB.Save(sub).Error
+}
+
+func (r *CategoryRepository) DeleteSubcategory(sub *models.Subcategory) error {
+	return r.DB.Delete(sub).Error
+}

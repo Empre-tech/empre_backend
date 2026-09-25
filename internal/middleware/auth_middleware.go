@@ -63,3 +63,35 @@ func RequireAdmin() gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+// OptionalAuth behaves like AuthMiddleware but never rejects the request: if
+// a valid Bearer token is present it populates "userID"/"role" in the
+// context, otherwise the request continues anonymously. Used on public
+// routes that want to know who's asking without requiring it (e.g. "is this
+// business one of my favorites?").
+func OptionalAuth(cfg *config.Config) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			c.Next()
+			return
+		}
+
+		parts := strings.Split(authHeader, " ")
+		if len(parts) != 2 || parts[0] != "Bearer" {
+			c.Next()
+			return
+		}
+
+		claims, err := utils.ValidateToken(parts[1], cfg.JWTSecret)
+		if err != nil {
+			c.Next()
+			return
+		}
+
+		c.Set("userID", claims.UserID)
+		c.Set("role", claims.Role)
+		c.Next()
+	}
+}
+

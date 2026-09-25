@@ -32,7 +32,7 @@ func (r *EntityRepository) FindByID(id uuid.UUID) (*models.Entity, error) {
 	return &entity, err
 }
 
-func (r *EntityRepository) FindAll(lat, long, radius float64, categoryID, query string, page, pageSize int) ([]models.Entity, int64, error) {
+func (r *EntityRepository) FindAll(lat, long, radius float64, categoryID, subcategoryID, query string, page, pageSize int) ([]models.Entity, int64, error) {
 	var entities []models.Entity
 	var total int64
 
@@ -45,10 +45,23 @@ func (r *EntityRepository) FindAll(lat, long, radius float64, categoryID, query 
 		db = db.Where("category_id = ?", categoryID)
 	}
 
-	// Filter by free-text search (name, description, address)
+	// Filter by Subcategory (many-to-many via entity_subcategories)
+	if subcategoryID != "" {
+		db = db.Where(
+			"EXISTS (SELECT 1 FROM entity_subcategories es WHERE es.entity_id = entities.id AND es.subcategory_id = ?)",
+			subcategoryID,
+		)
+	}
+
+	// Filter by free-text search: name, description, address, category name or subcategory name.
 	if query != "" {
 		like := "%" + query + "%"
-		db = db.Where("entities.name ILIKE ? OR entities.description ILIKE ? OR entities.address ILIKE ?", like, like, like)
+		db = db.Where(
+			"entities.name ILIKE ? OR entities.description ILIKE ? OR entities.address ILIKE ? OR "+
+				"EXISTS (SELECT 1 FROM categories WHERE categories.id = entities.category_id AND categories.name ILIKE ?) OR "+
+				"EXISTS (SELECT 1 FROM entity_subcategories es JOIN subcategories s ON s.id = es.subcategory_id WHERE es.entity_id = entities.id AND s.name ILIKE ?)",
+			like, like, like, like, like,
+		)
 	}
 
 	// Filter by Location - NAIVE IMPLEMENTATION (Bounding Box)

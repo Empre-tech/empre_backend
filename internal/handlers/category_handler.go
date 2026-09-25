@@ -13,10 +13,12 @@ import (
 
 type CreateCategoryRequest struct {
 	Name string `json:"name" binding:"required"`
+	Icon string `json:"icon" binding:"required"`
 }
 
 type UpdateCategoryRequest struct {
 	Name string `json:"name" binding:"required"`
+	Icon string `json:"icon" binding:"required"`
 }
 
 type CategoryHandler struct {
@@ -29,7 +31,7 @@ func NewCategoryHandler(categoryService *services.CategoryService) *CategoryHand
 
 // Create handles category creation
 // @Summary Create a new category
-// @Description Register a new category for business entities
+// @Description Register a new category for business entities (Admin only)
 // @Tags Categories
 // @Accept json
 // @Produce json
@@ -38,7 +40,7 @@ func NewCategoryHandler(categoryService *services.CategoryService) *CategoryHand
 // @Success 201 {object} map[string]string
 // @Failure 400 {object} map[string]string
 // @Failure 500 {object} map[string]string
-// @Router /api/categories [post]
+// @Router /api/admin/categories [post]
 func (h *CategoryHandler) Create(c *gin.Context) {
 	var req CreateCategoryRequest
 
@@ -49,6 +51,7 @@ func (h *CategoryHandler) Create(c *gin.Context) {
 
 	category := models.Category{
 		Name: req.Name,
+		Icon: req.Icon,
 	}
 
 	if err := h.categoryService.Create(&category); err != nil {
@@ -56,7 +59,7 @@ func (h *CategoryHandler) Create(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"message": "Category created successfully"})
+	c.JSON(http.StatusCreated, gin.H{"message": "Category created successfully", "id": category.ID})
 }
 
 // FindAll retrieves all categories with pagination
@@ -84,6 +87,7 @@ func (h *CategoryHandler) FindAll(c *gin.Context) {
 		response = append(response, dtos.CategoryResponse{
 			ID:            cat.ID,
 			Name:          cat.Name,
+			Icon:          cat.Icon,
 			Subcategories: subcategoryDTOs(cat.Subcategories),
 		})
 	}
@@ -136,6 +140,7 @@ func (h *CategoryHandler) FindByID(c *gin.Context) {
 	response := dtos.CategoryResponse{
 		ID:            category.ID,
 		Name:          category.Name,
+		Icon:          category.Icon,
 		Subcategories: subcategoryDTOs(category.Subcategories),
 	}
 
@@ -144,7 +149,7 @@ func (h *CategoryHandler) FindByID(c *gin.Context) {
 
 // Update modifies an existing category
 // @Summary Update category
-// @Description Update details of a specific business category (Owner only)
+// @Description Update the name/icon of a business category (Admin only)
 // @Tags Categories
 // @Accept json
 // @Produce json
@@ -154,7 +159,7 @@ func (h *CategoryHandler) FindByID(c *gin.Context) {
 // @Success 200 {object} map[string]string
 // @Failure 400 {object} map[string]string
 // @Failure 500 {object} map[string]string
-// @Router /api/categories/{id} [put]
+// @Router /api/admin/categories/{id} [put]
 func (h *CategoryHandler) Update(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := uuid.Parse(idStr)
@@ -169,12 +174,15 @@ func (h *CategoryHandler) Update(c *gin.Context) {
 		return
 	}
 
-	category := models.Category{
-		ID:   id,
-		Name: req.Name,
+	category, err := h.categoryService.FindByID(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Category not found"})
+		return
 	}
+	category.Name = req.Name
+	category.Icon = req.Icon
 
-	if err := h.categoryService.Update(&category); err != nil {
+	if err := h.categoryService.Update(category); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -184,7 +192,7 @@ func (h *CategoryHandler) Update(c *gin.Context) {
 
 // Delete removes an existing category
 // @Summary Delete category
-// @Description Remove a specific business category (Owner only)
+// @Description Remove a specific business category (Admin only)
 // @Tags Categories
 // @Produce json
 // @Security BearerAuth
@@ -192,7 +200,7 @@ func (h *CategoryHandler) Update(c *gin.Context) {
 // @Success 200 {object} map[string]string
 // @Failure 400 {object} map[string]string
 // @Failure 500 {object} map[string]string
-// @Router /api/categories/{id} [delete]
+// @Router /api/admin/categories/{id} [delete]
 func (h *CategoryHandler) Delete(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := uuid.Parse(idStr)
@@ -211,4 +219,117 @@ func (h *CategoryHandler) Delete(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Category deleted successfully"})
+}
+
+type CreateSubcategoryRequest struct {
+	Name       string `json:"name" binding:"required"`
+	CategoryID string `json:"category_id" binding:"required"`
+}
+
+type UpdateSubcategoryRequest struct {
+	Name string `json:"name" binding:"required"`
+}
+
+// CreateSubcategory adds a subcategory to a category.
+// @Summary Create a subcategory
+// @Description Add a subcategory under a category (Admin only)
+// @Tags Categories
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param request body CreateSubcategoryRequest true "Subcategory Info"
+// @Success 201 {object} map[string]string
+// @Failure 400 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /api/admin/subcategories [post]
+func (h *CategoryHandler) CreateSubcategory(c *gin.Context) {
+	var req CreateSubcategoryRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	categoryID, err := uuid.Parse(req.CategoryID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid category ID"})
+		return
+	}
+
+	sub := models.Subcategory{Name: req.Name, CategoryID: categoryID}
+	if err := h.categoryService.CreateSubcategory(&sub); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"message": "Subcategory created successfully", "id": sub.ID})
+}
+
+// UpdateSubcategory renames a subcategory.
+// @Summary Update a subcategory
+// @Description Rename a subcategory (Admin only)
+// @Tags Categories
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "Subcategory ID"
+// @Param request body UpdateSubcategoryRequest true "Update Info"
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /api/admin/subcategories/{id} [put]
+func (h *CategoryHandler) UpdateSubcategory(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID format"})
+		return
+	}
+
+	var req UpdateSubcategoryRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	sub, err := h.categoryService.FindSubcategoryByID(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Subcategory not found"})
+		return
+	}
+	sub.Name = req.Name
+
+	if err := h.categoryService.UpdateSubcategory(sub); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Subcategory updated successfully"})
+}
+
+// DeleteSubcategory removes a subcategory.
+// @Summary Delete a subcategory
+// @Description Remove a subcategory (Admin only)
+// @Tags Categories
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "Subcategory ID"
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /api/admin/subcategories/{id} [delete]
+func (h *CategoryHandler) DeleteSubcategory(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID format"})
+		return
+	}
+
+	sub := models.Subcategory{ID: id}
+	if err := h.categoryService.DeleteSubcategory(&sub); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Subcategory deleted successfully"})
 }

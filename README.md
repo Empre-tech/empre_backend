@@ -45,6 +45,7 @@ Variables principales (ver `.env.example` para la lista completa):
 | `JWT_SECRET` | Secreto largo y aleatorio (`openssl rand -hex 32`). |
 | `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_SESSION_TOKEN`, `S3_BUCKET`, `S3_REGION` | Almacenamiento de imágenes. El token de sesión solo aplica a credenciales temporales de AWS. |
 | `APP_URL` | URL pública del backend. |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_SENDER` | Opcional. Sin `SMTP_HOST`, los correos de recuperación de contraseña se imprimen en la consola en vez de enviarse. |
 
 Al arrancar, el backend migra las tablas y, si la base está vacía, crea las categorías por defecto.
 
@@ -61,7 +62,15 @@ docker compose up --build
 ```
 El API queda en `http://localhost:8080` (Swagger en `/api/swagger/index.html`, salud en `/health`).
 
-### Opción B: Go local
+> **¿No tienes una base de datos Postgres a mano?** Puedes levantar una local con Docker:
+> ```bash
+> docker run -d --name empre-postgres -p 5432:5432 \
+>   -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=empre_db \
+>   postgres:16
+> ```
+> y en tu `.env` deja `DB_HOST=localhost`, `DB_USER=postgres`, `DB_PASSWORD=postgres`, `DB_NAME=empre_db`, `DB_PORT=5432`, `DB_SSLMODE=disable` (son los valores por defecto). Con Docker Compose, el backend corre en un contenedor aparte, así que usa `DB_HOST=host.docker.internal` en vez de `localhost` para que alcance a este contenedor de Postgres.
+
+### Opción B: Go local (requiere Go 1.24+)
 ```bash
 go mod tidy
 go run cmd/api/main.go

@@ -29,16 +29,26 @@ type EntityPaginatedResponse struct {
 }
 
 type EntityHandler struct {
-	Service      *services.EntityService
-	MediaService *services.MediaService
-	DB           *gorm.DB
+	Service         *services.EntityService
+	MediaService    *services.MediaService
+	DB              *gorm.DB
+	ReviewService   *services.ReviewService
+	FavoriteService *services.FavoriteService
 }
 
-func NewEntityHandler(service *services.EntityService, mediaService *services.MediaService, db *gorm.DB) *EntityHandler {
+func NewEntityHandler(
+	service *services.EntityService,
+	mediaService *services.MediaService,
+	db *gorm.DB,
+	reviewService *services.ReviewService,
+	favoriteService *services.FavoriteService,
+) *EntityHandler {
 	return &EntityHandler{
-		Service:      service,
-		MediaService: mediaService,
-		DB:           db,
+		Service:         service,
+		MediaService:    mediaService,
+		DB:              db,
+		ReviewService:   reviewService,
+		FavoriteService: favoriteService,
 	}
 }
 
@@ -148,9 +158,10 @@ func (h *EntityHandler) Create(c *gin.Context) {
 	var photos []dtos.PhotoResponse
 	for _, p := range fullEntity.Photos {
 		photos = append(photos, dtos.PhotoResponse{
-			ID:    p.ID,
-			URL:   p.Media.URL,
-			Order: p.Order,
+			ID:      p.ID,
+			URL:     p.Media.URL,
+			Order:   p.Order,
+			Caption: p.Caption,
 		})
 	}
 
@@ -162,6 +173,7 @@ func (h *EntityHandler) Create(c *gin.Context) {
 		Category: dtos.CategoryResponse{
 			ID:   fullEntity.Category.ID,
 			Name: fullEntity.Category.Name,
+			Icon: fullEntity.Category.Icon,
 		},
 		Address:            fullEntity.Address,
 		City:               fullEntity.City,
@@ -207,10 +219,20 @@ func (h *EntityHandler) FindByID(c *gin.Context) {
 	var photos []dtos.PhotoResponse
 	for _, p := range entity.Photos {
 		photos = append(photos, dtos.PhotoResponse{
-			ID:    p.ID,
-			URL:   p.Media.URL,
-			Order: p.Order,
+			ID:      p.ID,
+			URL:     p.Media.URL,
+			Order:   p.Order,
+			Caption: p.Caption,
 		})
+	}
+
+	avgRating, reviewCount, _ := h.ReviewService.Summary(id)
+
+	isFavorite := false
+	if userIDVal, exists := c.Get("userID"); exists {
+		if userID, ok := userIDVal.(uuid.UUID); ok {
+			isFavorite, _ = h.FavoriteService.IsFavorite(userID, id)
+		}
 	}
 
 	response := dtos.EntityDetailDTO{
@@ -220,6 +242,7 @@ func (h *EntityHandler) FindByID(c *gin.Context) {
 		Category: dtos.CategoryResponse{
 			ID:   entity.Category.ID,
 			Name: entity.Category.Name,
+			Icon: entity.Category.Icon,
 		},
 		Subcategories:      subcategoryDTOs(entity.Subcategories),
 		Address:            entity.Address,
@@ -234,6 +257,9 @@ func (h *EntityHandler) FindByID(c *gin.Context) {
 		OwnerID:            entity.OwnerID,
 		CreatedAt:          entity.CreatedAt,
 		Photos:             photos,
+		AvgRating:          avgRating,
+		ReviewCount:        reviewCount,
+		IsFavorite:         isFavorite,
 	}
 
 	c.JSON(http.StatusOK, response)
@@ -248,6 +274,7 @@ func (h *EntityHandler) FindByID(c *gin.Context) {
 // @Param long query number false "Longitude"
 // @Param radius query number false "Radius in meters"
 // @Param category query string false "Category UUID"
+// @Param subcategory query string false "Subcategory UUID"
 // @Param q query string false "Free-text search (name, description, address)"
 // @Param page query int false "Page number" default(1)
 // @Param pageSize query int false "Items per page" default(20)
@@ -259,6 +286,7 @@ func (h *EntityHandler) FindAll(c *gin.Context) {
 	longStr := c.Query("long")
 	radiusStr := c.Query("radius")
 	categoryID := c.Query("category")
+	subcategoryID := c.Query("subcategory")
 	query := strings.TrimSpace(c.Query("q"))
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "20"))
@@ -275,22 +303,35 @@ func (h *EntityHandler) FindAll(c *gin.Context) {
 		radius, _ = strconv.ParseFloat(radiusStr, 64)
 	}
 
-	entities, total, err := h.Service.FindAll(lat, long, radius, categoryID, query, page, pageSize)
+	entities, total, err := h.Service.FindAll(lat, long, radius, categoryID, subcategoryID, query, page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
+	entityIDs := make([]uuid.UUID, len(entities))
+	for i, e := range entities {
+		entityIDs[i] = e.ID
+	}
+	// Una sola consulta agregada para todas las entidades de esta página, en
+	// vez de una consulta de reseñas por negocio (evita N+1 en el mapa/lista).
+	ratingSummaries, _ := h.ReviewService.Summaries(entityIDs)
+
 	var dtosList []dtos.EntityMapDTO
 	for _, e := range entities {
+		summary := ratingSummaries[e.ID]
 		dtosList = append(dtosList, dtos.EntityMapDTO{
 			ID:           e.ID,
 			Name:         e.Name,
+			CategoryID:   e.Category.ID,
 			CategoryName: e.Category.Name,
+			CategoryIcon: e.Category.Icon,
 			ProfileURL:   e.ProfileURL,
 			Latitude:     e.Latitude,
 			Longitude:    e.Longitude,
 			IsVerified:   e.IsVerified,
+			AvgRating:    summary.Avg,
+			ReviewCount:  summary.Count,
 		})
 	}
 
@@ -631,6 +672,67 @@ func (h *EntityHandler) DeleteImage(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Photo deleted successfully"})
 }
 
+type UpdateImageCaptionRequest struct {
+	Caption string `json:"caption"`
+}
+
+// UpdateImageCaption sets or clears the description shown when a gallery
+// photo opens full-screen (Owner only).
+// @Summary Update a gallery photo's caption
+// @Description Sets the description text shown when the photo opens full-screen (Owner only)
+// @Tags Entities
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "Entity ID"
+// @Param photoId path string true "Photo ID"
+// @Param request body UpdateImageCaptionRequest true "New caption"
+// @Success 200 {object} map[string]string
+// @Failure 403 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Router /api/entities/{id}/images/{photoId} [patch]
+func (h *EntityHandler) UpdateImageCaption(c *gin.Context) {
+	entityID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid entity ID"})
+		return
+	}
+	photoID, err := uuid.Parse(c.Param("photoId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid photo ID"})
+		return
+	}
+
+	userID, _ := c.Get("userID")
+	entity, err := h.Service.FindByID(entityID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Entity not found"})
+		return
+	}
+	if entity.OwnerID != userID.(uuid.UUID) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Unauthorized to modify this entity"})
+		return
+	}
+
+	var req UpdateImageCaptionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	result := h.DB.Model(&models.EntityPhoto{}).Where("id = ? AND entity_id = ?", photoID, entityID).Update("caption", req.Caption)
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
+		return
+	}
+	if result.RowsAffected == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Photo not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Descripción actualizada", "caption": req.Caption})
+}
+
 // FindAllByStatus lists entities filtered by moderation status (Admin only).
 // @Summary List entities by verification status
 // @Description Get a paginated list of business entities filtered by verification_status (pending, verified, rejected). Defaults to "pending".
@@ -736,9 +838,10 @@ func (h *EntityHandler) VerifyEntity(c *gin.Context) {
 	var photos []dtos.PhotoResponse
 	for _, p := range entity.Photos {
 		photos = append(photos, dtos.PhotoResponse{
-			ID:    p.ID,
-			URL:   p.Media.URL,
-			Order: p.Order,
+			ID:      p.ID,
+			URL:     p.Media.URL,
+			Order:   p.Order,
+			Caption: p.Caption,
 		})
 	}
 
@@ -749,6 +852,7 @@ func (h *EntityHandler) VerifyEntity(c *gin.Context) {
 		Category: dtos.CategoryResponse{
 			ID:   entity.Category.ID,
 			Name: entity.Category.Name,
+			Icon: entity.Category.Icon,
 		},
 		Subcategories:      subcategoryDTOs(entity.Subcategories),
 		Address:            entity.Address,

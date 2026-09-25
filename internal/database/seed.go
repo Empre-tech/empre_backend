@@ -8,21 +8,28 @@ import (
 	"gorm.io/gorm"
 )
 
+// defaultCategory pairs a category name with the Ionicons name used for its
+// badge and for the map marker of every business in it.
+type defaultCategory struct {
+	Name string
+	Icon string
+}
+
 // defaultCategories are created only when the categories table is empty,
 // so a fresh database is usable right away (the app needs at least one
 // category to register a business).
-var defaultCategories = []string{
-	"Restaurantes",
-	"Cafeterías y postres",
-	"Bares y vida nocturna",
-	"Tiendas y comercio",
-	"Belleza y peluquería",
-	"Salud y bienestar",
-	"Servicios del hogar",
-	"Tecnología",
-	"Turismo y hospedaje",
-	"Educación",
-	"Otros",
+var defaultCategories = []defaultCategory{
+	{"Restaurantes", "restaurant-outline"},
+	{"Cafeterías y postres", "cafe-outline"},
+	{"Bares y vida nocturna", "beer-outline"},
+	{"Tiendas y comercio", "storefront-outline"},
+	{"Belleza y peluquería", "cut-outline"},
+	{"Salud y bienestar", "medkit-outline"},
+	{"Servicios del hogar", "hammer-outline"},
+	{"Tecnología", "hardware-chip-outline"},
+	{"Turismo y hospedaje", "bed-outline"},
+	{"Educación", "school-outline"},
+	{"Otros", "ellipsis-horizontal-circle-outline"},
 }
 
 // SeedCategories inserts the default categories if none exist yet.
@@ -37,8 +44,8 @@ func SeedCategories(db *gorm.DB) {
 	}
 
 	categories := make([]models.Category, 0, len(defaultCategories))
-	for _, name := range defaultCategories {
-		categories = append(categories, models.Category{Name: name})
+	for _, c := range defaultCategories {
+		categories = append(categories, models.Category{Name: c.Name, Icon: c.Icon})
 	}
 	if err := db.Create(&categories).Error; err != nil {
 		log.Println("Seed categories: could not create categories: ", err)
@@ -49,7 +56,7 @@ func SeedCategories(db *gorm.DB) {
 
 // defaultSubcategories maps a Category name (as seeded above) to the
 // subcategories it starts with. A category not listed here simply gets none;
-// admins can add more later via the database.
+// admins can add more later from the admin panel.
 var defaultSubcategories = map[string][]string{
 	"Restaurantes": {
 		"Comida rápida",
@@ -150,4 +157,47 @@ func SeedSubcategories(db *gorm.DB) {
 		return
 	}
 	log.Printf("Seed subcategories: created %d default subcategories", len(subcategories))
+}
+
+// ResetCatalog permanently deletes every business (and everything hanging off
+// it: chat messages, reviews, favorites, photos, its subcategory links) plus
+// every category and subcategory, so the catalog can start clean with the
+// default categories/icons above. Intended to be run once, from the
+// `resetcatalog` command — never from the API — since it is destructive and
+// has no confirmation step of its own.
+//
+// It does not delete the underlying S3 media objects, only the database
+// rows; orphaned files can be cleaned up separately if needed.
+func ResetCatalog(db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		// Children of Entity first, respecting foreign keys.
+		if err := tx.Exec("DELETE FROM messages").Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("DELETE FROM reviews").Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("DELETE FROM favorites").Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("DELETE FROM entity_subcategories").Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("DELETE FROM entity_photos").Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("DELETE FROM entities").Error; err != nil {
+			return err
+		}
+
+		// Then the catalog itself.
+		if err := tx.Exec("DELETE FROM subcategories").Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("DELETE FROM categories").Error; err != nil {
+			return err
+		}
+
+		return nil
+	})
 }

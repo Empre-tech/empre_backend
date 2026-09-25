@@ -36,6 +36,13 @@ func (s *UserService) UpdateProfilePicture(userID uuid.UUID, mediaID uuid.UUID) 
 	return s.Repo.Update(user)
 }
 
+// PopulateProfileURL fills u.ProfilePictureURL from its ProfileMedia/
+// ProfileMediaID. Exported so other services can reuse it for a user shown
+// somewhere other than "me" (e.g. a review's author avatar).
+func (s *UserService) PopulateProfileURL(u *models.User) {
+	s.populateProfileURL(u)
+}
+
 func (s *UserService) populateProfileURL(u *models.User) {
 	if u == nil {
 		return

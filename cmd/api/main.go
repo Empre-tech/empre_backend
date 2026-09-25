@@ -55,6 +55,8 @@ func main() {
 		&models.EntityPhoto{},
 		&models.PasswordResetToken{},
 		&models.RefreshToken{},
+		&models.Review{},
+		&models.Favorite{},
 	)
 	if err != nil {
 		log.Fatal("Migration failed: ", err)
@@ -78,6 +80,8 @@ func main() {
 	chatRepo := repository.NewChatRepository(database.DB)
 	passwordResetRepo := repository.NewPasswordResetRepository(database.DB)
 	refreshTokenRepo := repository.NewRefreshTokenRepository(database.DB)
+	reviewRepo := repository.NewReviewRepository(database.DB)
+	favoriteRepo := repository.NewFavoriteRepository(database.DB)
 
 	// Initialize Services
 	storageService := services.NewStorageService(cfg)
@@ -97,13 +101,17 @@ func main() {
 	entityService := services.NewEntityService(entityRepo, mediaService)
 	categoryService := services.NewCategoryService(categoryRepo)
 	chatService := services.NewChatService(chatRepo)
+	reviewService := services.NewReviewService(reviewRepo)
+	favoriteService := services.NewFavoriteService(favoriteRepo)
 
 	// Initialize Handlers
 	authHandler := handlers.NewAuthHandler(authService)
 	userHandler := handlers.NewUserHandler(userService, mediaService)
 	mediaHandler := handlers.NewMediaHandler(mediaService)
-	entityHandler := handlers.NewEntityHandler(entityService, mediaService, database.DB)
+	entityHandler := handlers.NewEntityHandler(entityService, mediaService, database.DB, reviewService, favoriteService)
 	categoryHandler := handlers.NewCategoryHandler(categoryService)
+	reviewHandler := handlers.NewReviewHandler(reviewService, userService)
+	favoriteHandler := handlers.NewFavoriteHandler(favoriteService, entityService, reviewService)
 
 	wsHub := websocket.NewHub(database.DB)
 	go wsHub.Run()
@@ -125,7 +133,8 @@ func main() {
 		{
 			// Public viewing (Discovery)
 			entities.GET("", entityHandler.FindAll)
-			entities.GET("/:id", entityHandler.FindByID)
+			entities.GET("/:id", middleware.OptionalAuth(cfg), entityHandler.FindByID)
+			entities.GET("/:id/reviews", reviewHandler.FindByEntity)
 
 			// Protected mutations
 			entitiesProtected := entities.Use(middleware.AuthMiddleware(cfg))
@@ -136,22 +145,20 @@ func main() {
 				entitiesProtected.DELETE("/:id", entityHandler.Delete)
 				entitiesProtected.POST("/:id/images", entityHandler.UploadImage)
 				entitiesProtected.DELETE("/:id/images/:photoId", entityHandler.DeleteImage)
+				entitiesProtected.PATCH("/:id/images/:photoId", entityHandler.UpdateImageCaption)
+				entitiesProtected.POST("/:id/favorite", favoriteHandler.Add)
+				entitiesProtected.DELETE("/:id/favorite", favoriteHandler.Remove)
+				entitiesProtected.POST("/:id/reviews", reviewHandler.Upsert)
+				entitiesProtected.DELETE("/:id/reviews", reviewHandler.Delete)
+				entitiesProtected.GET("/:id/reviews/mine", reviewHandler.FindMine)
 			}
 		}
 
 		categories := api.Group("/categories")
 		{
-			// Public viewing
+			// Public viewing. Mutations live under /admin (admin only).
 			categories.GET("", categoryHandler.FindAll)
 			categories.GET("/:id", categoryHandler.FindByID)
-
-			// Protected mutations
-			categoriesProtected := categories.Use(middleware.AuthMiddleware(cfg))
-			{
-				categoriesProtected.POST("", categoryHandler.Create)
-				categoriesProtected.PUT("/:id", categoryHandler.Update)
-				categoriesProtected.DELETE("/:id", categoryHandler.Delete)
-			}
 		}
 
 		// WebSocket & Chat History
@@ -177,6 +184,7 @@ func main() {
 		{
 			usersProtected.GET("/me", userHandler.FindMe)
 			usersProtected.POST("/profile/image", userHandler.UploadProfileImage)
+			usersProtected.GET("/me/favorites", favoriteHandler.FindMine)
 		}
 
 		// Admin (Protected, role=admin only)
@@ -185,6 +193,14 @@ func main() {
 		{
 			adminGroup.GET("/entities", entityHandler.FindAllByStatus)
 			adminGroup.PATCH("/entities/:id/verify", entityHandler.VerifyEntity)
+
+			adminGroup.POST("/categories", categoryHandler.Create)
+			adminGroup.PUT("/categories/:id", categoryHandler.Update)
+			adminGroup.DELETE("/categories/:id", categoryHandler.Delete)
+
+			adminGroup.POST("/subcategories", categoryHandler.CreateSubcategory)
+			adminGroup.PUT("/subcategories/:id", categoryHandler.UpdateSubcategory)
+			adminGroup.DELETE("/subcategories/:id", categoryHandler.DeleteSubcategory)
 		}
 
 		// Swagger Documentation

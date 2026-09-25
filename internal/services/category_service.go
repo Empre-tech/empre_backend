@@ -40,3 +40,19 @@ func (s *CategoryService) Update(category *models.Category) error {
 func (s *CategoryService) Delete(category *models.Category) error {
 	return s.categoryRepo.Delete(category)
 }
+
+func (s *CategoryService) CreateSubcategory(sub *models.Subcategory) error {
+	return s.categoryRepo.CreateSubcategory(sub)
+}
+
+func (s *CategoryService) FindSubcategoryByID(id uuid.UUID) (*models.Subcategory, error) {
+	return s.categoryRepo.FindSubcategoryByID(id)
+}
+
+func (s *CategoryService) UpdateSubcategory(sub *models.Subcategory) error {
+	return s.categoryRepo.UpdateSubcategory(sub)
+}
+
+func (s *CategoryService) DeleteSubcategory(sub *models.Subcategory) error {
+	return s.categoryRepo.DeleteSubcategory(sub)
+}
