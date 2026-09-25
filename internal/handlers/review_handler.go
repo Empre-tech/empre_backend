@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -12,12 +13,14 @@ import (
 )
 
 type ReviewHandler struct {
-	Service     *services.ReviewService
-	UserService *services.UserService
+	Service       *services.ReviewService
+	UserService   *services.UserService
+	EntityService *services.EntityService
+	PushService   *services.PushService
 }
 
-func NewReviewHandler(service *services.ReviewService, userService *services.UserService) *ReviewHandler {
-	return &ReviewHandler{Service: service, UserService: userService}
+func NewReviewHandler(service *services.ReviewService, userService *services.UserService, entityService *services.EntityService, pushService *services.PushService) *ReviewHandler {
+	return &ReviewHandler{Service: service, UserService: userService, EntityService: entityService, PushService: pushService}
 }
 
 type UpsertReviewRequest struct {
@@ -65,8 +68,18 @@ func (h *ReviewHandler) Upsert(c *gin.Context) {
 		CreatedAt: review.CreatedAt,
 		UpdatedAt: review.UpdatedAt,
 	}
+	reviewerName := "Alguien"
 	if user, err := h.UserService.FindByID(userID); err == nil && user != nil {
 		response.User = dtos.ReviewUser{ID: user.ID, Name: user.Name, ProfilePictureURL: user.ProfilePictureURL}
+		reviewerName = user.Name
+	}
+
+	if h.PushService != nil && h.EntityService != nil {
+		if entity, err := h.EntityService.FindByID(entityID); err == nil && entity.OwnerID != userID {
+			h.PushService.Notify(entity.OwnerID, fmt.Sprintf("Nueva reseña en %s", entity.Name),
+				fmt.Sprintf("%s te dejó %d estrellas.", reviewerName, req.Rating),
+				map[string]string{"type": "review", "entity_id": entity.ID.String()})
+		}
 	}
 
 	c.JSON(http.StatusOK, response)

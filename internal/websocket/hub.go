@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"empre_backend/internal/models"
+	"empre_backend/internal/services"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -32,6 +33,11 @@ type Hub struct {
 	Messages chan MessageEnvelope
 
 	DB *gorm.DB
+
+	// PushService sends a push notification to the other party when they are
+	// not connected to this hub (so they get a chat message even with the app
+	// closed). Optional: nil disables push for chat, WebSocket delivery still works.
+	PushService *services.PushService
 }
 
 type MessageEnvelope struct {
@@ -39,13 +45,14 @@ type MessageEnvelope struct {
 	Client *Client
 }
 
-func NewHub(db *gorm.DB) *Hub {
+func NewHub(db *gorm.DB, pushService *services.PushService) *Hub {
 	return &Hub{
-		Messages:   make(chan MessageEnvelope),
-		Register:   make(chan *Client),
-		Unregister: make(chan *Client),
-		Clients:    make(map[uuid.UUID]*Client),
-		DB:         db,
+		Messages:    make(chan MessageEnvelope),
+		Register:    make(chan *Client),
+		Unregister:  make(chan *Client),
+		Clients:     make(map[uuid.UUID]*Client),
+		DB:          db,
+		PushService: pushService,
 	}
 }
 
@@ -108,7 +115,7 @@ func (h *Hub) handleIncoming(envelope MessageEnvelope) {
 	// Authorization: a customer can only write as themselves, and only the owner of the
 	// business can write as the business.
 	var entity models.Entity
-	if err := h.DB.Select("id", "owner_id").First(&entity, "id = ?", msg.EntityID).Error; err != nil {
+	if err := h.DB.Select("id", "owner_id", "name").First(&entity, "id = ?", msg.EntityID).Error; err != nil {
 		log.Printf("Rejected message from %s: entity %s not found\n", senderID, msg.EntityID)
 		return
 	}
@@ -147,6 +154,51 @@ func (h *Hub) handleIncoming(envelope MessageEnvelope) {
 	h.mu.RUnlock()
 
 	h.RouteMessage(&msg, data, senderID)
+	h.notifyOffline(&msg, &entity, senderID, content)
+}
+
+// notifyOffline sends a push notification to the other party in the
+// conversation if they are not currently connected to this hub — someone
+// with the app closed still needs to find out a message arrived.
+func (h *Hub) notifyOffline(msg *models.Message, entity *models.Entity, senderID uuid.UUID, content string) {
+	if h.PushService == nil {
+		return
+	}
+
+	var recipientID uuid.UUID
+	var title string
+	if msg.SentByEntity {
+		// Business wrote to the customer: notify the customer, titled with the business name.
+		recipientID = msg.UserID
+		title = entity.Name
+	} else {
+		// Customer wrote to the business: notify the owner, titled with the customer's name.
+		recipientID = entity.OwnerID
+		title = "Nuevo mensaje"
+		var sender models.User
+		if err := h.DB.Select("name").First(&sender, "id = ?", senderID).Error; err == nil {
+			title = sender.Name
+		}
+	}
+	if recipientID == senderID {
+		return
+	}
+
+	h.mu.RLock()
+	_, online := h.Clients[recipientID]
+	h.mu.RUnlock()
+	if online {
+		return
+	}
+
+	h.PushService.Notify(recipientID, title, content, map[string]string{
+		"type":      "chat",
+		"entity_id": msg.EntityID.String(),
+		// El dueño necesita saber con qué cliente es la conversación para abrir el
+		// chat correcto; para el cliente este mismo valor es su propio user id, que
+		// el front trata igual que "sin userId" (su conversación con el negocio).
+		"user_id": msg.UserID.String(),
+	})
 }
 
 func (h *Hub) RouteMessage(msg *models.Message, rawData []byte, senderID uuid.UUID) {

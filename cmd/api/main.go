@@ -57,6 +57,7 @@ func main() {
 		&models.RefreshToken{},
 		&models.Review{},
 		&models.Favorite{},
+		&models.PushToken{},
 	)
 	if err != nil {
 		log.Fatal("Migration failed: ", err)
@@ -82,6 +83,7 @@ func main() {
 	refreshTokenRepo := repository.NewRefreshTokenRepository(database.DB)
 	reviewRepo := repository.NewReviewRepository(database.DB)
 	favoriteRepo := repository.NewFavoriteRepository(database.DB)
+	pushTokenRepo := repository.NewPushTokenRepository(database.DB)
 
 	// Initialize Services
 	storageService := services.NewStorageService(cfg)
@@ -103,17 +105,19 @@ func main() {
 	chatService := services.NewChatService(chatRepo)
 	reviewService := services.NewReviewService(reviewRepo)
 	favoriteService := services.NewFavoriteService(favoriteRepo)
+	pushService := services.NewPushService(pushTokenRepo)
 
 	// Initialize Handlers
 	authHandler := handlers.NewAuthHandler(authService)
 	userHandler := handlers.NewUserHandler(userService, mediaService)
 	mediaHandler := handlers.NewMediaHandler(mediaService)
-	entityHandler := handlers.NewEntityHandler(entityService, mediaService, database.DB, reviewService, favoriteService)
+	entityHandler := handlers.NewEntityHandler(entityService, mediaService, database.DB, reviewService, favoriteService, pushService)
 	categoryHandler := handlers.NewCategoryHandler(categoryService)
-	reviewHandler := handlers.NewReviewHandler(reviewService, userService)
-	favoriteHandler := handlers.NewFavoriteHandler(favoriteService, entityService, reviewService)
+	reviewHandler := handlers.NewReviewHandler(reviewService, userService, entityService, pushService)
+	favoriteHandler := handlers.NewFavoriteHandler(favoriteService, entityService, reviewService, pushService)
+	pushHandler := handlers.NewPushHandler(pushService)
 
-	wsHub := websocket.NewHub(database.DB)
+	wsHub := websocket.NewHub(database.DB, pushService)
 	go wsHub.Run()
 	chatHandler := handlers.NewChatHandler(wsHub, chatService)
 
@@ -185,6 +189,8 @@ func main() {
 			usersProtected.GET("/me", userHandler.FindMe)
 			usersProtected.POST("/profile/image", userHandler.UploadProfileImage)
 			usersProtected.GET("/me/favorites", favoriteHandler.FindMine)
+			usersProtected.POST("/push-token", pushHandler.Register)
+			usersProtected.DELETE("/push-token", pushHandler.Remove)
 		}
 
 		// Admin (Protected, role=admin only)

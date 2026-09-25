@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -15,10 +16,11 @@ type FavoriteHandler struct {
 	Service       *services.FavoriteService
 	EntityService *services.EntityService
 	ReviewService *services.ReviewService
+	PushService   *services.PushService
 }
 
-func NewFavoriteHandler(service *services.FavoriteService, entityService *services.EntityService, reviewService *services.ReviewService) *FavoriteHandler {
-	return &FavoriteHandler{Service: service, EntityService: entityService, ReviewService: reviewService}
+func NewFavoriteHandler(service *services.FavoriteService, entityService *services.EntityService, reviewService *services.ReviewService, pushService *services.PushService) *FavoriteHandler {
+	return &FavoriteHandler{Service: service, EntityService: entityService, ReviewService: reviewService, PushService: pushService}
 }
 
 // Add marks a business as one of the caller's favorites.
@@ -42,6 +44,15 @@ func (h *FavoriteHandler) Add(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	if h.PushService != nil {
+		if entity, err := h.EntityService.FindByID(entityID); err == nil && entity.OwnerID != userID {
+			h.PushService.Notify(entity.OwnerID, "Nuevo favorito",
+				fmt.Sprintf("Alguien agregó %s a sus favoritos.", entity.Name),
+				map[string]string{"type": "favorite", "entity_id": entity.ID.String()})
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{"message": "Agregado a favoritos"})
 }
 

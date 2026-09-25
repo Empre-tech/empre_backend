@@ -34,6 +34,7 @@ type EntityHandler struct {
 	DB              *gorm.DB
 	ReviewService   *services.ReviewService
 	FavoriteService *services.FavoriteService
+	PushService     *services.PushService
 }
 
 func NewEntityHandler(
@@ -42,6 +43,7 @@ func NewEntityHandler(
 	db *gorm.DB,
 	reviewService *services.ReviewService,
 	favoriteService *services.FavoriteService,
+	pushService *services.PushService,
 ) *EntityHandler {
 	return &EntityHandler{
 		Service:         service,
@@ -49,6 +51,7 @@ func NewEntityHandler(
 		DB:              db,
 		ReviewService:   reviewService,
 		FavoriteService: favoriteService,
+		PushService:     pushService,
 	}
 }
 
@@ -833,6 +836,21 @@ func (h *EntityHandler) VerifyEntity(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Entity not found"})
 		return
+	}
+
+	// Solo avisamos en los estados que le importan al dueño (verificado/rechazado);
+	// "pending" es el estado inicial y no aporta nada notificarlo.
+	if h.PushService != nil {
+		switch status {
+		case models.StatusVerified:
+			h.PushService.Notify(entity.OwnerID, "¡Tu negocio fue verificado!",
+				fmt.Sprintf("%s ya tiene el sello de verificado en Empre.", entity.Name),
+				map[string]string{"type": "verification", "entity_id": entity.ID.String()})
+		case models.StatusRejected:
+			h.PushService.Notify(entity.OwnerID, "Verificación rechazada",
+				fmt.Sprintf("No pudimos verificar %s. Revisa los datos e inténtalo de nuevo.", entity.Name),
+				map[string]string{"type": "verification", "entity_id": entity.ID.String()})
+		}
 	}
 
 	var photos []dtos.PhotoResponse
