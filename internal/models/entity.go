@@ -42,15 +42,19 @@ type Entity struct {
 	Longitude          float64            `gorm:"type:float;index" json:"longitude"`
 	VerificationStatus VerificationStatus `gorm:"type:varchar(20);default:'pending'" json:"verification_status"`
 	IsVerified         bool               `gorm:"default:false" json:"is_verified"` // Check dorado
-	CreatedAt          time.Time          `json:"created_at"`
-	UpdatedAt          time.Time          `json:"updated_at"`
-	DeletedAt          gorm.DeletedAt     `gorm:"index" json:"-"`
+	// Cómo atiende: en el lugar, a domicilio, o ambos. Vacío = sin especificar (negocios
+	// creados antes de este campo).
+	ServiceMode ServiceMode    `gorm:"type:varchar(20)" json:"service_mode"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+	DeletedAt   gorm.DeletedAt `gorm:"index" json:"-"`
 
 	// Associations
-	Owner         User          `gorm:"foreignKey:OwnerID" json:"-"`
-	Category      Category      `gorm:"foreignKey:CategoryID" json:"category"`
-	Photos        []EntityPhoto `gorm:"foreignKey:EntityID" json:"photos"`
-	Subcategories []Subcategory `gorm:"many2many:entity_subcategories;" json:"-"`
+	Owner         User           `gorm:"foreignKey:OwnerID" json:"-"`
+	Category      Category       `gorm:"foreignKey:CategoryID" json:"category"`
+	Photos        []EntityPhoto  `gorm:"foreignKey:EntityID" json:"photos"`
+	Subcategories []Subcategory  `gorm:"many2many:entity_subcategories;" json:"-"`
+	Hours         []BusinessHour `gorm:"foreignKey:EntityID" json:"hours,omitempty"`
 
 	ProfileMedia *Media `gorm:"foreignKey:ProfileMediaID;references:ID" json:"-"`
 	BannerMedia  *Media `gorm:"foreignKey:BannerMediaID;references:ID" json:"-"`

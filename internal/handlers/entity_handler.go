@@ -56,18 +56,64 @@ func NewEntityHandler(
 }
 
 type CreateEntityRequest struct {
-	Name           string     `json:"name" binding:"required"`
-	Description    string     `json:"description"`
-	Category       string     `json:"category"`
-	SubcategoryIDs []string   `json:"subcategory_ids"`
-	Address        string     `json:"address"`
-	City           string     `json:"city"`
-	ContactInfo    string     `json:"contact_info"`
-	Latitude       float64    `json:"latitude"`
-	Longitude      float64    `json:"longitude"`
-	ProfileMediaID *uuid.UUID `json:"profile_media_id"`
-	BannerMediaID  *uuid.UUID `json:"banner_media_id"`
-	Gallery        []string   `json:"gallery"` // List of Media IDs (UUIDs)
+	Name           string       `json:"name" binding:"required"`
+	Description    string       `json:"description"`
+	Category       string       `json:"category"`
+	SubcategoryIDs []string     `json:"subcategory_ids"`
+	Address        string       `json:"address"`
+	City           string       `json:"city"`
+	ContactInfo    string       `json:"contact_info"`
+	Latitude       float64      `json:"latitude"`
+	Longitude      float64      `json:"longitude"`
+	ProfileMediaID *uuid.UUID   `json:"profile_media_id"`
+	BannerMediaID  *uuid.UUID   `json:"banner_media_id"`
+	Gallery        []string     `json:"gallery"` // List of Media IDs (UUIDs)
+	ServiceMode    string       `json:"service_mode"`
+	Hours          []HourRequest `json:"hours"`
+}
+
+// HourRequest is one weekday's schedule in a create/update request.
+type HourRequest struct {
+	Weekday   int    `json:"weekday"`
+	Closed    bool   `json:"closed"`
+	Is24h     bool   `json:"is_24h"`
+	OpenTime  string `json:"open_time"`
+	CloseTime string `json:"close_time"`
+}
+
+// hoursFromRequest converts request rows to models, silently skipping any
+// with an out-of-range weekday (mirrors how invalid Gallery/Subcategory ids
+// are handled elsewhere in this file).
+func hoursFromRequest(rows []HourRequest) []models.BusinessHour {
+	out := make([]models.BusinessHour, 0, len(rows))
+	for _, r := range rows {
+		if r.Weekday < 0 || r.Weekday > 6 {
+			continue
+		}
+		out = append(out, models.BusinessHour{
+			Weekday:   r.Weekday,
+			Closed:    r.Closed,
+			Is24h:     r.Is24h,
+			OpenTime:  r.OpenTime,
+			CloseTime: r.CloseTime,
+		})
+	}
+	return out
+}
+
+// hourDTOs converts stored schedule rows to their response shape.
+func hourDTOs(hours []models.BusinessHour) []dtos.HourResponse {
+	out := make([]dtos.HourResponse, 0, len(hours))
+	for _, h := range hours {
+		out = append(out, dtos.HourResponse{
+			Weekday:   h.Weekday,
+			Closed:    h.Closed,
+			Is24h:     h.Is24h,
+			OpenTime:  h.OpenTime,
+			CloseTime: h.CloseTime,
+		})
+	}
+	return out
 }
 
 // parseSubcategoryIDs converts the request's subcategory_ids strings to
@@ -115,6 +161,11 @@ func (h *EntityHandler) Create(c *gin.Context) {
 		return
 	}
 
+	if !models.ServiceMode(req.ServiceMode).Valid() {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid service_mode. Use in_place, delivery or both"})
+		return
+	}
+
 	entity := models.Entity{
 		OwnerID:        userID.(uuid.UUID),
 		Name:           req.Name,
@@ -127,6 +178,7 @@ func (h *EntityHandler) Create(c *gin.Context) {
 		Longitude:      req.Longitude,
 		ProfileMediaID: req.ProfileMediaID,
 		BannerMediaID:  req.BannerMediaID,
+		ServiceMode:    models.ServiceMode(req.ServiceMode),
 	}
 
 	// Handle Gallery
@@ -154,6 +206,13 @@ func (h *EntityHandler) Create(c *gin.Context) {
 		}
 	}
 
+	if len(req.Hours) > 0 {
+		if err := h.Service.SetEntityHours(&entity, hoursFromRequest(req.Hours)); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+	}
+
 	// Re-fetch to populate all media URLs and associations correctly for the response
 	fullEntity, _ := h.Service.FindByID(entity.ID)
 
@@ -161,10 +220,11 @@ func (h *EntityHandler) Create(c *gin.Context) {
 	var photos []dtos.PhotoResponse
 	for _, p := range fullEntity.Photos {
 		photos = append(photos, dtos.PhotoResponse{
-			ID:      p.ID,
-			URL:     p.Media.URL,
-			Order:   p.Order,
-			Caption: p.Caption,
+			ID:          p.ID,
+			URL:         p.Media.URL,
+			Order:       p.Order,
+			Caption:     p.Caption,
+			ContentType: p.Media.ContentType,
 		})
 	}
 
@@ -190,6 +250,9 @@ func (h *EntityHandler) Create(c *gin.Context) {
 		OwnerID:            fullEntity.OwnerID,
 		CreatedAt:          fullEntity.CreatedAt,
 		Photos:             photos,
+		ServiceMode:        fullEntity.ServiceMode,
+		Hours:              hourDTOs(fullEntity.Hours),
+		IsOpenNow:          utils.IsOpenNow(fullEntity.Hours, utils.NowInCartagena()),
 	}
 
 	c.JSON(http.StatusCreated, response)
@@ -222,10 +285,11 @@ func (h *EntityHandler) FindByID(c *gin.Context) {
 	var photos []dtos.PhotoResponse
 	for _, p := range entity.Photos {
 		photos = append(photos, dtos.PhotoResponse{
-			ID:      p.ID,
-			URL:     p.Media.URL,
-			Order:   p.Order,
-			Caption: p.Caption,
+			ID:          p.ID,
+			URL:         p.Media.URL,
+			Order:       p.Order,
+			Caption:     p.Caption,
+			ContentType: p.Media.ContentType,
 		})
 	}
 
@@ -263,6 +327,9 @@ func (h *EntityHandler) FindByID(c *gin.Context) {
 		AvgRating:          avgRating,
 		ReviewCount:        reviewCount,
 		IsFavorite:         isFavorite,
+		ServiceMode:        entity.ServiceMode,
+		Hours:              hourDTOs(entity.Hours),
+		IsOpenNow:          utils.IsOpenNow(entity.Hours, utils.NowInCartagena()),
 	}
 
 	c.JSON(http.StatusOK, response)
@@ -291,6 +358,7 @@ func (h *EntityHandler) FindAll(c *gin.Context) {
 	categoryID := c.Query("category")
 	subcategoryID := c.Query("subcategory")
 	query := strings.TrimSpace(c.Query("q"))
+	openNow := c.Query("open_now") == "true"
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "20"))
 
@@ -306,7 +374,7 @@ func (h *EntityHandler) FindAll(c *gin.Context) {
 		radius, _ = strconv.ParseFloat(radiusStr, 64)
 	}
 
-	entities, total, err := h.Service.FindAll(lat, long, radius, categoryID, subcategoryID, query, page, pageSize)
+	entities, total, err := h.Service.FindAll(lat, long, radius, categoryID, subcategoryID, query, openNow, page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -335,6 +403,9 @@ func (h *EntityHandler) FindAll(c *gin.Context) {
 			IsVerified:   e.IsVerified,
 			AvgRating:    summary.Avg,
 			ReviewCount:  summary.Count,
+			ServiceMode:  e.ServiceMode,
+			IsOpenNow:    utils.IsOpenNow(e.Hours, utils.NowInCartagena()),
+			HasHours:     len(e.Hours) > 0,
 		})
 	}
 
@@ -455,6 +526,14 @@ func (h *EntityHandler) Update(c *gin.Context) {
 		existing.CategoryID = catID
 	}
 
+	if req.ServiceMode != "" {
+		if !models.ServiceMode(req.ServiceMode).Valid() {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid service_mode. Use in_place, delivery or both"})
+			return
+		}
+		existing.ServiceMode = models.ServiceMode(req.ServiceMode)
+	}
+
 	// Simple gallery replacement strategy:
 	// In a real app, you might want more granular sync (add/remove/reorder),
 	// but for now, we'll replace the whole list if provided.
@@ -480,6 +559,13 @@ func (h *EntityHandler) Update(c *gin.Context) {
 
 	if req.SubcategoryIDs != nil {
 		if err := h.Service.SetEntitySubcategories(existing, parseSubcategoryIDs(req.SubcategoryIDs)); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+	}
+
+	if req.Hours != nil {
+		if err := h.Service.SetEntityHours(existing, hoursFromRequest(req.Hours)); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
@@ -581,8 +667,21 @@ func (h *EntityHandler) UploadImage(c *gin.Context) {
 		return
 	}
 
-	// 3. Validate Image (MIME-type sniffing)
-	contentType, err := utils.ValidateImage(file)
+	// 3. Validate the file (MIME-type sniffing). Gallery posts can be a photo
+	// or a short video; profile/banner must always be a still image.
+	var contentType string
+	if imageType == "gallery" {
+		// Los videos pesan mucho más que una foto: sin este tope, un archivo
+		// gigante se sube igual y solo falla (o se cuelga) al llegar a S3.
+		const maxGalleryVideoBytes = 60 * 1024 * 1024 // 60 MB
+		if file.Size > maxGalleryVideoBytes {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "El archivo es muy grande (máximo 60 MB)."})
+			return
+		}
+		contentType, err = utils.ValidateGalleryMedia(file)
+	} else {
+		contentType, err = utils.ValidateImage(file)
+	}
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -615,14 +714,18 @@ func (h *EntityHandler) UploadImage(c *gin.Context) {
 		photo := models.EntityPhoto{
 			EntityID: entityID,
 			MediaID:  media.ID,
+			// Caption opcional: el nuevo flujo de "publicar" deja escribirla en
+			// la misma pantalla en vez de subir la foto y luego editarla aparte.
+			Caption: c.PostForm("caption"),
 		}
 		h.DB.Create(&photo)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"id":   media.ID,
-		"url":  media.URL,
-		"type": imageType,
+		"id":           media.ID,
+		"url":          media.URL,
+		"type":         imageType,
+		"content_type": contentType,
 	})
 }
 
@@ -856,10 +959,11 @@ func (h *EntityHandler) VerifyEntity(c *gin.Context) {
 	var photos []dtos.PhotoResponse
 	for _, p := range entity.Photos {
 		photos = append(photos, dtos.PhotoResponse{
-			ID:      p.ID,
-			URL:     p.Media.URL,
-			Order:   p.Order,
-			Caption: p.Caption,
+			ID:          p.ID,
+			URL:         p.Media.URL,
+			Order:       p.Order,
+			Caption:     p.Caption,
+			ContentType: p.Media.ContentType,
 		})
 	}
 
@@ -885,6 +989,9 @@ func (h *EntityHandler) VerifyEntity(c *gin.Context) {
 		OwnerID:            entity.OwnerID,
 		CreatedAt:          entity.CreatedAt,
 		Photos:             photos,
+		ServiceMode:        entity.ServiceMode,
+		Hours:              hourDTOs(entity.Hours),
+		IsOpenNow:          utils.IsOpenNow(entity.Hours, utils.NowInCartagena()),
 	}
 
 	c.JSON(http.StatusOK, response)

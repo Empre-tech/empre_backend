@@ -6,6 +6,8 @@ import (
 	"empre_backend/internal/services"
 	"empre_backend/internal/websocket"
 	"encoding/json"
+	"fmt"
+	"log"
 	"net/http"
 
 	"strconv"
@@ -74,6 +76,18 @@ func (h *ChatHandler) FindAllConversations(c *gin.Context) {
 		return
 	}
 
+	// Cuántos mensajes sin leer hay por conversación (no cuántas conversaciones
+	// hay): esto es lo que se muestra como "número de mensajes pendientes" en
+	// vez de un simple conteo de conversaciones.
+	unreadCounts, err := h.service.UnreadCounts(userID)
+	if err != nil {
+		log.Println("chat: no pudimos calcular mensajes sin leer:", err)
+	}
+	unreadByConversation := map[string]int64{}
+	for _, row := range unreadCounts {
+		unreadByConversation[fmt.Sprintf("%s|%s", row.EntityID, row.UserID)] = row.Unread
+	}
+
 	// Transform detailed models into lightweight DTOs
 	var response []dtos.ConversationResponse
 
@@ -85,6 +99,7 @@ func (h *ChatHandler) FindAllConversations(c *gin.Context) {
 			CreatedAt:    msg.CreatedAt,
 			IsRead:       msg.IsRead,
 			SentByEntity: msg.SentByEntity,
+			UnreadCount:  unreadByConversation[fmt.Sprintf("%s|%s", msg.EntityID, msg.UserID)],
 		}
 
 		// Determine "Other Party"
@@ -158,6 +173,14 @@ func (h *ChatHandler) FindMessagesHistory(c *gin.Context) {
 	} else {
 		// If a customer is requesting their own history with an entity
 		targetUserID = currentUserID
+	}
+
+	// Al abrir esta conversación, se marcan como leídos los mensajes del OTRO
+	// lado: si soy el dueño, los del cliente; si soy el cliente, los del
+	// negocio. Best-effort: si falla, igual devolvemos el historial (no tiene
+	// sentido bloquear la conversación por esto).
+	if err := h.service.MarkConversationRead(entityID, targetUserID, currentUserID); err != nil {
+		log.Println("chat: no pudimos marcar la conversación como leída:", err)
 	}
 
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))

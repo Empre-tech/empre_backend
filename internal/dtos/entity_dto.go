@@ -7,6 +7,15 @@ import (
 	"github.com/google/uuid"
 )
 
+// HourResponse is one weekday's schedule.
+type HourResponse struct {
+	Weekday   int    `json:"weekday"`
+	Closed    bool   `json:"closed"`
+	Is24h     bool   `json:"is_24h"`
+	OpenTime  string `json:"open_time"`
+	CloseTime string `json:"close_time"`
+}
+
 // EntityMapDTO is a lightweight version for listing on maps.
 type EntityMapDTO struct {
 	ID           uuid.UUID `json:"id"`
@@ -15,13 +24,18 @@ type EntityMapDTO struct {
 	CategoryName string    `json:"category_name"`
 	// CategoryIcon is an Ionicons name (e.g. "restaurant-outline") the app uses
 	// to pick the marker icon for this business on the map.
-	CategoryIcon string  `json:"category_icon"`
-	ProfileURL   string  `json:"profile_url"`
-	Latitude     float64 `json:"latitude"`
-	Longitude    float64 `json:"longitude"`
-	IsVerified   bool    `json:"is_verified"`
-	AvgRating    float64 `json:"avg_rating"`
-	ReviewCount  int64   `json:"review_count"`
+	CategoryIcon string             `json:"category_icon"`
+	ProfileURL   string             `json:"profile_url"`
+	Latitude     float64            `json:"latitude"`
+	Longitude    float64            `json:"longitude"`
+	IsVerified   bool               `json:"is_verified"`
+	AvgRating    float64            `json:"avg_rating"`
+	ReviewCount  int64              `json:"review_count"`
+	ServiceMode  models.ServiceMode `json:"service_mode"`
+	IsOpenNow    bool               `json:"is_open_now"`
+	// HasHours indica si el negocio configuró algún horario; sin esto el
+	// frontend no puede distinguir "cerrado ahora" de "sin horario configurado".
+	HasHours bool `json:"has_hours"`
 }
 
 // EntityDetailDTO is the full view for a single entity page.
@@ -49,6 +63,10 @@ type EntityDetailDTO struct {
 	IsFavorite  bool    `json:"is_favorite"`
 
 	Subcategories []SubcategoryResponse `json:"subcategories,omitempty"`
+
+	ServiceMode models.ServiceMode `json:"service_mode"`
+	Hours       []HourResponse     `json:"hours,omitempty"`
+	IsOpenNow   bool               `json:"is_open_now"`
 
 	// Simplified Gallery
 	Photos []PhotoResponse `json:"photos,omitempty"`

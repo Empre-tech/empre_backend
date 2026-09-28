@@ -38,3 +38,16 @@ func (s *ChatService) FindMessagesHistory(entityID, userID uuid.UUID, page, page
 func (s *ChatService) SendMessage(message *models.Message) error {
 	return s.repo.CreateMessage(message)
 }
+
+// UnreadCounts returns, per conversation, how many unread messages the
+// viewer has waiting from the other side.
+func (s *ChatService) UnreadCounts(viewerID uuid.UUID) ([]repository.ConversationUnreadCount, error) {
+	return s.repo.UnreadCountsForViewer(viewerID)
+}
+
+// MarkConversationRead marks the other side's messages in one conversation as
+// read, from readerID's point of view. Best-effort: callers should log and
+// continue rather than fail the request if this errors.
+func (s *ChatService) MarkConversationRead(entityID, targetUserID, readerID uuid.UUID) error {
+	return s.repo.MarkConversationRead(entityID, targetUserID, readerID)
+}

@@ -2,6 +2,7 @@ package repository
 
 import (
 	"empre_backend/internal/models"
+	"empre_backend/pkg/utils"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -28,17 +29,17 @@ func (r *EntityRepository) FindByID(id uuid.UUID) (*models.Entity, error) {
 	var entity models.Entity
 	err := r.DB.Joins("Category").Joins("ProfileMedia").Joins("BannerMedia").Preload("Photos", func(db *gorm.DB) *gorm.DB {
 		return db.Joins("Media")
-	}).Preload("Subcategories").First(&entity, "entities.id = ?", id).Error
+	}).Preload("Subcategories").Preload("Hours").First(&entity, "entities.id = ?", id).Error
 	return &entity, err
 }
 
-func (r *EntityRepository) FindAll(lat, long, radius float64, categoryID, subcategoryID, query string, page, pageSize int) ([]models.Entity, int64, error) {
+func (r *EntityRepository) FindAll(lat, long, radius float64, categoryID, subcategoryID, query string, openNow bool, page, pageSize int) ([]models.Entity, int64, error) {
 	var entities []models.Entity
 	var total int64
 
 	db := r.DB.Model(&models.Entity{}).Joins("Category").Joins("ProfileMedia").Joins("BannerMedia").Preload("Photos", func(db *gorm.DB) *gorm.DB {
 		return db.Joins("Media")
-	}).Preload("Subcategories")
+	}).Preload("Subcategories").Preload("Hours")
 
 	// Filter by Category
 	if categoryID != "" {
@@ -80,6 +81,29 @@ func (r *EntityRepository) FindAll(lat, long, radius float64, categoryID, subcat
 
 		db = db.Where("latitude BETWEEN ? AND ?", minLat, maxLat).
 			Where("longitude BETWEEN ? AND ?", minLong, maxLong)
+	}
+
+	// Filter by "open now": comparamos contra el horario de HOY y de AYER (para
+	// negocios cuyo horario de ayer cruza la medianoche y sigue "abierto" ya
+	// entrada la madrugada de hoy).
+	if openNow {
+		now := utils.NowInCartagena()
+		today := int(now.Weekday())
+		yesterday := (today + 6) % 7
+		nowTime := now.Format("15:04")
+
+		db = db.Where(
+			`EXISTS (
+				SELECT 1 FROM business_hours bh
+				WHERE bh.entity_id = entities.id AND (
+					(bh.weekday = ? AND bh.is24h = true)
+					OR (bh.weekday = ? AND bh.closed = false AND bh.is24h = false AND bh.close_time > bh.open_time AND ? >= bh.open_time AND ? < bh.close_time)
+					OR (bh.weekday = ? AND bh.closed = false AND bh.is24h = false AND bh.close_time <= bh.open_time AND ? >= bh.open_time)
+					OR (bh.weekday = ? AND bh.closed = false AND bh.is24h = false AND bh.close_time <= bh.open_time AND ? < bh.close_time)
+				)
+			)`,
+			today, today, nowTime, nowTime, today, nowTime, yesterday, nowTime,
+		)
 	}
 
 	// Count total records before applying pagination
@@ -140,6 +164,24 @@ func (r *EntityRepository) SetSubcategories(entity *models.Entity, subcategoryID
 	}
 
 	return r.DB.Model(entity).Association("Subcategories").Replace(subs)
+}
+
+// SetHours replaces an entity's weekly schedule (one row per weekday). An
+// empty slice clears it back to "sin horario especificado".
+func (r *EntityRepository) SetHours(entity *models.Entity, hours []models.BusinessHour) error {
+	return r.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("entity_id = ?", entity.ID).Delete(&models.BusinessHour{}).Error; err != nil {
+			return err
+		}
+		if len(hours) == 0 {
+			return nil
+		}
+		for i := range hours {
+			hours[i].ID = uuid.UUID{}
+			hours[i].EntityID = entity.ID
+		}
+		return tx.Create(&hours).Error
+	})
 }
 
 func (r *EntityRepository) Delete(entity *models.Entity) error {

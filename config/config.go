@@ -27,6 +27,9 @@ type Config struct {
 	SMTPUser       string
 	SMTPPass       string
 	SMTPSender     string
+	AIAPIKey       string
+	AIBaseURL      string
+	AIModel        string
 }
 
 func LoadConfig() *Config {
@@ -55,6 +58,13 @@ func LoadConfig() *Config {
 		SMTPUser:       getEnv("SMTP_USER", ""),
 		SMTPPass:       getEnv("SMTP_PASS", ""),
 		SMTPSender:     getEnv("SMTP_SENDER", ""),
+		// OpenCode Zen: un solo API key da acceso a varios modelos (Claude, GPT,
+		// Gemini, etc.) a través de un endpoint compatible con la Anthropic
+		// Messages API. Sin AI_API_KEY el asistente de creación con IA queda
+		// deshabilitado (el resto de la app funciona igual).
+		AIAPIKey:  getEnv("AI_API_KEY", ""),
+		AIBaseURL: getEnv("AI_BASE_URL", "https://opencode.ai/zen/v1"),
+		AIModel:   getEnv("AI_MODEL", "claude-haiku-4-5"),
 	}
 }
 

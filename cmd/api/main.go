@@ -58,6 +58,7 @@ func main() {
 		&models.Review{},
 		&models.Favorite{},
 		&models.PushToken{},
+		&models.BusinessHour{},
 	)
 	if err != nil {
 		log.Fatal("Migration failed: ", err)
@@ -106,6 +107,12 @@ func main() {
 	reviewService := services.NewReviewService(reviewRepo)
 	favoriteService := services.NewFavoriteService(favoriteRepo)
 	pushService := services.NewPushService(pushTokenRepo)
+	aiService := services.NewAIService(cfg.AIAPIKey, cfg.AIBaseURL, cfg.AIModel)
+	if aiService.Enabled() {
+		log.Println("AI Assistant: enabled (model " + cfg.AIModel + ")")
+	} else {
+		log.Println("AI Assistant: disabled (no AI_API_KEY)")
+	}
 
 	// Initialize Handlers
 	authHandler := handlers.NewAuthHandler(authService)
@@ -116,6 +123,7 @@ func main() {
 	reviewHandler := handlers.NewReviewHandler(reviewService, userService, entityService, pushService)
 	favoriteHandler := handlers.NewFavoriteHandler(favoriteService, entityService, reviewService, pushService)
 	pushHandler := handlers.NewPushHandler(pushService)
+	aiHandler := handlers.NewAIHandler(aiService, categoryService)
 
 	wsHub := websocket.NewHub(database.DB, pushService)
 	go wsHub.Run()
@@ -191,6 +199,14 @@ func main() {
 			usersProtected.GET("/me/favorites", favoriteHandler.FindMine)
 			usersProtected.POST("/push-token", pushHandler.Register)
 			usersProtected.DELETE("/push-token", pushHandler.Remove)
+		}
+
+		// Asistente de IA para crear negocios (solo dueños autenticados).
+		aiGroup := api.Group("/ai")
+		aiGroup.Use(middleware.AuthMiddleware(cfg))
+		{
+			aiGroup.POST("/business-assistant", aiHandler.BusinessAssistant)
+			aiGroup.POST("/writing-assistant", aiHandler.ImproveText)
 		}
 
 		// Admin (Protected, role=admin only)

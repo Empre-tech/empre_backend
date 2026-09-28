@@ -42,7 +42,7 @@ func (s *EntityService) FindByID(id uuid.UUID) (*models.Entity, error) {
 	return entity, err
 }
 
-func (s *EntityService) FindAll(lat, long, radius float64, categoryID, subcategoryID, query string, page, pageSize int) ([]models.Entity, int64, error) {
+func (s *EntityService) FindAll(lat, long, radius float64, categoryID, subcategoryID, query string, openNow bool, page, pageSize int) ([]models.Entity, int64, error) {
 	if page <= 0 {
 		page = 1
 	}
@@ -50,7 +50,7 @@ func (s *EntityService) FindAll(lat, long, radius float64, categoryID, subcatego
 		pageSize = 20
 	}
 
-	entities, total, err := s.Repo.FindAll(lat, long, radius, categoryID, subcategoryID, query, page, pageSize)
+	entities, total, err := s.Repo.FindAll(lat, long, radius, categoryID, subcategoryID, query, openNow, page, pageSize)
 	if err == nil {
 		var wg sync.WaitGroup
 		for i := range entities {
@@ -95,6 +95,11 @@ func (s *EntityService) DeleteEntity(entity *models.Entity) error {
 // SetEntitySubcategories replaces an entity's subcategory associations.
 func (s *EntityService) SetEntitySubcategories(entity *models.Entity, subcategoryIDs []uuid.UUID) error {
 	return s.Repo.SetSubcategories(entity, subcategoryIDs)
+}
+
+// SetEntityHours replaces an entity's weekly schedule.
+func (s *EntityService) SetEntityHours(entity *models.Entity, hours []models.BusinessHour) error {
+	return s.Repo.SetHours(entity, hours)
 }
 
 // FindAllByStatus lists entities filtered by moderation status (Admin only).

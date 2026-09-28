@@ -12,9 +12,12 @@ type ConversationResponse struct {
 	EntityID     uuid.UUID       `json:"entity_id"`      // Business the conversation belongs to
 	Content      string          `json:"content"`        // Latest message snippet
 	CreatedAt    time.Time       `json:"created_at"`     // Latest message time
-	IsRead       bool            `json:"is_read"`        // Read status
+	IsRead       bool            `json:"is_read"`        // Read status of the latest message only
 	SentByEntity bool            `json:"sent_by_entity"` // True if sent by the business
 	OtherParty   OtherPartyStats `json:"other_party"`    // The other person/entity in the chat
+	// UnreadCount is how many messages from the OTHER side are still unread
+	// in this conversation (not just whether the latest one is read).
+	UnreadCount int64 `json:"unread_count"`
 }
 
 // MessageResponse represents a detailed message in a conversation history.

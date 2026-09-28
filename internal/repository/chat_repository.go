@@ -61,3 +61,49 @@ func (r *ChatRepository) FindMessagesHistory(entityID, userID uuid.UUID, page, p
 func (r *ChatRepository) CreateMessage(message *models.Message) error {
 	return r.DB.Create(message).Error
 }
+
+// ConversationUnreadCount is how many unread messages a given viewer has
+// waiting in one conversation (one entity + one customer).
+type ConversationUnreadCount struct {
+	EntityID uuid.UUID
+	UserID   uuid.UUID
+	Unread   int64
+}
+
+// UnreadCountsForViewer returns, for every conversation the viewer is part of
+// (as the customer, or as the owner of the business), how many messages sent
+// by the OTHER side are still unread. This is what "unread messages" should
+// mean, as opposed to just counting how many conversations exist.
+func (r *ChatRepository) UnreadCountsForViewer(viewerID uuid.UUID) ([]ConversationUnreadCount, error) {
+	var rows []ConversationUnreadCount
+	err := r.DB.Raw(`
+		SELECT m.entity_id AS entity_id, m.user_id AS user_id, COUNT(*) AS unread
+		FROM messages m
+		JOIN entities e ON m.entity_id = e.id
+		WHERE m.deleted_at IS NULL
+		  AND m.is_read = false
+		  AND (
+		    (e.owner_id = ? AND m.sent_by_entity = false)
+		    OR (m.user_id = ? AND m.sent_by_entity = true)
+		  )
+		GROUP BY m.entity_id, m.user_id
+	`, viewerID, viewerID).Scan(&rows).Error
+	return rows, err
+}
+
+// MarkConversationRead marks every unread message sent by the OTHER side of
+// one conversation as read, from readerID's point of view: if readerID owns
+// the business, it marks the customer's messages; otherwise it marks the
+// business' messages (readerID is then the customer, targetUserID == readerID).
+func (r *ChatRepository) MarkConversationRead(entityID, targetUserID, readerID uuid.UUID) error {
+	var entity models.Entity
+	if err := r.DB.Select("owner_id").First(&entity, "id = ?", entityID).Error; err != nil {
+		return err
+	}
+	// true  -> reader is the customer: mark the business' messages as read.
+	// false -> reader is the owner: mark the customer's messages as read.
+	markSentByEntity := entity.OwnerID != readerID
+	return r.DB.Model(&models.Message{}).
+		Where("entity_id = ? AND user_id = ? AND sent_by_entity = ? AND is_read = false", entityID, targetUserID, markSentByEntity).
+		Update("is_read", true).Error
+}
