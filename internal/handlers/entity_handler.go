@@ -167,6 +167,7 @@ func (h *EntityHandler) Create(c *gin.Context) {
 	}
 
 	entity := models.Entity{
+		ID:             uuid.New(),
 		OwnerID:        userID.(uuid.UUID),
 		Name:           req.Name,
 		Description:    req.Description,
@@ -181,14 +182,22 @@ func (h *EntityHandler) Create(c *gin.Context) {
 		ServiceMode:    models.ServiceMode(req.ServiceMode),
 	}
 
-	// Handle Gallery
+	// Handle Gallery: at creation time each photo becomes its own
+	// single-photo Post (no shared caption here yet — that comes later via
+	// UploadImage/UpdateImageCaption, same as before this changed).
 	if len(req.Gallery) > 0 {
-		for i, idStr := range req.Gallery {
+		for _, idStr := range req.Gallery {
 			mediaID, err := uuid.Parse(idStr)
 			if err == nil {
-				entity.Photos = append(entity.Photos, models.EntityPhoto{
-					MediaID: mediaID,
-					Order:   i,
+				entity.Posts = append(entity.Posts, models.Post{
+					EntityID: entity.ID,
+					Photos: []models.EntityPhoto{
+						{
+							EntityID: entity.ID,
+							MediaID:  mediaID,
+							Order:    0,
+						},
+					},
 				})
 			}
 		}
@@ -223,8 +232,9 @@ func (h *EntityHandler) Create(c *gin.Context) {
 			ID:          p.ID,
 			URL:         p.Media.URL,
 			Order:       p.Order,
-			Caption:     p.Caption,
+			Caption:     p.Post.Caption,
 			ContentType: p.Media.ContentType,
+			CreatedAt:   p.Post.CreatedAt,
 		})
 	}
 
@@ -288,8 +298,9 @@ func (h *EntityHandler) FindByID(c *gin.Context) {
 			ID:          p.ID,
 			URL:         p.Media.URL,
 			Order:       p.Order,
-			Caption:     p.Caption,
+			Caption:     p.Post.Caption,
 			ContentType: p.Media.ContentType,
+			CreatedAt:   p.Post.CreatedAt,
 		})
 	}
 
@@ -538,18 +549,23 @@ func (h *EntityHandler) Update(c *gin.Context) {
 	// In a real app, you might want more granular sync (add/remove/reorder),
 	// but for now, we'll replace the whole list if provided.
 	if len(req.Gallery) > 0 {
-		var newPhotos []models.EntityPhoto
-		for i, idStr := range req.Gallery {
+		var newPosts []models.Post
+		for _, idStr := range req.Gallery {
 			mediaID, err := uuid.Parse(idStr)
 			if err == nil {
-				newPhotos = append(newPhotos, models.EntityPhoto{
+				newPosts = append(newPosts, models.Post{
 					EntityID: existing.ID,
-					MediaID:  mediaID,
-					Order:    i,
+					Photos: []models.EntityPhoto{
+						{
+							EntityID: existing.ID,
+							MediaID:  mediaID,
+							Order:    0,
+						},
+					},
 				})
 			}
 		}
-		existing.Photos = newPhotos
+		existing.Posts = newPosts
 	}
 
 	if err := h.Service.UpdateEntity(existing); err != nil {
@@ -711,12 +727,20 @@ func (h *EntityHandler) UploadImage(c *gin.Context) {
 		existing.BannerMediaID = &media.ID
 		h.Service.UpdateEntity(existing)
 	case "gallery":
-		photo := models.EntityPhoto{
+		// Cada subida de galería es, por ahora, su propio Post de una sola
+		// foto (el front todavía sube de a una) — el modelo ya soporta N
+		// fotos por Post para cuando el front suba varias a la vez.
+		post := models.Post{
 			EntityID: entityID,
-			MediaID:  media.ID,
 			// Caption opcional: el nuevo flujo de "publicar" deja escribirla en
 			// la misma pantalla en vez de subir la foto y luego editarla aparte.
 			Caption: c.PostForm("caption"),
+		}
+		h.DB.Create(&post)
+		photo := models.EntityPhoto{
+			PostID:   post.ID,
+			EntityID: entityID,
+			MediaID:  media.ID,
 		}
 		h.DB.Create(&photo)
 	}
@@ -765,7 +789,13 @@ func (h *EntityHandler) DeleteImage(c *gin.Context) {
 		return
 	}
 
-	result := h.DB.Where("id = ? AND entity_id = ?", photoID, entityID).Delete(&models.EntityPhoto{})
+	var photo models.EntityPhoto
+	if err := h.DB.Where("id = ? AND entity_id = ?", photoID, entityID).First(&photo).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Photo not found"})
+		return
+	}
+
+	result := h.DB.Delete(&photo)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
 		return
@@ -773,6 +803,13 @@ func (h *EntityHandler) DeleteImage(c *gin.Context) {
 	if result.RowsAffected == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Photo not found"})
 		return
+	}
+
+	// Si era la última foto de su Post, no dejamos un Post vacío colgando.
+	var remaining int64
+	h.DB.Model(&models.EntityPhoto{}).Where("post_id = ?", photo.PostID).Count(&remaining)
+	if remaining == 0 {
+		h.DB.Delete(&models.Post{}, "id = ?", photo.PostID)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Photo deleted successfully"})
@@ -826,7 +863,15 @@ func (h *EntityHandler) UpdateImageCaption(c *gin.Context) {
 		return
 	}
 
-	result := h.DB.Model(&models.EntityPhoto{}).Where("id = ? AND entity_id = ?", photoID, entityID).Update("caption", req.Caption)
+	var photo models.EntityPhoto
+	if err := h.DB.Where("id = ? AND entity_id = ?", photoID, entityID).First(&photo).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Photo not found"})
+		return
+	}
+
+	// La descripción es del Post (compartida por todas las fotos del
+	// carrusel), no de la foto individual.
+	result := h.DB.Model(&models.Post{}).Where("id = ?", photo.PostID).Update("caption", req.Caption)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
 		return
@@ -962,8 +1007,9 @@ func (h *EntityHandler) VerifyEntity(c *gin.Context) {
 			ID:          p.ID,
 			URL:         p.Media.URL,
 			Order:       p.Order,
-			Caption:     p.Caption,
+			Caption:     p.Post.Caption,
 			ContentType: p.Media.ContentType,
+			CreatedAt:   p.Post.CreatedAt,
 		})
 	}
 

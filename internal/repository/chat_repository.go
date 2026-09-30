@@ -62,6 +62,19 @@ func (r *ChatRepository) CreateMessage(message *models.Message) error {
 	return r.DB.Create(message).Error
 }
 
+// CountDistinctCustomers returns how many different customers (user_id) have
+// ever written to this business. Used to gate the free trial by real demand
+// instead of by a calendar date: un mensaje de un mismo cliente repetido no
+// cuenta más de una vez, así que esto mide alcance real, no volumen de chat.
+func (r *ChatRepository) CountDistinctCustomers(entityID uuid.UUID) (int64, error) {
+	var count int64
+	err := r.DB.Model(&models.Message{}).
+		Where("entity_id = ? AND sent_by_entity = ?", entityID, false).
+		Distinct("user_id").
+		Count(&count).Error
+	return count, err
+}
+
 // ConversationUnreadCount is how many unread messages a given viewer has
 // waiting in one conversation (one entity + one customer).
 type ConversationUnreadCount struct {

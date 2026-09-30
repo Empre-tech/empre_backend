@@ -62,8 +62,16 @@ func (s *MediaService) GetFile(mediaID uuid.UUID) (io.ReadCloser, string, error)
 	return s.StorageService.GetFile(media.S3Key)
 }
 
+// LinkToEntity attaches an already-uploaded media file to an entity as a new,
+// single-photo Post (currently unused, kept for parity with MediaService's
+// other helpers).
 func (s *MediaService) LinkToEntity(entityID, mediaID uuid.UUID, order int) error {
+	post := &models.Post{EntityID: entityID}
+	if err := s.Repo.DB.Create(post).Error; err != nil {
+		return err
+	}
 	photo := &models.EntityPhoto{
+		PostID:   post.ID,
 		EntityID: entityID,
 		MediaID:  mediaID,
 		Order:    order,

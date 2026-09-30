@@ -36,6 +36,11 @@ Copia la plantilla y rellénala (el `.env` real **nunca** se sube a Git):
 cp .env.example .env        # en PowerShell: copy .env.example .env
 ```
 
+> El equipo comparte un mismo proyecto de Supabase (y el bucket de S3), así que **pide las credenciales reales
+> al equipo** en vez de inventarlas — con eso todos ven los mismos negocios/usuarios de prueba. Si prefieres una
+> base de datos aislada solo para ti (sin tocar los datos compartidos), usa el Postgres local con Docker que se
+> explica más abajo, en "¿No tienes una base de datos Postgres a mano?".
+
 Variables principales (ver `.env.example` para la lista completa):
 
 | Variable | Descripción |
@@ -52,6 +57,10 @@ Al arrancar, el backend migra las tablas y, si la base está vacía, crea las ca
 ---
 
 ## 🚀 Instalación y Ejecución
+
+> **Windows**: Docker Desktop requiere WSL2 (te lo pide al instalar si no lo tienes). Corre los comandos desde
+> PowerShell o una terminal de WSL. Si vas a usar la Opción B (Go local), instala Go para Windows desde
+> [go.dev/dl](https://go.dev/dl/) — el `go run` de abajo funciona igual en PowerShell.
 
 ### Opción A: Docker (recomendada, no requiere Go)
 ```bash
@@ -81,6 +90,19 @@ Si añades nuevos endpoints o cambias los comentarios de los handlers, regenera 
 ```bash
 go run github.com/swaggo/swag/cmd/swag@latest init -g cmd/api/main.go
 ```
+
+### ⚠️ Utilidades para reiniciar la base de datos (destructivas)
+
+Como el equipo comparte una sola base de datos (Supabase), **estos comandos borran los datos de todos**, no solo
+los tuyos — úsalos solo si el equipo está de acuerdo, nunca por probar. Requieren Go local (`go run ...`; no hay
+equivalente en Docker) y usan el mismo `.env` que `cmd/api`, así que apuntan a la base que tengas configurada ahí.
+
+- `go run ./cmd/resetall` — borra todos los negocios (con todo lo que cuelga de ellos: chats, reseñas, favoritos,
+  fotos/publicaciones, horarios, suscripciones) y todas las cuentas que no sean admin. Pide confirmación
+  (escribir "si") antes de borrar. Las categorías/admins sobreviven; las categorías por defecto se recrean solas
+  la próxima vez que arranque `cmd/api`.
+- `go run ./cmd/resetcatalog` — borra negocios, categorías y subcategorías, y recrea el catálogo de categorías
+  por defecto. También pide confirmación.
 
 ---
 
@@ -197,3 +219,65 @@ sin historial, para pedir 2-3 opciones de texto listas para usar.
   más corto). `current_text`, `business_name` y `category_name` son opcionales — dan mejor contexto si se mandan.
 - Usa el mismo `AIService`/API key que el asistente conversacional; si `AI_API_KEY` no está configurada, responde 503.
 - Igual que el asistente conversacional, el dueño siempre elige una opción a mano: nada se guarda solo.
+
+## Suscripción de negocios (pagos con Wompi)
+
+Cada negocio (`Entity`) tiene una fila en `subscriptions` (`inactive` | `active` + `current_period_end`).
+Cada intento de pago queda registrado en `subscription_payments` (auditoría: referencia, monto,
+estado, id de la transacción en Wompi).
+
+Endpoints (todos requieren sesión y ser el dueño del negocio, excepto el webhook):
+
+- `GET /api/entities/:id/subscription` — estado actual del plan.
+- `POST /api/entities/:id/subscription/checkout` — crea un intento de pago (`PENDING`) y devuelve los
+  datos firmados que necesita el Widget Web Checkout de Wompi: `public_key`, `reference`,
+  `amount_in_cents`, `currency`, `signature`, `redirect_url`.
+- `POST /api/payments/wompi/webhook` — público (lo llama Wompi, no un usuario). Verifica la firma del
+  evento con `WOMPI_EVENTS_SECRET` antes de aplicar nada. En `transaction.updated` con status
+  `APPROVED`, activa/extiende la suscripción 30 días desde el vencimiento actual (o desde hoy si
+  estaba vencida).
+
+Variables de entorno (ver `.env.example`): `WOMPI_PUBLIC_KEY`, `WOMPI_INTEGRITY_SECRET`,
+`WOMPI_EVENTS_SECRET`, `WOMPI_REDIRECT_URL`. Sin `WOMPI_PUBLIC_KEY`/`WOMPI_INTEGRITY_SECRET`, el
+checkout responde 503 y el resto de la app sigue funcionando igual.
+
+El precio del plan (`ProMonthlyPriceCOP`, hoy $39.900 COP/mes) y el nombre del plan
+(`PlanProMonthly`) están hardcodeados en `internal/services/subscription_service.go`; si mañana hay
+más de un plan, eso pasa a ser una tabla en vez de constantes.
+
+### Prueba gratis por demanda real, no por fecha
+
+En vez de un trial de N días, el negocio es gratis hasta que le escriban `FreeTrialCustomerThreshold`
+(hoy 10) **clientes distintos** — mensajes repetidos del mismo cliente no cuentan más de una vez. La
+idea: no tiene sentido pedirle a un negocio que pague por destacar si todavía no le está llegando
+demanda real; el que paga es el que ya está recibiendo contactos.
+
+- `ChatRepository.CountDistinctCustomers` cuenta `user_id` distintos que le han escrito a un negocio.
+- `GET /api/entities/:id/subscription` devuelve `{ subscription, distinct_customers, trial_threshold,
+  requires_payment }` — el frontend usa esto para mostrar una barra de progreso mientras
+  `requires_payment` es `false`, y el llamado a pagar cuando se vuelve `true`.
+- Cuando un mensaje de un cliente hace que un negocio cruce el umbral (`websocket/hub.go`, tras
+  guardar el mensaje), `SubscriptionService.CheckTrialThreshold` le manda al dueño **una sola vez**
+  una notificación push ("Ya te están contactando en Empre") — `Subscription.TrialThresholdNotifiedAt`
+  evita que se repita en cada mensaje nuevo.
+- **Sí hay una consecuencia real** (si no, nadie pagaría): pasado un margen de gracia de
+  `TrialGracePeriodDays` (7 días) desde ese aviso, si sigue sin pagar, `EntityRepository.FindAll`
+  (el mapa y las búsquedas) deja de devolver ese negocio — `NOT EXISTS` contra `subscriptions` en la
+  misma query, sin tocar `FindByID`. Esto es deliberadamente parcial:
+  - El negocio deja de aparecer para clientes NUEVOS (mapa/búsqueda), que es el costo real de no pagar.
+  - Las conversaciones que YA tenía siguen abiertas — un cliente que ya le escribió lo puede seguir
+    viendo y hablándole (no se le rompe nada a una relación que ya existía).
+  - Nunca se borra el negocio ni se bloquea por completo: apenas paga, `ActivateSubscription` lo
+    reactiva (y limpia `TrialThresholdNotifiedAt`, así que si el plan vuelve a vencer más adelante
+    recibe un aviso y un margen de gracia nuevos, no el de esta vez).
+  - El número de días vive en dos lugares que hay que mantener sincronizados a mano:
+    `services.TrialGracePeriodDays` y el `INTERVAL '7 days'` hardcodeado en `entity_repository.go`
+    (no hay una sola fuente de verdad entre la constante de Go y el SQL crudo).
+
+Pendiente/decisiones futuras:
+- Qué desbloquea exactamente el plan (hoy es solo el estado "Pro"; falta decidir y aplicar el gate,
+  ej. destacar el negocio en el mapa/búsquedas).
+- Renovación hoy es manual (el dueño vuelve a pagar); Wompi permite recurrencia con tarjetas
+  tokenizadas pero requiere un flujo de tokenización PCI que no se implementó en este MVP.
+- No hay cron que avise antes de que venza; se podría enviar un push unos días antes usando
+  `PushService` + `Repo.FindTokensByUser` sobre el dueño.

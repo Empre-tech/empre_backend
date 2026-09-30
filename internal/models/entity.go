@@ -52,7 +52,11 @@ type Entity struct {
 	// Associations
 	Owner         User           `gorm:"foreignKey:OwnerID" json:"-"`
 	Category      Category       `gorm:"foreignKey:CategoryID" json:"category"`
-	Photos        []EntityPhoto  `gorm:"foreignKey:EntityID" json:"photos"`
+	// Photos: every photo/video of this business, flat (used by the profile grid).
+	Photos []EntityPhoto `gorm:"foreignKey:EntityID" json:"photos"`
+	// Posts: the same photos grouped by publication, each with its own shared
+	// caption (used by the feed-style single-post view).
+	Posts         []Post         `gorm:"foreignKey:EntityID" json:"posts,omitempty"`
 	Subcategories []Subcategory  `gorm:"many2many:entity_subcategories;" json:"-"`
 	Hours         []BusinessHour `gorm:"foreignKey:EntityID" json:"hours,omitempty"`
 

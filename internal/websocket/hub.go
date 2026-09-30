@@ -38,6 +38,11 @@ type Hub struct {
 	// not connected to this hub (so they get a chat message even with the app
 	// closed). Optional: nil disables push for chat, WebSocket delivery still works.
 	PushService *services.PushService
+
+	// SubscriptionService checks (after a customer message) whether a
+	// business just crossed the free-trial threshold, to push the "activate
+	// your plan" notice. Optional: nil just skips that check.
+	SubscriptionService *services.SubscriptionService
 }
 
 type MessageEnvelope struct {
@@ -45,14 +50,15 @@ type MessageEnvelope struct {
 	Client *Client
 }
 
-func NewHub(db *gorm.DB, pushService *services.PushService) *Hub {
+func NewHub(db *gorm.DB, pushService *services.PushService, subscriptionService *services.SubscriptionService) *Hub {
 	return &Hub{
-		Messages:    make(chan MessageEnvelope),
-		Register:    make(chan *Client),
-		Unregister:  make(chan *Client),
-		Clients:     make(map[uuid.UUID]*Client),
-		DB:          db,
-		PushService: pushService,
+		Messages:            make(chan MessageEnvelope),
+		Register:            make(chan *Client),
+		Unregister:          make(chan *Client),
+		Clients:             make(map[uuid.UUID]*Client),
+		DB:                  db,
+		PushService:         pushService,
+		SubscriptionService: subscriptionService,
 	}
 }
 
@@ -155,6 +161,12 @@ func (h *Hub) handleIncoming(envelope MessageEnvelope) {
 
 	h.RouteMessage(&msg, data, senderID)
 	h.notifyOffline(&msg, &entity, senderID, content)
+
+	// Solo un mensaje de un cliente hacia el negocio puede sumar un cliente
+	// distinto nuevo; revisamos aquí si eso acaba de cruzar el umbral gratis.
+	if !msg.SentByEntity && h.SubscriptionService != nil {
+		go h.SubscriptionService.CheckTrialThreshold(msg.EntityID)
+	}
 }
 
 // notifyOffline sends a push notification to the other party in the

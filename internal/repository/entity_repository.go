@@ -106,6 +106,24 @@ func (r *EntityRepository) FindAll(lat, long, radius float64, categoryID, subcat
 		)
 	}
 
+	// Ocultar del mapa/búsqueda (descubrimiento) los negocios que superaron el
+	// umbral gratis de clientes distintos y no tienen un plan activo, PERO ya
+	// pasó el margen de gracia desde que se les avisó (7 días — mismo valor
+	// que services.TrialGracePeriodDays, se mantiene igual a mano). Un
+	// negocio recién avisado sigue apareciendo durante el margen; uno que ya
+	// pagó nunca entra aquí porque su suscripción queda 'active'. Esto NO
+	// afecta FindByID: un cliente que ya tiene una conversación con el
+	// negocio lo sigue viendo y le puede seguir escribiendo.
+	db = db.Where(
+		`NOT EXISTS (
+			SELECT 1 FROM subscriptions sub
+			WHERE sub.entity_id = entities.id
+				AND sub.status != 'active'
+				AND sub.trial_threshold_notified_at IS NOT NULL
+				AND sub.trial_threshold_notified_at < NOW() - INTERVAL '7 days'
+		)`,
+	)
+
 	// Count total records before applying pagination
 	db.Count(&total)
 
@@ -126,7 +144,7 @@ func (r *EntityRepository) FindAllByOwner(ownerID uuid.UUID, page, pageSize int)
 	offset := (page - 1) * pageSize
 	err := db.Joins("Category").Joins("ProfileMedia").Joins("BannerMedia").Preload("Photos", func(db *gorm.DB) *gorm.DB {
 		return db.Joins("Media")
-	}).Preload("Subcategories").Limit(pageSize).Offset(offset).Find(&entities).Error
+	}).Preload("Photos.Post").Preload("Subcategories").Limit(pageSize).Offset(offset).Find(&entities).Error
 
 	return entities, total, err
 }

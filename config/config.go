@@ -30,6 +30,16 @@ type Config struct {
 	AIAPIKey       string
 	AIBaseURL      string
 	AIModel        string
+
+	// Wompi (pasarela de pagos para la suscripción de negocios). Sin
+	// WOMPI_PUBLIC_KEY / WOMPI_INTEGRITY_SECRET, los pagos quedan
+	// deshabilitados (el resto de la app funciona igual).
+	WompiPublicKey      string
+	WompiIntegritySecret string
+	WompiEventsSecret   string
+	// A dónde redirige Wompi al terminar el pago en el widget (una pantalla
+	// de la app vía deep link, ej. empre://subscription/success).
+	WompiRedirectURL string
 }
 
 func LoadConfig() *Config {
@@ -65,6 +75,11 @@ func LoadConfig() *Config {
 		AIAPIKey:  getEnv("AI_API_KEY", ""),
 		AIBaseURL: getEnv("AI_BASE_URL", "https://opencode.ai/zen/v1"),
 		AIModel:   getEnv("AI_MODEL", "claude-haiku-4-5"),
+
+		WompiPublicKey:       getEnv("WOMPI_PUBLIC_KEY", ""),
+		WompiIntegritySecret: getEnv("WOMPI_INTEGRITY_SECRET", ""),
+		WompiEventsSecret:    getEnv("WOMPI_EVENTS_SECRET", ""),
+		WompiRedirectURL:     getEnv("WOMPI_REDIRECT_URL", "empre://subscription/result"),
 	}
 }
 

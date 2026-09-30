@@ -1,6 +1,10 @@
 package dtos
 
-import "github.com/google/uuid"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
 
 // PhotoResponse is a simplified photo/video view. A "publicacion" can be a
 // photo or a short video; the frontend tells them apart from ContentType
@@ -12,4 +16,7 @@ type PhotoResponse struct {
 	Order       int       `json:"order"`
 	Caption     string    `json:"caption"`
 	ContentType string    `json:"content_type"`
+	// CreatedAt is the owning Post's creation time (when it was published),
+	// used to show "Publicado hace X días" in the post viewer.
+	CreatedAt time.Time `json:"created_at"`
 }

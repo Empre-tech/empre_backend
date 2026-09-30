@@ -29,6 +29,10 @@ type AIChatRequest struct {
 // tool. Every field is optional: the model fills in what it already knows and
 // leaves the rest for a later turn (or for the owner to fill by hand).
 type AIBusinessDraft struct {
+	// Name es el nombre YA DECIDIDO por el dueño (él te lo dijo tal cual).
+	Name string `json:"name,omitempty"`
+	// NameSuggestions son opciones que TÚ propones cuando el dueño todavía
+	// no tiene un nombre decidido. Nunca llenes las dos a la vez.
 	NameSuggestions []string      `json:"name_suggestions,omitempty"`
 	Description     string        `json:"description,omitempty"`
 	CategoryID      string        `json:"category_id,omitempty"`
@@ -49,10 +53,14 @@ const businessDraftToolName = "propose_business_draft"
 var businessDraftToolSchema = json.RawMessage(`{
 	"type": "object",
 	"properties": {
+		"name": {
+			"type": "string",
+			"description": "El nombre EXACTO que el dueño ya decidió y te dijo para su negocio. Solo llena esto cuando el dueño ya lo confirmó (aunque sea al principio de la conversación); no lo repitas como sugerencia."
+		},
 		"name_suggestions": {
 			"type": "array",
 			"items": {"type": "string"},
-			"description": "1 a 3 nombres sugeridos para el negocio, solo si el dueño todavía no tiene uno decidido."
+			"description": "1 a 3 nombres sugeridos para el negocio, SOLO si el dueño todavía no tiene uno decidido y te pidió (o aceptaría) ideas. Nunca la llenes junto con \"name\"."
 		},
 		"description": {
 			"type": "string",
@@ -97,7 +105,7 @@ var businessDraftToolSchema = json.RawMessage(`{
 const aiSystemPromptTemplate = `Eres el asistente de creación de negocios de Empre, una app para descubrir negocios en Cartagena, Colombia. Estás ayudando al DUEÑO de un negocio a crear su perfil conversando con él en español, de forma cálida, breve y cercana (como alguien de Cartagena), nunca con listas ni formato de encuesta.
 
 Tu meta es reunir, con preguntas cortas (una o dos a la vez, nunca un cuestionario largo):
-- Nombre del negocio (si no lo tiene decidido, sugiere 1-3 opciones basadas en lo que cuenta).
+- Nombre del negocio: si el dueño ya te lo dice (en cualquier momento de la conversación, aunque sea de pasada), guárdalo tal cual en el campo "name" de la herramienta. Si todavía no tiene uno decidido, sugiere 1-3 opciones en "name_suggestions" basadas en lo que cuenta.
 - Una descripción atractiva para su perfil (tú la escribes con base en lo que él te cuenta, no le preguntes "escribe tu descripción").
 - Categoría y subcategoría: SOLO puedes usar las de esta lista exacta (usa sus IDs tal cual, nunca inventes uno):
 %s
@@ -216,6 +224,9 @@ func (h *AIHandler) BusinessAssistant(c *gin.Context) {
 // (the model calling the tool more than once in the same turn is rare, but
 // cheap to handle correctly).
 func mergeAIDraft(dst, src *AIBusinessDraft) {
+	if src.Name != "" {
+		dst.Name = src.Name
+	}
 	if len(src.NameSuggestions) > 0 {
 		dst.NameSuggestions = src.NameSuggestions
 	}

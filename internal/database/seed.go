@@ -29,6 +29,11 @@ var defaultCategories = []defaultCategory{
 	{"Tecnología", "hardware-chip-outline"},
 	{"Turismo y hospedaje", "bed-outline"},
 	{"Educación", "school-outline"},
+	{"Automotriz", "car-outline"},
+	{"Mascotas", "paw-outline"},
+	{"Eventos y fiestas", "gift-outline"},
+	{"Fotografía y diseño", "camera-outline"},
+	{"Deporte y recreación", "basketball-outline"},
 	{"Otros", "ellipsis-horizontal-circle-outline"},
 }
 
@@ -83,6 +88,8 @@ var defaultSubcategories = map[string][]string{
 		"Supermercado / minimarket",
 		"Artesanías y regalos",
 		"Electrónica",
+		"Papelería",
+		"Ferretería",
 	},
 	"Belleza y peluquería": {
 		"Peluquería",
@@ -101,6 +108,8 @@ var defaultSubcategories = map[string][]string{
 		"Electricidad",
 		"Limpieza",
 		"Jardinería",
+		"Mudanzas",
+		"Fumigación",
 	},
 	"Tecnología": {
 		"Reparación de celulares",
@@ -117,6 +126,35 @@ var defaultSubcategories = map[string][]string{
 		"Academia / instituto",
 		"Clases particulares",
 		"Idiomas",
+	},
+	"Automotriz": {
+		"Taller mecánico",
+		"Lavadero de carros",
+		"Repuestos y accesorios",
+		"Alquiler de vehículos",
+	},
+	"Mascotas": {
+		"Veterinaria",
+		"Peluquería canina",
+		"Tienda de mascotas",
+		"Guardería y paseo de mascotas",
+	},
+	"Eventos y fiestas": {
+		"Decoración y alquiler",
+		"Catering",
+		"DJ y sonido",
+		"Organización de eventos",
+	},
+	"Fotografía y diseño": {
+		"Fotografía",
+		"Diseño gráfico",
+		"Impresión y publicidad",
+	},
+	"Deporte y recreación": {
+		"Gimnasio / crossfit",
+		"Clases y entrenadores",
+		"Alquiler de canchas",
+		"Tienda deportiva",
 	},
 }
 
@@ -170,23 +208,7 @@ func SeedSubcategories(db *gorm.DB) {
 // rows; orphaned files can be cleaned up separately if needed.
 func ResetCatalog(db *gorm.DB) error {
 	return db.Transaction(func(tx *gorm.DB) error {
-		// Children of Entity first, respecting foreign keys.
-		if err := tx.Exec("DELETE FROM messages").Error; err != nil {
-			return err
-		}
-		if err := tx.Exec("DELETE FROM reviews").Error; err != nil {
-			return err
-		}
-		if err := tx.Exec("DELETE FROM favorites").Error; err != nil {
-			return err
-		}
-		if err := tx.Exec("DELETE FROM entity_subcategories").Error; err != nil {
-			return err
-		}
-		if err := tx.Exec("DELETE FROM entity_photos").Error; err != nil {
-			return err
-		}
-		if err := tx.Exec("DELETE FROM entities").Error; err != nil {
+		if err := deleteAllBusinessData(tx); err != nil {
 			return err
 		}
 
@@ -195,6 +217,94 @@ func ResetCatalog(db *gorm.DB) error {
 			return err
 		}
 		if err := tx.Exec("DELETE FROM categories").Error; err != nil {
+			return err
+		}
+
+		return nil
+	})
+}
+
+// deleteAllBusinessData deletes every business (Entity) and everything that
+// hangs off one, in the order their foreign keys require. Factored out of
+// ResetCatalog so ResetEverythingExceptAdmins can reuse it without also
+// touching categories/subcategories (those two reset functions disagree on
+// whether the catalog itself should survive).
+//
+// NOTE: subscriptions, subscription_payments and business_hours used to be
+// missing from this cleanup (ResetCatalog predates all three features), so a
+// reset used to leave orphaned rows behind referencing deleted entities.
+// Fixed here.
+func deleteAllBusinessData(tx *gorm.DB) error {
+	if err := tx.Exec("DELETE FROM messages").Error; err != nil {
+		return err
+	}
+	if err := tx.Exec("DELETE FROM reviews").Error; err != nil {
+		return err
+	}
+	if err := tx.Exec("DELETE FROM favorites").Error; err != nil {
+		return err
+	}
+	if err := tx.Exec("DELETE FROM entity_subcategories").Error; err != nil {
+		return err
+	}
+	if err := tx.Exec("DELETE FROM entity_photos").Error; err != nil {
+		return err
+	}
+	if err := tx.Exec("DELETE FROM posts").Error; err != nil {
+		return err
+	}
+	if err := tx.Exec("DELETE FROM business_hours").Error; err != nil {
+		return err
+	}
+	if err := tx.Exec("DELETE FROM subscription_payments").Error; err != nil {
+		return err
+	}
+	if err := tx.Exec("DELETE FROM subscriptions").Error; err != nil {
+		return err
+	}
+	if err := tx.Exec("DELETE FROM entities").Error; err != nil {
+		return err
+	}
+	return nil
+}
+
+// ResetEverythingExceptAdmins wipes the whole database back to a blank
+// slate — every business and everything hanging off it (deleteAllBusinessData,
+// same as ResetCatalog), the catalog (categories/subcategories), and every
+// user account that is NOT models.RoleAdmin, along with that user's own
+// tokens. Admin accounts (and the default categories/icons, reseeded right
+// after by SeedCategories/SeedSubcategories once the app starts back up) are
+// the only things left standing.
+//
+// Like ResetCatalog, this is meant to be run once, deliberately, from a
+// one-off command (never from the API) — see cmd/resetall. It does not touch
+// the underlying S3 media objects, only database rows.
+func ResetEverythingExceptAdmins(db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := deleteAllBusinessData(tx); err != nil {
+			return err
+		}
+		if err := tx.Exec("DELETE FROM subcategories").Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("DELETE FROM categories").Error; err != nil {
+			return err
+		}
+
+		// Tokens of the users we're about to delete.
+		nonAdmin := "(SELECT id FROM users WHERE role <> 'admin')"
+		if err := tx.Exec("DELETE FROM refresh_tokens WHERE user_id IN " + nonAdmin).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("DELETE FROM push_tokens WHERE user_id IN " + nonAdmin).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("DELETE FROM password_reset_tokens WHERE user_id IN " + nonAdmin).Error; err != nil {
+			return err
+		}
+
+		// Finally, the non-admin users themselves.
+		if err := tx.Exec("DELETE FROM users WHERE role <> 'admin'").Error; err != nil {
 			return err
 		}
 

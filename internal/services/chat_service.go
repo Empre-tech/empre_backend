@@ -51,3 +51,9 @@ func (s *ChatService) UnreadCounts(viewerID uuid.UUID) ([]repository.Conversatio
 func (s *ChatService) MarkConversationRead(entityID, targetUserID, readerID uuid.UUID) error {
 	return s.repo.MarkConversationRead(entityID, targetUserID, readerID)
 }
+
+// DistinctCustomerCount returns how many different customers have written to
+// this business (used to gate the free trial by real demand).
+func (s *ChatService) DistinctCustomerCount(entityID uuid.UUID) (int64, error) {
+	return s.repo.CountDistinctCustomers(entityID)
+}

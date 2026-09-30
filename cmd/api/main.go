@@ -44,6 +44,13 @@ func main() {
 	// Connect to Database
 	database.ConnectDB(cfg)
 
+	// Deja lista la tabla entity_photos para la migración al modelo Post
+	// (ver el comentario de PrepareForPostMigration): sin esto, AutoMigrate
+	// falla la primera vez que corre sobre una base de datos de antes de Post.
+	if err := database.PrepareForPostMigration(database.DB); err != nil {
+		log.Fatal("No se pudo preparar la base de datos para la migración de Post: ", err)
+	}
+
 	// Auto Migrate
 	err := database.DB.AutoMigrate(
 		&models.User{},
@@ -52,6 +59,7 @@ func main() {
 		&models.Category{},
 		&models.Subcategory{},
 		&models.Media{},
+		&models.Post{},
 		&models.EntityPhoto{},
 		&models.PasswordResetToken{},
 		&models.RefreshToken{},
@@ -59,6 +67,8 @@ func main() {
 		&models.Favorite{},
 		&models.PushToken{},
 		&models.BusinessHour{},
+		&models.Subscription{},
+		&models.SubscriptionPayment{},
 	)
 	if err != nil {
 		log.Fatal("Migration failed: ", err)
@@ -85,6 +95,7 @@ func main() {
 	reviewRepo := repository.NewReviewRepository(database.DB)
 	favoriteRepo := repository.NewFavoriteRepository(database.DB)
 	pushTokenRepo := repository.NewPushTokenRepository(database.DB)
+	subscriptionRepo := repository.NewSubscriptionRepository(database.DB)
 
 	// Initialize Services
 	storageService := services.NewStorageService(cfg)
@@ -107,6 +118,12 @@ func main() {
 	reviewService := services.NewReviewService(reviewRepo)
 	favoriteService := services.NewFavoriteService(favoriteRepo)
 	pushService := services.NewPushService(pushTokenRepo)
+	subscriptionService := services.NewSubscriptionService(subscriptionRepo, chatService, pushService, entityService, cfg.WompiPublicKey, cfg.WompiIntegritySecret, cfg.WompiEventsSecret, cfg.WompiRedirectURL)
+	if subscriptionService.Enabled() {
+		log.Println("Pagos: Wompi habilitado")
+	} else {
+		log.Println("Pagos: deshabilitados (faltan WOMPI_PUBLIC_KEY / WOMPI_INTEGRITY_SECRET)")
+	}
 	aiService := services.NewAIService(cfg.AIAPIKey, cfg.AIBaseURL, cfg.AIModel)
 	if aiService.Enabled() {
 		log.Println("AI Assistant: enabled (model " + cfg.AIModel + ")")
@@ -124,8 +141,9 @@ func main() {
 	favoriteHandler := handlers.NewFavoriteHandler(favoriteService, entityService, reviewService, pushService)
 	pushHandler := handlers.NewPushHandler(pushService)
 	aiHandler := handlers.NewAIHandler(aiService, categoryService)
+	paymentHandler := handlers.NewPaymentHandler(subscriptionService, entityService)
 
-	wsHub := websocket.NewHub(database.DB, pushService)
+	wsHub := websocket.NewHub(database.DB, pushService, subscriptionService)
 	go wsHub.Run()
 	chatHandler := handlers.NewChatHandler(wsHub, chatService)
 
@@ -163,6 +181,8 @@ func main() {
 				entitiesProtected.POST("/:id/reviews", reviewHandler.Upsert)
 				entitiesProtected.DELETE("/:id/reviews", reviewHandler.Delete)
 				entitiesProtected.GET("/:id/reviews/mine", reviewHandler.FindMine)
+				entitiesProtected.GET("/:id/subscription", paymentHandler.GetSubscription)
+				entitiesProtected.POST("/:id/subscription/checkout", paymentHandler.CreateCheckout)
 			}
 		}
 
@@ -223,6 +243,13 @@ func main() {
 			adminGroup.POST("/subcategories", categoryHandler.CreateSubcategory)
 			adminGroup.PUT("/subcategories/:id", categoryHandler.UpdateSubcategory)
 			adminGroup.DELETE("/subcategories/:id", categoryHandler.DeleteSubcategory)
+		}
+
+		// Pagos (webhook público: lo llama Wompi, no un usuario autenticado;
+		// se protege con la firma de eventos en vez de un JWT).
+		paymentsGroup := api.Group("/payments")
+		{
+			paymentsGroup.POST("/wompi/webhook", paymentHandler.Webhook)
 		}
 
 		// Swagger Documentation
