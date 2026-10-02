@@ -178,9 +178,12 @@ func (h *ChatHandler) FindMessagesHistory(c *gin.Context) {
 	// Al abrir esta conversación, se marcan como leídos los mensajes del OTRO
 	// lado: si soy el dueño, los del cliente; si soy el cliente, los del
 	// negocio. Best-effort: si falla, igual devolvemos el historial (no tiene
-	// sentido bloquear la conversación por esto).
-	if err := h.service.MarkConversationRead(entityID, targetUserID, currentUserID); err != nil {
+	// sentido bloquear la conversación por esto). Si el que los mandó sigue
+	// conectado, le avisamos en vivo por WebSocket que ya se los leyeron.
+	if recipientID, err := h.service.MarkConversationRead(entityID, targetUserID, currentUserID); err != nil {
 		log.Println("chat: no pudimos marcar la conversación como leída:", err)
+	} else {
+		h.Hub.BroadcastRead(entityID, recipientID)
 	}
 
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))

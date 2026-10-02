@@ -239,6 +239,32 @@ func (h *Hub) RouteMessage(msg *models.Message, rawData []byte, senderID uuid.UU
 	}
 }
 
+// ReadReceipt is the frame sent to whoever sent some messages, when the
+// other side opens the conversation and those messages get marked as read.
+// The "event" field is how the client tells this apart from a chat message
+// (models.Message never has one) without changing that format at all.
+type ReadReceipt struct {
+	Event    string    `json:"event"`
+	EntityID uuid.UUID `json:"entity_id"`
+}
+
+// BroadcastRead tells recipientID, best-effort and only if they're currently
+// connected, that their messages in this conversation were just read. Silent
+// no-op if they're offline — they'll see the updated status next time they
+// fetch the conversation's history.
+func (h *Hub) BroadcastRead(entityID, recipientID uuid.UUID) {
+	data, err := json.Marshal(ReadReceipt{Event: "conversation_read", EntityID: entityID})
+	if err != nil {
+		log.Println("Error marshaling read receipt:", err)
+		return
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if client, ok := h.Clients[recipientID]; ok {
+		h.deliver(client, data)
+	}
+}
+
 // deliver queues data for a client without ever blocking the hub on a slow connection.
 func (h *Hub) deliver(client *Client, data []byte) {
 	select {

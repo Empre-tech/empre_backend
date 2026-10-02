@@ -47,8 +47,9 @@ func (s *ChatService) UnreadCounts(viewerID uuid.UUID) ([]repository.Conversatio
 
 // MarkConversationRead marks the other side's messages in one conversation as
 // read, from readerID's point of view. Best-effort: callers should log and
-// continue rather than fail the request if this errors.
-func (s *ChatService) MarkConversationRead(entityID, targetUserID, readerID uuid.UUID) error {
+// continue rather than fail the request if this errors. Returns who sent
+// those messages (to notify them in real time that they were read).
+func (s *ChatService) MarkConversationRead(entityID, targetUserID, readerID uuid.UUID) (uuid.UUID, error) {
 	return s.repo.MarkConversationRead(entityID, targetUserID, readerID)
 }
 
