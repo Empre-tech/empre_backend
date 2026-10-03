@@ -6,15 +6,16 @@ import (
 	"empre_backend/internal/models"
 )
 
-// cartagenaZone is Colombia's fixed UTC-5 offset (no DST). Using a fixed
+// colombiaZone is Colombia's fixed UTC-5 offset (no DST). Using a fixed
 // zone instead of time.LoadLocation("America/Bogota") avoids depending on
 // the IANA tzdata being present in the deployment image.
-var cartagenaZone = time.FixedZone("America/Bogota", -5*60*60)
+var colombiaZone = time.FixedZone("America/Bogota", -5*60*60)
 
-// NowInCartagena returns the current time in Cartagena's timezone, the
+// NowInColombia returns the current time in Colombia's timezone (same
+// offset nationwide, used for every business regardless of its city), the
 // reference clock for every "abierto ahora" computation.
-func NowInCartagena() time.Time {
-	return time.Now().In(cartagenaZone)
+func NowInColombia() time.Time {
+	return time.Now().In(colombiaZone)
 }
 
 // IsOpenNow reports whether a business is open right now, given its weekly

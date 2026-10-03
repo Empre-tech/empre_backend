@@ -262,7 +262,7 @@ func (h *EntityHandler) Create(c *gin.Context) {
 		Photos:             photos,
 		ServiceMode:        fullEntity.ServiceMode,
 		Hours:              hourDTOs(fullEntity.Hours),
-		IsOpenNow:          utils.IsOpenNow(fullEntity.Hours, utils.NowInCartagena()),
+		IsOpenNow:          utils.IsOpenNow(fullEntity.Hours, utils.NowInColombia()),
 	}
 
 	c.JSON(http.StatusCreated, response)
@@ -340,7 +340,7 @@ func (h *EntityHandler) FindByID(c *gin.Context) {
 		IsFavorite:         isFavorite,
 		ServiceMode:        entity.ServiceMode,
 		Hours:              hourDTOs(entity.Hours),
-		IsOpenNow:          utils.IsOpenNow(entity.Hours, utils.NowInCartagena()),
+		IsOpenNow:          utils.IsOpenNow(entity.Hours, utils.NowInColombia()),
 	}
 
 	c.JSON(http.StatusOK, response)
@@ -415,7 +415,7 @@ func (h *EntityHandler) FindAll(c *gin.Context) {
 			AvgRating:    summary.Avg,
 			ReviewCount:  summary.Count,
 			ServiceMode:  e.ServiceMode,
-			IsOpenNow:    utils.IsOpenNow(e.Hours, utils.NowInCartagena()),
+			IsOpenNow:    utils.IsOpenNow(e.Hours, utils.NowInColombia()),
 			HasHours:     len(e.Hours) > 0,
 		})
 	}
@@ -1037,7 +1037,7 @@ func (h *EntityHandler) VerifyEntity(c *gin.Context) {
 		Photos:             photos,
 		ServiceMode:        entity.ServiceMode,
 		Hours:              hourDTOs(entity.Hours),
-		IsOpenNow:          utils.IsOpenNow(entity.Hours, utils.NowInCartagena()),
+		IsOpenNow:          utils.IsOpenNow(entity.Hours, utils.NowInColombia()),
 	}
 
 	c.JSON(http.StatusOK, response)

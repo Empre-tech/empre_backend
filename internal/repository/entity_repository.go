@@ -87,7 +87,7 @@ func (r *EntityRepository) FindAll(lat, long, radius float64, categoryID, subcat
 	// negocios cuyo horario de ayer cruza la medianoche y sigue "abierto" ya
 	// entrada la madrugada de hoy).
 	if openNow {
-		now := utils.NowInCartagena()
+		now := utils.NowInColombia()
 		today := int(now.Weekday())
 		yesterday := (today + 6) % 7
 		nowTime := now.Format("15:04")

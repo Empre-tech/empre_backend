@@ -162,7 +162,7 @@ declarar cómo presta el servicio.
   ... 6=sábado, igual a `Date.getDay()` en JS). Cada fila tiene `closed`, `is_24h`, `open_time`/`close_time`
   (formato `"HH:MM"`). Si `close_time <= open_time` se interpreta como un horario que cruza la medianoche (ej. un bar
   de 18:00 a 02:00).
-- La hora "actual" para calcular si un negocio está abierto usa un offset fijo UTC-5 (hora de Cartagena), sin
+- La hora "actual" para calcular si un negocio está abierto usa un offset fijo UTC-5 (hora de Colombia, igual en todo el país), sin
   depender de que el contenedor tenga tzdata instalado.
 - `POST /api/entities` y `PUT /api/entities/:id` aceptan `service_mode` y `hours: [{weekday, closed, is_24h,
   open_time, close_time}, ...]`.
