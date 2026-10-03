@@ -200,6 +200,7 @@ func main() {
 			chatGroup.GET("/ws", chatHandler.HandleWebSocket)
 			chatGroup.GET("/conversations", chatHandler.FindAllConversations)
 			chatGroup.GET("/history/:entity_id", chatHandler.FindMessagesHistory)
+			chatGroup.GET("/presence/:entity_id", chatHandler.GetPresence)
 		}
 
 		// Images (Public Proxy for <img> tags)

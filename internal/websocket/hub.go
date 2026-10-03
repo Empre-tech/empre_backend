@@ -265,6 +265,16 @@ func (h *Hub) BroadcastRead(entityID, recipientID uuid.UUID) {
 	}
 }
 
+// IsOnline reports whether userID currently has a live WebSocket connection
+// to this hub (used to show real "en línea" presence in the chat, not just
+// whether the viewer's own socket is connected).
+func (h *Hub) IsOnline(userID uuid.UUID) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	_, ok := h.Clients[userID]
+	return ok
+}
+
 // deliver queues data for a client without ever blocking the hub on a slow connection.
 func (h *Hub) deliver(client *Client, data []byte) {
 	select {

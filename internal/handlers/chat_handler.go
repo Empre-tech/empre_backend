@@ -205,6 +205,59 @@ func (h *ChatHandler) FindMessagesHistory(c *gin.Context) {
 	})
 }
 
+// GetPresence reports whether the other party of a conversation is
+// currently connected (has a live WebSocket), so the chat screen can show a
+// real "en línea" / "desconectado" status instead of describing the
+// viewer's own connection.
+// @Summary Conversation presence
+// @Description Whether the other party in this conversation is currently online
+// @Tags Chat
+// @Produce json
+// @Security BearerAuth
+// @Param entity_id path string true "Entity ID"
+// @Param user_id query string false "User ID (Owner only usage: which customer)"
+// @Success 200 {object} map[string]bool
+// @Failure 400 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Router /api/chat/presence/{entity_id} [get]
+func (h *ChatHandler) GetPresence(c *gin.Context) {
+	entityIDStr := c.Param("entity_id")
+	entityID, err := uuid.Parse(entityIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid Entity ID format"})
+		return
+	}
+
+	var otherPartyID uuid.UUID
+	if userIDStr := c.Query("user_id"); userIDStr != "" {
+		// El dueño pregunta por un cliente puntual: la otra parte es ese cliente.
+		otherPartyID, err = uuid.Parse(userIDStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid User ID format"})
+			return
+		}
+	} else if ownerIDStr := c.Query("owner_id"); ownerIDStr != "" {
+		// El cliente ya trae el owner_id (lo obtuvo al cargar el negocio): nos lo
+		// pasa directo para no pegarle a la base de datos en cada sondeo de presencia.
+		otherPartyID, err = uuid.Parse(ownerIDStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid Owner ID format"})
+			return
+		}
+	} else {
+		// Respaldo si el cliente no mandó owner_id: el cliente pregunta por el
+		// negocio, la otra parte es quien lo administra.
+		var entity models.Entity
+		if err := h.DB.Select("owner_id").First(&entity, "id = ?", entityID).Error; err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Entity not found"})
+			return
+		}
+		otherPartyID = entity.OwnerID
+	}
+
+	c.JSON(http.StatusOK, gin.H{"online": h.Hub.IsOnline(otherPartyID)})
+}
+
 // SendMessage sends a message via REST and broadcasts it to WebSocket
 // @Summary Send a message
 // @Tags Chat
