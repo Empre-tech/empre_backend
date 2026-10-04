@@ -248,7 +248,7 @@ func (h *ChatHandler) GetPresence(c *gin.Context) {
 		// Respaldo si el cliente no mandó owner_id: el cliente pregunta por el
 		// negocio, la otra parte es quien lo administra.
 		var entity models.Entity
-		if err := h.DB.Select("owner_id").First(&entity, "id = ?", entityID).Error; err != nil {
+		if err := h.Hub.DB.Select("owner_id").First(&entity, "id = ?", entityID).Error; err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Entity not found"})
 			return
 		}
