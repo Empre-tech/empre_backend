@@ -51,6 +51,12 @@ func (s *PushService) RemoveToken(token string) error {
 // the action that triggered it (sending a chat message, leaving a review,
 // etc.), so this never returns an error and does its work in a goroutine.
 func (s *PushService) Notify(userID uuid.UUID, title, body string, data map[string]string) {
+	s.NotifyWithCategory(userID, title, body, data, "")
+}
+
+// NotifyWithCategory is Notify plus an Expo notification category: the app
+// registers the category's action buttons (e.g. Aceptar / Rechazar).
+func (s *PushService) NotifyWithCategory(userID uuid.UUID, title, body string, data map[string]string, categoryID string) {
 	tokens, err := s.Repo.FindTokensByUser(userID)
 	if err != nil {
 		log.Println("push: could not load tokens for user", userID, err)
@@ -59,7 +65,7 @@ func (s *PushService) Notify(userID uuid.UUID, title, body string, data map[stri
 	if len(tokens) == 0 {
 		return
 	}
-	go s.send(tokens, title, body, data)
+	go s.send(tokens, title, body, data, categoryID)
 }
 
 type expoMessage struct {
@@ -68,6 +74,8 @@ type expoMessage struct {
 	Body  string            `json:"body"`
 	Data  map[string]string `json:"data,omitempty"`
 	Sound string            `json:"sound,omitempty"`
+	// CategoryID selects the action buttons the app registered for it.
+	CategoryID string `json:"categoryId,omitempty"`
 }
 
 type expoPushResponse struct {
@@ -80,10 +88,10 @@ type expoPushResponse struct {
 	} `json:"data"`
 }
 
-func (s *PushService) send(tokens []string, title, body string, data map[string]string) {
+func (s *PushService) send(tokens []string, title, body string, data map[string]string, categoryID string) {
 	messages := make([]expoMessage, 0, len(tokens))
 	for _, token := range tokens {
-		messages = append(messages, expoMessage{To: token, Title: title, Body: body, Data: data, Sound: "default"})
+		messages = append(messages, expoMessage{To: token, Title: title, Body: body, Data: data, Sound: "default", CategoryID: categoryID})
 	}
 
 	payload, err := json.Marshal(messages)

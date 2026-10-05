@@ -275,6 +275,19 @@ func (h *Hub) IsOnline(userID uuid.UUID) bool {
 	return ok
 }
 
+// SendFrame delivers a raw frame to userID if they are connected. Returns
+// whether the user was connected (so callers can fall back to push).
+func (h *Hub) SendFrame(userID uuid.UUID, data []byte) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	client, ok := h.Clients[userID]
+	if !ok {
+		return false
+	}
+	h.deliver(client, data)
+	return true
+}
+
 // deliver queues data for a client without ever blocking the hub on a slow connection.
 func (h *Hub) deliver(client *Client, data []byte) {
 	select {

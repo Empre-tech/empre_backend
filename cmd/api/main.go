@@ -18,6 +18,7 @@
 package main
 
 import (
+	"context"
 	"log"
 
 	"empre_backend/config"
@@ -69,9 +70,17 @@ func main() {
 		&models.BusinessHour{},
 		&models.Subscription{},
 		&models.SubscriptionPayment{},
+		&models.AgendaSettings{},
+		&models.AppointmentService{},
+		&models.Appointment{},
 	)
 	if err != nil {
 		log.Fatal("Migration failed: ", err)
+	}
+
+	// Restricción anti-solapamiento de la agenda (AutoMigrate no crea exclusiones).
+	if err := database.EnsureAgendaConstraints(database.DB); err != nil {
+		log.Fatal("No se pudo crear la restricción de la agenda: ", err)
 	}
 
 	// Seed default categories (and their subcategories) on a fresh database
@@ -124,6 +133,7 @@ func main() {
 	} else {
 		log.Println("Pagos: deshabilitados (faltan WOMPI_PUBLIC_KEY / WOMPI_INTEGRITY_SECRET)")
 	}
+	agendaService := services.NewAgendaService(database.DB, pushService)
 	aiService := services.NewAIService(cfg.AIAPIKey, cfg.AIBaseURL, cfg.AIModel)
 	if aiService.Enabled() {
 		log.Println("AI Assistant: enabled (model " + cfg.AIModel + ")")
@@ -142,10 +152,16 @@ func main() {
 	pushHandler := handlers.NewPushHandler(pushService)
 	aiHandler := handlers.NewAIHandler(aiService, categoryService)
 	paymentHandler := handlers.NewPaymentHandler(subscriptionService, entityService)
+	agendaHandler := handlers.NewAgendaHandler(agendaService)
 
 	wsHub := websocket.NewHub(database.DB, pushService, subscriptionService)
 	go wsHub.Run()
 	chatHandler := handlers.NewChatHandler(wsHub, chatService)
+
+	// La agenda empuja cambios por WebSocket y corre su proceso de fondo
+	// (expiración, recordatorios y cierre) cada 30 segundos.
+	agendaService.SetRealtime(wsHub)
+	agendaService.StartAgendaJobs(context.Background())
 
 	// Routes
 	api := r.Group("/api")
@@ -183,6 +199,19 @@ func main() {
 				entitiesProtected.GET("/:id/reviews/mine", reviewHandler.FindMine)
 				entitiesProtected.GET("/:id/subscription", paymentHandler.GetSubscription)
 				entitiesProtected.POST("/:id/subscription/checkout", paymentHandler.CreateCheckout)
+
+				// Agenda de citas
+				entitiesProtected.GET("/:id/agenda/summary", agendaHandler.Summary)
+				entitiesProtected.GET("/:id/agenda/availability", agendaHandler.Availability)
+				entitiesProtected.GET("/:id/agenda", agendaHandler.BusinessView)
+				entitiesProtected.GET("/:id/agenda/settings", agendaHandler.GetSettings)
+				entitiesProtected.PUT("/:id/agenda/settings", agendaHandler.UpdateSettings)
+				entitiesProtected.GET("/:id/agenda/services", agendaHandler.ListServices)
+				entitiesProtected.POST("/:id/agenda/services", agendaHandler.CreateService)
+				entitiesProtected.PUT("/:id/agenda/services/:serviceId", agendaHandler.UpdateService)
+				entitiesProtected.DELETE("/:id/agenda/services/:serviceId", agendaHandler.DeleteService)
+				entitiesProtected.POST("/:id/agenda/blocks", agendaHandler.CreateBlock)
+				entitiesProtected.DELETE("/:id/agenda/blocks/:blockId", agendaHandler.DeleteBlock)
 			}
 		}
 
@@ -201,6 +230,19 @@ func main() {
 			chatGroup.GET("/conversations", chatHandler.FindAllConversations)
 			chatGroup.GET("/history/:entity_id", chatHandler.FindMessagesHistory)
 			chatGroup.GET("/presence/:entity_id", chatHandler.GetPresence)
+		}
+
+		// Citas (cliente y negocio; la autorización se resuelve por cita)
+		appointments := api.Group("/appointments")
+		appointments.Use(middleware.AuthMiddleware(cfg))
+		{
+			appointments.POST("", agendaHandler.Create)
+			appointments.GET("/mine", agendaHandler.Mine)
+			appointments.GET("/:id", agendaHandler.Get)
+			appointments.POST("/:id/accept", agendaHandler.Accept)
+			appointments.POST("/:id/decline", agendaHandler.Decline)
+			appointments.POST("/:id/cancel", agendaHandler.Cancel)
+			appointments.POST("/:id/outcome", agendaHandler.Outcome)
 		}
 
 		// Images (Public Proxy for <img> tags)
