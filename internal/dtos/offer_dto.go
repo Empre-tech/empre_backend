@@ -15,6 +15,7 @@ type OfferResponse struct {
 	Type         string    `json:"type"`
 	Title        string    `json:"title"`
 	Price        string    `json:"price"`
+	NormalPrice  string    `json:"normal_price,omitempty"`
 	Conditions   string    `json:"conditions,omitempty"`
 	StartsAt     time.Time `json:"starts_at"`
 	EndsAt       time.Time `json:"ends_at"`
@@ -37,6 +38,7 @@ func OfferResponseFrom(o *models.Offer) OfferResponse {
 		Type:         string(o.Type),
 		Title:        o.Title,
 		Price:        o.Price,
+		NormalPrice:  o.NormalPrice,
 		Conditions:   o.Conditions,
 		StartsAt:     o.StartsAt,
 		EndsAt:       o.EndsAt,

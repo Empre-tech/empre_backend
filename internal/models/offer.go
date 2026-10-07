@@ -47,7 +47,9 @@ type Offer struct {
 	// Immutable content.
 	Title      string `gorm:"not null" json:"title"`
 	Price      string `json:"price"`
-	Conditions string `json:"conditions"`
+	// NormalPrice es el valor habitual (opcional); si está, se muestra el ahorro.
+	NormalPrice string `json:"normal_price"`
+	Conditions  string `json:"conditions"`
 
 	// Vigencia.
 	StartsAt time.Time `json:"starts_at"`

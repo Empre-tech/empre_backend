@@ -24,6 +24,7 @@ type CreateOfferRequest struct {
 	Type         string    `json:"type" binding:"required"`
 	Title        string    `json:"title" binding:"required"`
 	Price        string    `json:"price"`
+	NormalPrice  string    `json:"normal_price"`
 	Conditions   string    `json:"conditions"`
 	EndsAt       time.Time `json:"ends_at" binding:"required"`
 	TotalSlots   int       `json:"total_slots" binding:"required"`
@@ -69,6 +70,7 @@ func (h *OfferHandler) Publish(c *gin.Context) {
 		Type:         models.OfferType(req.Type),
 		Title:        req.Title,
 		Price:        req.Price,
+		NormalPrice:  req.NormalPrice,
 		Conditions:   req.Conditions,
 		EndsAt:       req.EndsAt,
 		TotalSlots:   req.TotalSlots,
@@ -183,6 +185,7 @@ func (h *OfferHandler) Republish(c *gin.Context) {
 		Type:         models.OfferType(req.Type),
 		Title:        req.Title,
 		Price:        req.Price,
+		NormalPrice:  req.NormalPrice,
 		Conditions:   req.Conditions,
 		EndsAt:       req.EndsAt,
 		TotalSlots:   req.TotalSlots,

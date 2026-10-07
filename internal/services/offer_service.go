@@ -41,6 +41,7 @@ type PublishOfferInput struct {
 	Type         models.OfferType
 	Title        string
 	Price        string
+	NormalPrice  string
 	Conditions   string
 	EndsAt       time.Time
 	TotalSlots   int
@@ -97,6 +98,7 @@ func (s *OfferService) publish(entityID uuid.UUID, in PublishOfferInput) (*model
 		Type:         in.Type,
 		Title:        in.Title,
 		Price:        in.Price,
+		NormalPrice:  in.NormalPrice,
 		Conditions:   in.Conditions,
 		StartsAt:     now,
 		EndsAt:       in.EndsAt,
@@ -171,6 +173,9 @@ func (s *OfferService) Republish(oldOfferID, ownerID uuid.UUID, in PublishOfferI
 	}
 	if in.Price == "" {
 		in.Price = old.Price
+	}
+	if in.NormalPrice == "" {
+		in.NormalPrice = old.NormalPrice
 	}
 	if in.Conditions == "" {
 		in.Conditions = old.Conditions
