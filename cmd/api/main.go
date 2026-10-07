@@ -19,6 +19,7 @@ package main
 
 import (
 	"log"
+	"time"
 
 	"empre_backend/config"
 	"empre_backend/internal/database"
@@ -69,6 +70,10 @@ func main() {
 		&models.BusinessHour{},
 		&models.Subscription{},
 		&models.SubscriptionPayment{},
+		&models.Offer{},
+		&models.OfferClaim{},
+		&models.BusinessStatus{},
+		&models.Signal{},
 	)
 	if err != nil {
 		log.Fatal("Migration failed: ", err)
@@ -96,6 +101,9 @@ func main() {
 	favoriteRepo := repository.NewFavoriteRepository(database.DB)
 	pushTokenRepo := repository.NewPushTokenRepository(database.DB)
 	subscriptionRepo := repository.NewSubscriptionRepository(database.DB)
+	offerRepo := repository.NewOfferRepository(database.DB)
+	claimRepo := repository.NewClaimRepository(database.DB)
+	signalRepo := repository.NewSignalRepository(database.DB)
 
 	// Initialize Services
 	storageService := services.NewStorageService(cfg)
@@ -131,17 +139,26 @@ func main() {
 		log.Println("AI Assistant: disabled (no AI_API_KEY)")
 	}
 
+	offerService := services.NewOfferService(offerRepo, entityRepo)
+	signalService := services.NewSignalService(signalRepo)
+	claimService := services.NewClaimService(claimRepo, offerRepo, entityRepo, userRepo, signalService)
+	rankingService := services.NewRankingService(entityService, reviewService, offerRepo, signalService)
+
 	// Initialize Handlers
 	authHandler := handlers.NewAuthHandler(authService)
 	userHandler := handlers.NewUserHandler(userService, mediaService)
 	mediaHandler := handlers.NewMediaHandler(mediaService)
-	entityHandler := handlers.NewEntityHandler(entityService, mediaService, database.DB, reviewService, favoriteService, pushService)
+	entityHandler := handlers.NewEntityHandler(entityService, mediaService, database.DB, reviewService, favoriteService, pushService, signalService)
 	categoryHandler := handlers.NewCategoryHandler(categoryService)
 	reviewHandler := handlers.NewReviewHandler(reviewService, userService, entityService, pushService)
-	favoriteHandler := handlers.NewFavoriteHandler(favoriteService, entityService, reviewService, pushService)
+	favoriteHandler := handlers.NewFavoriteHandler(favoriteService, entityService, reviewService, pushService, signalService)
 	pushHandler := handlers.NewPushHandler(pushService)
 	aiHandler := handlers.NewAIHandler(aiService, categoryService)
 	paymentHandler := handlers.NewPaymentHandler(subscriptionService, entityService)
+	offerHandler := handlers.NewOfferHandler(offerService)
+	claimHandler := handlers.NewClaimHandler(claimService)
+	discoveryHandler := handlers.NewDiscoveryHandler(rankingService)
+	statusHandler := handlers.NewStatusHandler(database.DB)
 
 	wsHub := websocket.NewHub(database.DB, pushService, subscriptionService)
 	go wsHub.Run()
@@ -165,6 +182,8 @@ func main() {
 			entities.GET("", entityHandler.FindAll)
 			entities.GET("/:id", middleware.OptionalAuth(cfg), entityHandler.FindByID)
 			entities.GET("/:id/reviews", reviewHandler.FindByEntity)
+			entities.GET("/:id/offer", offerHandler.Active)
+			entities.GET("/:id/status", statusHandler.Get)
 
 			// Protected mutations
 			entitiesProtected := entities.Use(middleware.AuthMiddleware(cfg))
@@ -183,6 +202,9 @@ func main() {
 				entitiesProtected.GET("/:id/reviews/mine", reviewHandler.FindMine)
 				entitiesProtected.GET("/:id/subscription", paymentHandler.GetSubscription)
 				entitiesProtected.POST("/:id/subscription/checkout", paymentHandler.CreateCheckout)
+				entitiesProtected.POST("/:id/offers", offerHandler.Publish)
+				entitiesProtected.GET("/:id/offers", offerHandler.List)
+				entitiesProtected.PATCH("/:id/status", statusHandler.Update)
 			}
 		}
 
@@ -191,6 +213,31 @@ func main() {
 			// Public viewing. Mutations live under /admin (admin only).
 			categories.GET("", categoryHandler.FindAll)
 			categories.GET("/:id", categoryHandler.FindByID)
+		}
+
+		// Descubrimiento: ranking contextual + diversificación (público).
+		api.GET("/discovery", discoveryHandler.Discover)
+
+		// Ofertas: acciones del negocio (quick actions, republish) y reclamo
+		// del usuario. La publicación/listado vive bajo /entities/:id/offers.
+		offers := api.Group("/offers")
+		offers.Use(middleware.AuthMiddleware(cfg))
+		{
+			offers.PATCH("/:id", offerHandler.QuickAction)
+			offers.POST("/:id/republish", offerHandler.Republish)
+			offers.POST("/:id/claim", middleware.RateLimit(5, time.Minute), claimHandler.Claim)
+		}
+
+		// Reclamos y canje (autenticados). El canje lleva un límite más alto
+		// porque el negocio escanea varios códigos seguidos.
+		claims := api.Group("/claims")
+		claims.Use(middleware.AuthMiddleware(cfg))
+		{
+			claims.GET("/:id", claimHandler.Get)
+			claims.DELETE("/:id", claimHandler.Cancel)
+			claims.POST("/:id/redeem", middleware.RateLimit(20, time.Minute), claimHandler.Redeem)
+			claims.POST("/:id/confirm", claimHandler.Confirm)
+			claims.POST("/redeem-code", middleware.RateLimit(20, time.Minute), claimHandler.RedeemCode)
 		}
 
 		// WebSocket & Chat History

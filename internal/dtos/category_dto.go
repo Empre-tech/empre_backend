@@ -16,6 +16,9 @@ type CategoryResponse struct {
 	Name string    `json:"name"`
 	// Icon is an Ionicons name (e.g. "restaurant-outline"), used for the
 	// category's own badge and for the marker of its businesses on the map.
-	Icon          string                 `json:"icon"`
+	Icon string `json:"icon"`
+	// Color is the brand hue (hex) for this category, used to tint the map
+	// portal and glyph.
+	Color         string                 `json:"color,omitempty"`
 	Subcategories []SubcategoryResponse `json:"subcategories,omitempty"`
 }

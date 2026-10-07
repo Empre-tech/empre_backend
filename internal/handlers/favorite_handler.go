@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"empre_backend/internal/dtos"
+	"empre_backend/internal/models"
 	"empre_backend/internal/services"
 
 	"github.com/gin-gonic/gin"
@@ -17,10 +18,11 @@ type FavoriteHandler struct {
 	EntityService *services.EntityService
 	ReviewService *services.ReviewService
 	PushService   *services.PushService
+	SignalService *services.SignalService
 }
 
-func NewFavoriteHandler(service *services.FavoriteService, entityService *services.EntityService, reviewService *services.ReviewService, pushService *services.PushService) *FavoriteHandler {
-	return &FavoriteHandler{Service: service, EntityService: entityService, ReviewService: reviewService, PushService: pushService}
+func NewFavoriteHandler(service *services.FavoriteService, entityService *services.EntityService, reviewService *services.ReviewService, pushService *services.PushService, signalService *services.SignalService) *FavoriteHandler {
+	return &FavoriteHandler{Service: service, EntityService: entityService, ReviewService: reviewService, PushService: pushService, SignalService: signalService}
 }
 
 // Add marks a business as one of the caller's favorites.
@@ -43,6 +45,10 @@ func (h *FavoriteHandler) Add(c *gin.Context) {
 	if err := h.Service.Add(userID, entityID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+
+	if h.SignalService != nil {
+		h.SignalService.Record(entityID, models.SignalSave)
 	}
 
 	if h.PushService != nil {

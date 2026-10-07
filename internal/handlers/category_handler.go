@@ -12,13 +12,15 @@ import (
 )
 
 type CreateCategoryRequest struct {
-	Name string `json:"name" binding:"required"`
-	Icon string `json:"icon" binding:"required"`
+	Name  string `json:"name" binding:"required"`
+	Icon  string `json:"icon" binding:"required"`
+	Color string `json:"color"`
 }
 
 type UpdateCategoryRequest struct {
-	Name string `json:"name" binding:"required"`
-	Icon string `json:"icon" binding:"required"`
+	Name  string `json:"name" binding:"required"`
+	Icon  string `json:"icon" binding:"required"`
+	Color string `json:"color"`
 }
 
 type CategoryHandler struct {
@@ -50,8 +52,9 @@ func (h *CategoryHandler) Create(c *gin.Context) {
 	}
 
 	category := models.Category{
-		Name: req.Name,
-		Icon: req.Icon,
+		Name:  req.Name,
+		Icon:  req.Icon,
+		Color: req.Color,
 	}
 
 	if err := h.categoryService.Create(&category); err != nil {
@@ -88,6 +91,7 @@ func (h *CategoryHandler) FindAll(c *gin.Context) {
 			ID:            cat.ID,
 			Name:          cat.Name,
 			Icon:          cat.Icon,
+			Color:         cat.Color,
 			Subcategories: subcategoryDTOs(cat.Subcategories),
 		})
 	}
@@ -141,6 +145,7 @@ func (h *CategoryHandler) FindByID(c *gin.Context) {
 		ID:            category.ID,
 		Name:          category.Name,
 		Icon:          category.Icon,
+		Color:         category.Color,
 		Subcategories: subcategoryDTOs(category.Subcategories),
 	}
 
@@ -181,6 +186,7 @@ func (h *CategoryHandler) Update(c *gin.Context) {
 	}
 	category.Name = req.Name
 	category.Icon = req.Icon
+	category.Color = req.Color
 
 	if err := h.categoryService.Update(category); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
