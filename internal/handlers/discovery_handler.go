@@ -18,20 +18,24 @@ func NewDiscoveryHandler(service *services.RankingService) *DiscoveryHandler {
 	return &DiscoveryHandler{Service: service}
 }
 
-// Discover returns the N best businesses for the visible area, ranked and
-// diversified. Public endpoint.
+// Discover returns the N best businesses for the visible rectangle, ranked
+// and diversified, plus the total count. Public endpoint.
 // @Router /api/discovery [get]
 func (h *DiscoveryHandler) Discover(c *gin.Context) {
-	lat, _ := strconv.ParseFloat(c.Query("lat"), 64)
-	long, _ := strconv.ParseFloat(c.Query("long"), 64)
-	radius, _ := strconv.ParseFloat(c.Query("radius"), 64)
+	minLat, _ := strconv.ParseFloat(c.Query("min_lat"), 64)
+	maxLat, _ := strconv.ParseFloat(c.Query("max_lat"), 64)
+	minLng, _ := strconv.ParseFloat(c.Query("min_lng"), 64)
+	maxLng, _ := strconv.ParseFloat(c.Query("max_lng"), 64)
+	// Ubicación del usuario (referencia para la distancia); 0/0 = sin señal.
+	refLat, _ := strconv.ParseFloat(c.Query("lat"), 64)
+	refLng, _ := strconv.ParseFloat(c.Query("long"), 64)
 	categoryID := c.Query("category")
 	subcategoryID := c.Query("subcategory")
 	query := c.Query("q")
 	offerFilter := c.Query("offer") // "", "now", "today", "week"
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "15"))
 
-	items, err := h.Service.Discover(lat, long, radius, categoryID, subcategoryID, query, offerFilter, limit)
+	items, total, err := h.Service.Discover(minLat, maxLat, minLng, maxLng, refLat, refLng, categoryID, subcategoryID, query, offerFilter, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -72,5 +76,5 @@ func (h *DiscoveryHandler) Discover(c *gin.Context) {
 		})
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": resp})
+	c.JSON(http.StatusOK, gin.H{"items": resp, "total": total})
 }

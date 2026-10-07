@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 
 	"empre_backend/internal/dtos"
@@ -64,6 +65,10 @@ func (h *ClaimHandler) Claim(c *gin.Context) {
 
 	res, err := h.Service.Claim(offerID, userID, req.Latitude, req.Longitude)
 	if err != nil {
+		if errors.Is(err, services.ErrOwnerClaim) {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}

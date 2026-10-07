@@ -20,6 +20,10 @@ const maxClaimsPerDay = 10
 // shortCodeAlphabet avoids visually ambiguous characters (0/O, 1/I/L).
 const shortCodeAlphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 
+// ErrOwnerClaim se devuelve cuando el dueño intenta reclamar una oferta de su
+// propio negocio; el handler lo mapea a 403.
+var ErrOwnerClaim = errors.New("no puedes reclamar ofertas de tu propio negocio")
+
 type ClaimService struct {
 	ClaimRepo     *repository.ClaimRepository
 	OfferRepo     *repository.OfferRepository
@@ -66,6 +70,16 @@ func (s *ClaimService) Claim(offerID, userID uuid.UUID, lat, lng float64) (*Clai
 		return nil, errors.New("oferta no encontrada")
 	}
 
+	// El dueño no reclama ofertas de su propio negocio (solo escanea y canjea).
+	// Se valida antes de reservar el cupo para no consumirlo y luego fallar.
+	entity, err := s.EntityRepo.FindByID(offer.EntityID)
+	if err != nil {
+		return nil, errors.New("negocio no encontrado")
+	}
+	if entity.OwnerID == userID {
+		return nil, ErrOwnerClaim
+	}
+
 	now := utils.NowInCartagena()
 	if !offer.EndsAt.After(now) {
 		return nil, errors.New("oferta finalizada")
@@ -102,12 +116,8 @@ func (s *ClaimService) Claim(offerID, userID uuid.UUID, lat, lng float64) (*Clai
 		return nil, errors.New("alcanzaste el límite diario de reclamos")
 	}
 
-	// Radius check (best effort).
+	// Radius check (best effort). `entity` ya está cargada arriba.
 	if (lat != 0 || lng != 0) && offer.RadiusMeters > 0 {
-		entity, err := s.EntityRepo.FindByID(offer.EntityID)
-		if err != nil {
-			return nil, errors.New("negocio no encontrado")
-		}
 		if utils.DistanceMeters(lat, lng, entity.Latitude, entity.Longitude) > float64(offer.RadiusMeters) {
 			return nil, errors.New("debes estar más cerca del negocio para reclamar")
 		}

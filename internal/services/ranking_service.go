@@ -37,19 +37,21 @@ func NewRankingService(entityService *EntityService, reviewService *ReviewServic
 
 const maxPerCategory = 2
 
-// Discover returns the N best businesses for the visible area, ordered and
-// diversified. `offerFilter` is "", "now", "today" or "week".
-func (s *RankingService) Discover(lat, long, radius float64, categoryID, subcategoryID, query, offerFilter string, limit int) ([]DiscoveryItem, error) {
+// Discover returns the N best businesses for the visible rectangle (bbox),
+// ordered and diversified, plus the total count of businesses in that area.
+// `refLat`/`refLng` is the user location used to compute distance; 0/0 means
+// no distance signal. `offerFilter` is "", "now", "today" or "week".
+func (s *RankingService) Discover(minLat, maxLat, minLng, maxLng, refLat, refLng float64, categoryID, subcategoryID, query, offerFilter string, limit int) ([]DiscoveryItem, int64, error) {
 	if limit <= 0 {
 		limit = 15
 	}
 
 	now := utils.NowInCartagena()
-	// Fetch a generous window (no open-now filter: closed businesses still
-	// come back as a last resort, and ranking puts them last).
-	entities, _, err := s.EntityService.FindAll(lat, long, radius, categoryID, subcategoryID, query, false, 1, 200)
+	// Traer los candidatos del área visible (máx 200) y el total real para el
+	// contador. Sin filtro "abierto": los cerrados vuelven como último recurso.
+	entities, total, err := s.EntityService.FindByBBox(minLat, maxLat, minLng, maxLng, categoryID, subcategoryID, query, 200)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	entityIDs := make([]uuid.UUID, len(entities))
@@ -69,8 +71,8 @@ func (s *RankingService) Discover(lat, long, radius float64, categoryID, subcate
 	for i := range entities {
 		e := &entities[i]
 		dist := 0.0
-		if lat != 0 || long != 0 {
-			dist = utils.DistanceMeters(lat, long, e.Latitude, e.Longitude)
+		if refLat != 0 || refLng != 0 {
+			dist = utils.DistanceMeters(refLat, refLng, e.Latitude, e.Longitude)
 		}
 		items = append(items, DiscoveryItem{
 			Entity:         *e,
@@ -129,7 +131,7 @@ func (s *RankingService) Discover(lat, long, radius float64, categoryID, subcate
 		}
 	}
 
-	return diversified, nil
+	return diversified, total, nil
 }
 
 func offerMatchesFilter(typ models.OfferType, filter string) bool {

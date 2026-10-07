@@ -134,6 +134,59 @@ func (r *EntityRepository) FindAll(lat, long, radius float64, categoryID, subcat
 	return entities, total, err
 }
 
+// FindByBBox returns the businesses inside a visible rectangle plus the total
+// count (for the counter). Same filters as FindAll (category, subcategory,
+// search, subscription-hide) but no pagination and no open-now filter: it
+// returns up to `cap` entities for ranking, and `total` is the real count.
+func (r *EntityRepository) FindByBBox(minLat, maxLat, minLng, maxLng float64, categoryID, subcategoryID, query string, cap int) ([]models.Entity, int64, error) {
+	var entities []models.Entity
+	var total int64
+
+	db := r.DB.Model(&models.Entity{}).Joins("Category").Joins("ProfileMedia").Joins("BannerMedia").Preload("Photos", func(db *gorm.DB) *gorm.DB {
+		return db.Joins("Media")
+	}).Preload("Subcategories").Preload("Hours")
+
+	if categoryID != "" {
+		db = db.Where("category_id = ?", categoryID)
+	}
+	if subcategoryID != "" {
+		db = db.Where(
+			"EXISTS (SELECT 1 FROM entity_subcategories es WHERE es.entity_id = entities.id AND es.subcategory_id = ?)",
+			subcategoryID,
+		)
+	}
+	if query != "" {
+		like := "%" + query + "%"
+		db = db.Where(
+			"entities.name ILIKE ? OR entities.description ILIKE ? OR entities.address ILIKE ? OR "+
+				"EXISTS (SELECT 1 FROM categories WHERE categories.id = entities.category_id AND categories.name ILIKE ?) OR "+
+				"EXISTS (SELECT 1 FROM entity_subcategories es JOIN subcategories s ON s.id = es.subcategory_id WHERE es.entity_id = entities.id AND s.name ILIKE ?)",
+			like, like, like, like, like,
+		)
+	}
+
+	if minLat != 0 || maxLat != 0 || minLng != 0 || maxLng != 0 {
+		db = db.Where("latitude BETWEEN ? AND ?", minLat, maxLat).
+			Where("longitude BETWEEN ? AND ?", minLng, maxLng)
+	}
+
+	// Ocultar negocios que superaron el umbral gratis (igual que FindAll).
+	db = db.Where(
+		`NOT EXISTS (
+			SELECT 1 FROM subscriptions sub
+			WHERE sub.entity_id = entities.id
+				AND sub.status != 'active'
+				AND sub.trial_threshold_notified_at IS NOT NULL
+				AND sub.trial_threshold_notified_at < NOW() - INTERVAL '7 days'
+		)`,
+	)
+
+	db.Count(&total)
+
+	err := db.Limit(cap).Find(&entities).Error
+	return entities, total, err
+}
+
 func (r *EntityRepository) FindAllByOwner(ownerID uuid.UUID, page, pageSize int) ([]models.Entity, int64, error) {
 	var entities []models.Entity
 	var total int64
