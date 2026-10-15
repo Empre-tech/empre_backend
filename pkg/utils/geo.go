@@ -20,3 +20,12 @@ func DistanceMeters(lat1, lon1, lat2, lon2 float64) float64 {
 
 	return earthRadiusMeters * c
 }
+
+// BBoxAround devuelve un rectángulo (min/max lat/lng) alrededor de un punto
+// con un radio en metros, aproximado con grados (suficiente para consultas
+// por radio; la distancia exacta se afina con Haversine).
+func BBoxAround(lat, lng, radiusMeters float64) (minLat, maxLat, minLng, maxLng float64) {
+	degLat := radiusMeters / 111000.0
+	degLng := degLat / math.Max(math.Cos(lat*math.Pi/180), 0.1)
+	return lat - degLat, lat + degLat, lng - degLng, lng + degLng
+}

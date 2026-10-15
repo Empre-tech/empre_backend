@@ -64,6 +64,9 @@ type Offer struct {
 
 	RepeatPolicy RepeatPolicy `gorm:"type:varchar(20);default:'once'" json:"repeat_policy"`
 
+	// Entidad dueña (para distancia y categoría en el listado de ofertas).
+	Entity Entity `gorm:"foreignKey:EntityID" json:"-"`
+
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`

@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"strings"
 	"time"
 
 	"empre_backend/internal/models"
@@ -78,17 +79,72 @@ func (r *ClaimRepository) MarkExpired(claimID uuid.UUID, now time.Time) (bool, e
 	return res.RowsAffected == 1, nil
 }
 
-// CountActiveByOfferAndUser counts the user's unexpired, non-canceled claims
-// for an offer (repetition policy: "once" = at most 1).
+// CountActiveByOfferAndUser counts the user's claims that block a new one
+// under the "once" policy: any redeemed claim (forever, regardless of its
+// window) plus any still-open RECLAMADO claim.
 func (r *ClaimRepository) CountActiveByOfferAndUser(offerID, userID uuid.UUID, now time.Time) (int64, error) {
 	var count int64
 	err := r.DB.Model(&models.OfferClaim{}).
-		Where("offer_id = ? AND user_id = ? AND status IN ? AND expires_at > ?",
-			offerID, userID,
-			[]models.ClaimStatus{models.ClaimClaimed, models.ClaimRedeemed},
-			now).
+		Where("offer_id = ? AND user_id = ? AND (status = ? OR (status = ? AND expires_at > ?))",
+			offerID, userID, models.ClaimRedeemed, models.ClaimClaimed, now).
 		Count(&count).Error
 	return count, err
+}
+
+// CountOpenByOfferAndUser counts the user's still-open RECLAMADO claims for an
+// offer. Under the "daily" policy a user may hold at most one at a time.
+func (r *ClaimRepository) CountOpenByOfferAndUser(offerID, userID uuid.UUID, now time.Time) (int64, error) {
+	var count int64
+	err := r.DB.Model(&models.OfferClaim{}).
+		Where("offer_id = ? AND user_id = ? AND status = ? AND expires_at > ?",
+			offerID, userID, models.ClaimClaimed, now).
+		Count(&count).Error
+	return count, err
+}
+
+// ExpireOverdue moves every RECLAMADO claim past its window to EXPIRADO and
+// releases its slot. Run periodically so slots held by no-shows come back.
+func (r *ClaimRepository) ExpireOverdue(now time.Time) (int64, error) {
+	return r.expireOverdue(now, "")
+}
+
+// ExpireOverdueFor does the same for one user's claims on one offer. Claim
+// calls it first so a lapsed claim the sweeper has not reached yet neither
+// blocks a new one nor keeps its slot.
+func (r *ClaimRepository) ExpireOverdueFor(offerID, userID uuid.UUID, now time.Time) (int64, error) {
+	return r.expireOverdue(now, "AND offer_id = ? AND user_id = ?", offerID, userID)
+}
+
+// expireOverdue expires and releases in a single statement, so a claim is
+// never expired without its slot coming back, nor released twice.
+func (r *ClaimRepository) expireOverdue(now time.Time, filter string, filterArgs ...interface{}) (int64, error) {
+	args := append([]interface{}{models.ClaimExpired, now, models.ClaimClaimed, now}, filterArgs...)
+	var expired int64
+	err := r.DB.Raw(`
+		WITH expired AS (
+			UPDATE offer_claims
+			SET status = ?, updated_at = ?
+			WHERE status = ? AND expires_at <= ? AND deleted_at IS NULL `+filter+`
+			RETURNING offer_id
+		), per_offer AS (
+			SELECT offer_id, COUNT(*) AS n FROM expired GROUP BY offer_id
+		), released AS (
+			UPDATE offers o
+			SET used_slots = GREATEST(o.used_slots - per_offer.n, 0)
+			FROM per_offer
+			WHERE o.id = per_offer.offer_id
+			RETURNING o.id
+		)
+		SELECT COALESCE(SUM(n), 0) FROM per_offer`,
+		args...,
+	).Scan(&expired).Error
+	return expired, err
+}
+
+// IsDuplicateOpenClaim reports whether err is the violation of the
+// one-open-claim-per-user-and-offer index (see database.EnsureClaimIndexes).
+func IsDuplicateOpenClaim(err error) bool {
+	return err != nil && strings.Contains(err.Error(), models.OpenClaimIndex)
 }
 
 // CountRedeemedTodayByOfferAndUser supports the "daily" repetition policy.

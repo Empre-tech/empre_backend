@@ -117,9 +117,12 @@ func (s *RankingService) Discover(minLat, maxLat, minLng, maxLng, refLat, refLng
 		return a.Entity.Name < b.Entity.Name
 	})
 
-	// Diversify: at most `maxPerCategory` per category.
+	// Diversificar sin descartar: en los primeros resultados no se apilan muchas
+	// de la misma categoría, pero se llena hasta `limit` con el resto (si no, en
+	// una zona con pocas categorías se ocultarían casi todos los negocios).
 	diversified := make([]DiscoveryItem, 0, limit)
 	categoryCount := map[uuid.UUID]int{}
+	// Primera pasada: máximo `maxPerCategory` por categoría.
 	for _, it := range items {
 		if categoryCount[it.Entity.CategoryID] >= maxPerCategory {
 			continue
@@ -128,6 +131,22 @@ func (s *RankingService) Discover(minLat, maxLat, minLng, maxLng, refLat, refLng
 		categoryCount[it.Entity.CategoryID]++
 		if len(diversified) >= limit {
 			break
+		}
+	}
+	// Segunda pasada: si faltan, completar con el resto (sin límite por categoría).
+	if len(diversified) < limit {
+		seen := make(map[uuid.UUID]bool, len(diversified))
+		for _, it := range diversified {
+			seen[it.Entity.ID] = true
+		}
+		for _, it := range items {
+			if seen[it.Entity.ID] {
+				continue
+			}
+			diversified = append(diversified, it)
+			if len(diversified) >= limit {
+				break
+			}
 		}
 	}
 

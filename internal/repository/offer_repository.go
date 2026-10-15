@@ -70,6 +70,17 @@ func (r *OfferRepository) ReleaseSlot(offerID uuid.UUID) error {
 		Update("used_slots", gorm.Expr("used_slots - 1")).Error
 }
 
+// FindActive devuelve los relámpagos activos (con su entidad) para el listado
+// de la pestaña Ofertas.
+func (r *OfferRepository) FindActive(now time.Time) ([]models.Offer, error) {
+	var offers []models.Offer
+	err := r.DB.Preload("Entity.Category").
+		Where("ends_at > ? AND used_slots < total_slots", now).
+		Order("ends_at ASC").
+		Find(&offers).Error
+	return offers, err
+}
+
 // FindActiveForEntities returns, for each entity id, its soonest-ending active
 // offer (or nil when it has none). Used by discovery to flag the "rayo".
 func (r *OfferRepository) FindActiveForEntities(entityIDs []uuid.UUID, now time.Time) (map[uuid.UUID]*models.Offer, error) {

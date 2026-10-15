@@ -74,6 +74,10 @@ func main() {
 		&models.OfferClaim{},
 		&models.BusinessStatus{},
 		&models.Signal{},
+		&models.Promotion{},
+		&models.CategoryRelation{},
+		&models.BusinessCategory{},
+		&models.Place{},
 	)
 	if err != nil {
 		log.Fatal("Migration failed: ", err)
@@ -82,6 +86,27 @@ func main() {
 	// Seed default categories (and their subcategories) on a fresh database
 	database.SeedCategories(database.DB)
 	database.SeedSubcategories(database.DB)
+
+	// Migraciones de datos (idempotentes): extensiones de búsqueda tolerante,
+	// jerarquía de categorías, business_categories, places y sinónimos.
+	if err := database.EnableSearchExtensions(database.DB); err != nil {
+		log.Fatal("No se pudieron habilitar las extensiones de búsqueda: ", err)
+	}
+	if err := database.MigrateHierarchy(database.DB); err != nil {
+		log.Fatal("No se pudo migrar la jerarquía de categorías: ", err)
+	}
+	if err := database.MigratePlaces(database.DB); err != nil {
+		log.Fatal("No se pudo migrar los places: ", err)
+	}
+	if err := database.SeedFamilies(database.DB); err != nil {
+		log.Fatal("No se pudieron asignar las familias: ", err)
+	}
+	if err := database.SeedSynonyms(database.DB); err != nil {
+		log.Fatal("No se pudieron sembrar los sinónimos: ", err)
+	}
+	if err := database.EnsureClaimIndexes(database.DB); err != nil {
+		log.Fatal("No se pudo crear el índice de reclamos abiertos: ", err)
+	}
 
 	// Initialize Router
 	r := gin.Default()
@@ -104,6 +129,8 @@ func main() {
 	offerRepo := repository.NewOfferRepository(database.DB)
 	claimRepo := repository.NewClaimRepository(database.DB)
 	signalRepo := repository.NewSignalRepository(database.DB)
+	promotionRepo := repository.NewPromotionRepository(database.DB)
+	searchRepo := repository.NewSearchRepository(database.DB)
 
 	// Initialize Services
 	storageService := services.NewStorageService(cfg)
@@ -143,6 +170,9 @@ func main() {
 	signalService := services.NewSignalService(signalRepo)
 	claimService := services.NewClaimService(claimRepo, offerRepo, entityRepo, userRepo, signalService)
 	rankingService := services.NewRankingService(entityService, reviewService, offerRepo, signalService)
+	promotionService := services.NewPromotionService(promotionRepo, entityRepo)
+	offerListService := services.NewOfferListService(offerRepo, promotionRepo)
+	searchService := services.NewSearchService(searchRepo, offerRepo)
 
 	// Initialize Handlers
 	authHandler := handlers.NewAuthHandler(authService)
@@ -159,9 +189,14 @@ func main() {
 	claimHandler := handlers.NewClaimHandler(claimService)
 	discoveryHandler := handlers.NewDiscoveryHandler(rankingService)
 	statusHandler := handlers.NewStatusHandler(database.DB)
+	promotionHandler := handlers.NewPromotionHandler(promotionService)
+	offerListHandler := handlers.NewOfferListHandler(offerListService)
+	searchHandler := handlers.NewSearchHandler(searchService)
 
 	wsHub := websocket.NewHub(database.DB, pushService, subscriptionService)
 	go wsHub.Run()
+	// Expira los reclamos vencidos y libera sus cupos (vive lo que el proceso).
+	go claimService.RunExpirySweeper(time.Minute, nil)
 	chatHandler := handlers.NewChatHandler(wsHub, chatService)
 
 	// Routes
@@ -184,6 +219,7 @@ func main() {
 			entities.GET("/:id/reviews", reviewHandler.FindByEntity)
 			entities.GET("/:id/offer", offerHandler.Active)
 			entities.GET("/:id/status", statusHandler.Get)
+			entities.GET("/:id/promotions/active", promotionHandler.Active)
 
 			// Protected mutations
 			entitiesProtected := entities.Use(middleware.AuthMiddleware(cfg))
@@ -205,6 +241,8 @@ func main() {
 				entitiesProtected.POST("/:id/offers", offerHandler.Publish)
 				entitiesProtected.GET("/:id/offers", offerHandler.List)
 				entitiesProtected.PATCH("/:id/status", statusHandler.Update)
+				entitiesProtected.POST("/:id/promotions", promotionHandler.Publish)
+				entitiesProtected.GET("/:id/promotions", promotionHandler.List)
 			}
 		}
 
@@ -218,6 +256,13 @@ func main() {
 		// Descubrimiento: ranking contextual + diversificación (público).
 		api.GET("/discovery", discoveryHandler.Discover)
 
+		// Pestaña Ofertas: relámpagos y promociones activos (público).
+		api.GET("/offers", offerListHandler.List)
+
+		// Búsqueda por niveles + chips dinámicos (público).
+		api.GET("/search", searchHandler.Search)
+		api.GET("/categories/chips", searchHandler.Chips)
+
 		// Ofertas: acciones del negocio (quick actions, republish) y reclamo
 		// del usuario. La publicación/listado vive bajo /entities/:id/offers.
 		offers := api.Group("/offers")
@@ -226,6 +271,14 @@ func main() {
 			offers.PATCH("/:id", offerHandler.QuickAction)
 			offers.POST("/:id/republish", offerHandler.Republish)
 			offers.POST("/:id/claim", middleware.RateLimit(5, time.Minute), claimHandler.Claim)
+		}
+
+		// Promociones: edición/estado (la publicación/listado vive bajo
+		// /entities/:id/promotions).
+		promotions := api.Group("/promotions")
+		promotions.Use(middleware.AuthMiddleware(cfg))
+		{
+			promotions.PATCH("/:id", promotionHandler.Update)
 		}
 
 		// Reclamos y canje (autenticados). El canje lleva un límite más alto

@@ -17,6 +17,10 @@ const (
 	ClaimCanceled ClaimStatus = "CANCELADO" // user released the slot
 )
 
+// OpenClaimIndex is the partial unique index that allows at most one
+// RECLAMADO claim per user and offer (created by database.EnsureClaimIndexes).
+const OpenClaimIndex = "uniq_offer_claims_open_per_user"
+
 // OfferClaim ties one user to one offer publication. The QR is of the CLAIM
 // (not the offer), so it is bound to a person and consumed exactly once; a
 // leaked screenshot is only valid for the first scan.

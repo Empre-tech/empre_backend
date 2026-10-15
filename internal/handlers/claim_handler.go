@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"empre_backend/internal/dtos"
+	"empre_backend/internal/models"
 	"empre_backend/internal/services"
 
 	"github.com/gin-gonic/gin"
@@ -143,18 +144,8 @@ func (h *ClaimHandler) Redeem(c *gin.Context) {
 	_ = c.ShouldBindJSON(&req)
 
 	res, err := h.Service.RedeemByID(c.Param("id"), userID, req.Device)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"reason": err.Error(), "valid": false})
-		return
-	}
-
-	c.JSON(http.StatusOK, dtos.RedeemResponse{
-		Valid:      true,
-		ClaimID:    res.Claim.ID,
-		EntityName: res.EntityName,
-		OfferTitle: res.Offer.Title,
-		ClientName: res.ClientName,
-	})
+	status, body := redeemOutcome(res, err)
+	c.JSON(status, body)
 }
 
 // RedeemCode redeems by the 6-char manual code (business owner).
@@ -173,18 +164,71 @@ func (h *ClaimHandler) RedeemCode(c *gin.Context) {
 	}
 
 	res, err := h.Service.RedeemByShortCode(req.Code, userID, req.Device)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"valid": false, "reason": err.Error()})
-		return
-	}
+	status, body := redeemOutcome(res, err)
+	c.JSON(status, body)
+}
 
-	c.JSON(http.StatusOK, dtos.RedeemResponse{
-		Valid:      true,
-		ClaimID:    res.Claim.ID,
-		EntityName: res.EntityName,
-		OfferTitle: res.Offer.Title,
-		ClientName: res.ClientName,
-	})
+// redeemOutcome turns the service result into the HTTP answer. A rejection
+// (already redeemed, expired, wrong business...) is an expected outcome and
+// answers 200 with valid=false and a reason_code; any other error is a real
+// failure and answers 500.
+func redeemOutcome(res *services.ClaimResult, err error) (int, any) {
+	var rej *services.RedeemRejection
+	if errors.As(err, &rej) {
+		return http.StatusOK, redeemRejectedResponse(rej)
+	}
+	if err != nil {
+		return http.StatusInternalServerError, gin.H{"error": err.Error()}
+	}
+	return http.StatusOK, redeemValidResponse(res)
+}
+
+func slotsOf(o *models.Offer) (left, total *int) {
+	l := o.TotalSlots - o.UsedSlots
+	if l < 0 {
+		l = 0
+	}
+	t := o.TotalSlots
+	return &l, &t
+}
+
+func redeemValidResponse(res *services.ClaimResult) dtos.RedeemResponse {
+	left, total := slotsOf(res.Offer)
+	out := dtos.RedeemResponse{
+		Valid:           true,
+		ClaimID:         &res.Claim.ID,
+		EntityName:      res.EntityName,
+		OfferTitle:      res.Offer.Title,
+		OfferPrice:      res.Offer.Price,
+		OfferConditions: res.Offer.Conditions,
+		ClientName:      dtos.ShortName(res.ClientName),
+		ClaimedAt:       &res.Claim.ClaimedAt,
+		ExpiresAt:       &res.Claim.ExpiresAt,
+		RedeemedAt:      res.Claim.RedeemedAt,
+		SlotsLeft:       left,
+		SlotsTotal:      total,
+	}
+	return out
+}
+
+func redeemRejectedResponse(rej *services.RedeemRejection) dtos.RedeemResponse {
+	out := dtos.RedeemResponse{Valid: false, Reason: rej.Message, ReasonCode: string(rej.Code)}
+	if rej.Claim != nil {
+		out.ClaimID = &rej.Claim.ID
+		out.ClaimedAt = &rej.Claim.ClaimedAt
+		out.ExpiresAt = &rej.Claim.ExpiresAt
+		out.RedeemedAt = rej.Claim.RedeemedAt
+		out.ClientName = dtos.ShortName(rej.ClientName)
+	}
+	if rej.Offer != nil {
+		left, total := slotsOf(rej.Offer)
+		out.OfferTitle = rej.Offer.Title
+		out.OfferPrice = rej.Offer.Price
+		out.OfferConditions = rej.Offer.Conditions
+		out.SlotsLeft = left
+		out.SlotsTotal = total
+	}
+	return out
 }
 
 // Confirm marks a redeemed claim as verified by the client (user).

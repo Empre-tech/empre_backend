@@ -33,6 +33,12 @@ type Entity struct {
 	BannerMediaID  *uuid.UUID `gorm:"type:uuid" json:"banner_media_id,omitempty"`
 	ProfileMediaID *uuid.UUID `gorm:"type:uuid" json:"profile_media_id,omitempty"`
 
+	// PlaceID agrupa negocios del mismo punto físico (pin "En este lugar").
+	PlaceID *uuid.UUID `gorm:"type:uuid;index" json:"place_id,omitempty"`
+	// Tags son etiquetas libres del negocio (producto/servicio); alimentan la
+	// búsqueda junto con categorías y sinónimos.
+	Tags []string `gorm:"type:jsonb;serializer:json" json:"tags,omitempty"`
+
 	BannerURL  string `gorm:"-" json:"banner_url"`
 	ProfileURL string `gorm:"-" json:"profile_url"`
 	// PostGIS Geography Point (SRID 4326)
@@ -62,6 +68,7 @@ type Entity struct {
 
 	ProfileMedia *Media `gorm:"foreignKey:ProfileMediaID;references:ID" json:"-"`
 	BannerMedia  *Media `gorm:"foreignKey:BannerMediaID;references:ID" json:"-"`
+	Place        Place  `gorm:"foreignKey:PlaceID" json:"place,omitempty"`
 }
 
 // BeforeSave hook to update Location field from Lat/Long

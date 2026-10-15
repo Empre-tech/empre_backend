@@ -3,7 +3,9 @@ package services
 import (
 	"crypto/rand"
 	"errors"
+	"log"
 	"math/big"
+	"strings"
 	"time"
 
 	"empre_backend/internal/models"
@@ -52,6 +54,65 @@ func startOfDay(t time.Time) time.Time {
 	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
 }
 
+// RedeemReason is the machine-readable cause of a rejected redemption. The
+// scanner picks its screen from it; Message stays the human text.
+type RedeemReason string
+
+const (
+	ReasonAlreadyRedeemed RedeemReason = "ALREADY_REDEEMED"
+	ReasonExpired         RedeemReason = "EXPIRED"
+	ReasonCanceled        RedeemReason = "CANCELED"
+	ReasonWrongBusiness   RedeemReason = "WRONG_BUSINESS"
+	ReasonNotFound        RedeemReason = "NOT_FOUND"
+)
+
+// RedeemRejection is an expected outcome of scanning a code that can't be
+// redeemed (not a failure of the system). Claim, Offer and ClientName give
+// context for the business's own claims; they are nil/empty for
+// WRONG_BUSINESS and NOT_FOUND so nothing of another business leaks.
+type RedeemRejection struct {
+	Code       RedeemReason
+	Message    string
+	Claim      *models.OfferClaim
+	Offer      *models.Offer
+	ClientName string
+}
+
+func (e *RedeemRejection) Error() string { return e.Message }
+
+// reject builds a rejection for one of this business's own claims, with the
+// context the scanner shows (what, who, when). Lookups are best effort.
+func (s *ClaimService) reject(code RedeemReason, message string, claim *models.OfferClaim) *RedeemRejection {
+	rej := &RedeemRejection{Code: code, Message: message, Claim: claim}
+	if claim == nil {
+		return rej
+	}
+	if offer, err := s.OfferRepo.FindByID(claim.OfferID); err == nil {
+		rej.Offer = offer
+	}
+	if user, err := s.UserRepo.FindByID(claim.UserID); err == nil {
+		rej.ClientName = user.Name
+	}
+	return rej
+}
+
+// rejectionForState maps a claim that can no longer be redeemed to its
+// rejection, from the status it has right now.
+func (s *ClaimService) rejectionForState(claim *models.OfferClaim) *RedeemRejection {
+	switch claim.Status {
+	case models.ClaimRedeemed:
+		return s.reject(ReasonAlreadyRedeemed, "ya canjeado", claim)
+	case models.ClaimCanceled:
+		return s.reject(ReasonCanceled, "reclamo cancelado", claim)
+	default:
+		return s.reject(ReasonExpired, "reclamo expirado", claim)
+	}
+}
+
+var errCodeNotFound = func() *RedeemRejection {
+	return &RedeemRejection{Code: ReasonNotFound, Message: "código no válido"}
+}
+
 // ClaimResult pairs the created claim with the offer it belongs to (for the
 // QR screen and the offer info). ClientName is filled on redemption so the
 // cashier can verify who is claiming at the counter.
@@ -81,6 +142,19 @@ func (s *ClaimService) Claim(offerID, userID uuid.UUID, lat, lng float64) (*Clai
 	}
 
 	now := utils.NowInCartagena()
+
+	// Un reclamo vencido del mismo usuario que el barrido periódico aún no
+	// alcanzó no debe bloquear este ni seguir ocupando su cupo.
+	expired, err := s.ClaimRepo.ExpireOverdueFor(offerID, userID, now)
+	if err != nil {
+		return nil, err
+	}
+	if expired > 0 {
+		if offer, err = s.OfferRepo.FindByID(offerID); err != nil {
+			return nil, errors.New("oferta no encontrada")
+		}
+	}
+
 	if !offer.EndsAt.After(now) {
 		return nil, errors.New("oferta finalizada")
 	}
@@ -96,6 +170,15 @@ func (s *ClaimService) Claim(offerID, userID uuid.UUID, lat, lng float64) (*Clai
 		}
 		if n >= 1 {
 			return nil, errors.New("ya canjeaste esta oferta hoy")
+		}
+		// Un solo reclamo abierto a la vez: sin esto un usuario podría
+		// acaparar varios cupos de la misma oferta.
+		open, err := s.ClaimRepo.CountOpenByOfferAndUser(offerID, userID, now)
+		if err != nil {
+			return nil, err
+		}
+		if open >= 1 {
+			return nil, errors.New("ya reclamaste esta oferta")
 		}
 	} else {
 		n, err := s.ClaimRepo.CountActiveByOfferAndUser(offerID, userID, now)
@@ -158,10 +241,35 @@ func (s *ClaimService) Claim(offerID, userID uuid.UUID, lat, lng float64) (*Clai
 	}
 	if err := s.ClaimRepo.Create(claim); err != nil {
 		_ = s.OfferRepo.ReleaseSlot(offer.ID)
+		// Dos reclamos simultáneos del mismo usuario pasan los conteos de
+		// arriba a la vez; el índice único deja entrar solo uno.
+		if repository.IsDuplicateOpenClaim(err) {
+			return nil, errors.New("ya reclamaste esta oferta")
+		}
 		return nil, err
 	}
 
 	return &ClaimResult{Claim: claim, Offer: offer}, nil
+}
+
+// RunExpirySweeper expires lapsed claims and releases their slots every
+// `interval` until `stop` is closed, so no-shows don't leave an offer looking
+// sold out (Backend v2 §5.3, §10).
+func (s *ClaimService) RunExpirySweeper(interval time.Duration, stop <-chan struct{}) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		if n, err := s.ClaimRepo.ExpireOverdue(utils.NowInCartagena()); err != nil {
+			log.Printf("Reclamos: no se pudieron expirar los vencidos: %v", err)
+		} else if n > 0 {
+			log.Printf("Reclamos: %d vencidos expirados y sus cupos liberados", n)
+		}
+		select {
+		case <-ticker.C:
+		case <-stop:
+			return
+		}
+	}
 }
 
 // Cancel releases the slot and marks the claim canceled.
@@ -183,6 +291,8 @@ func (s *ClaimService) Cancel(claimID, userID uuid.UUID) error {
 		return err
 	}
 	if !ok {
+		// Venció antes de cancelar: expirarlo libera el cupo igualmente.
+		_, _ = s.ClaimRepo.ExpireOverdueFor(claim.OfferID, claim.UserID, now)
 		return errors.New("el reclamo ya expiró")
 	}
 	_ = s.OfferRepo.ReleaseSlot(claim.OfferID)
@@ -194,16 +304,16 @@ func (s *ClaimService) Cancel(claimID, userID uuid.UUID) error {
 func (s *ClaimService) RedeemByToken(token string, redeemerID uuid.UUID, device string) (*ClaimResult, error) {
 	claim, err := s.ClaimRepo.FindByToken(token)
 	if err != nil {
-		return nil, errors.New("código no válido")
+		return nil, errCodeNotFound()
 	}
 	return s.redeem(claim, redeemerID, device)
 }
 
 // RedeemByShortCode is the manual fallback for when the QR can't be scanned.
 func (s *ClaimService) RedeemByShortCode(code string, redeemerID uuid.UUID, device string) (*ClaimResult, error) {
-	claim, err := s.ClaimRepo.FindByShortCode(code)
+	claim, err := s.ClaimRepo.FindByShortCode(strings.ToUpper(strings.TrimSpace(code)))
 	if err != nil {
-		return nil, errors.New("código no válido")
+		return nil, errCodeNotFound()
 	}
 	return s.redeem(claim, redeemerID, device)
 }
@@ -213,11 +323,11 @@ func (s *ClaimService) RedeemByShortCode(code string, redeemerID uuid.UUID, devi
 func (s *ClaimService) RedeemByID(claimID string, redeemerID uuid.UUID, device string) (*ClaimResult, error) {
 	id, err := uuid.Parse(claimID)
 	if err != nil {
-		return nil, errors.New("código no válido")
+		return nil, errCodeNotFound()
 	}
 	claim, err := s.ClaimRepo.FindByID(id)
 	if err != nil {
-		return nil, errors.New("código no válido")
+		return nil, errCodeNotFound()
 	}
 	return s.redeem(claim, redeemerID, device)
 }
@@ -225,27 +335,24 @@ func (s *ClaimService) RedeemByID(claimID string, redeemerID uuid.UUID, device s
 func (s *ClaimService) redeem(claim *models.OfferClaim, redeemerID uuid.UUID, device string) (*ClaimResult, error) {
 	entity, err := s.EntityRepo.FindByID(claim.EntityID)
 	if err != nil {
-		return nil, errors.New("negocio no encontrado")
+		return nil, errCodeNotFound()
 	}
 	if entity.OwnerID != redeemerID {
-		return nil, errors.New("este código no es de tu negocio")
+		// Nada del otro negocio en la respuesta: ni oferta ni cliente.
+		return nil, &RedeemRejection{Code: ReasonWrongBusiness, Message: "este código no es de tu negocio"}
 	}
 
 	now := utils.NowInCartagena()
 
 	switch claim.Status {
-	case models.ClaimRedeemed:
-		return nil, errors.New("ya canjeado")
-	case models.ClaimCanceled:
-		return nil, errors.New("reclamo cancelado")
-	case models.ClaimExpired:
-		return nil, errors.New("reclamo expirado")
+	case models.ClaimRedeemed, models.ClaimCanceled, models.ClaimExpired:
+		return nil, s.rejectionForState(claim)
 	case models.ClaimClaimed:
 		if !claim.ExpiresAt.After(now) {
 			if ok, _ := s.ClaimRepo.MarkExpired(claim.ID, now); ok {
 				_ = s.OfferRepo.ReleaseSlot(claim.OfferID)
 			}
-			return nil, errors.New("reclamo expirado")
+			return nil, s.reject(ReasonExpired, "reclamo expirado", claim)
 		}
 	}
 
@@ -254,7 +361,16 @@ func (s *ClaimService) redeem(claim *models.OfferClaim, redeemerID uuid.UUID, de
 		return nil, err
 	}
 	if !ok {
-		return nil, errors.New("ya canjeado o expirado")
+		// Perdió una carrera (otro escaneo canjeó o venció justo ahora): se
+		// vuelve a leer el estado real para decir cuál fue.
+		current, err := s.ClaimRepo.FindByID(claim.ID)
+		if err != nil {
+			return nil, err
+		}
+		if current.Status == models.ClaimClaimed {
+			current.Status = models.ClaimExpired
+		}
+		return nil, s.rejectionForState(current)
 	}
 
 	offer, err := s.OfferRepo.FindByID(claim.OfferID)
