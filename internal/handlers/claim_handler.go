@@ -144,6 +144,26 @@ func (h *ClaimHandler) Get(c *gin.Context) {
 	c.JSON(http.StatusOK, claimResponse(res))
 }
 
+// activityWindow es el periodo de la «prueba social» del perfil.
+const activityWindow = 7 * 24 * time.Hour
+
+// Activity returns the public social proof of a business: how many redemptions
+// customers confirmed this week. Only counts, never who.
+// @Router /api/entities/{id}/activity [get]
+func (h *ClaimHandler) Activity(c *gin.Context) {
+	entityID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID inválido"})
+		return
+	}
+	count, err := h.Service.ClaimRepo.CountVerifiedRedemptionsSince(entityID, time.Now().Add(-activityWindow))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"verified_redemptions_week": count})
+}
+
 // Cancel releases the slot (user).
 // @Router /api/claims/{id} [delete]
 func (h *ClaimHandler) Cancel(c *gin.Context) {

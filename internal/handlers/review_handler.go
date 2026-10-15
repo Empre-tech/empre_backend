@@ -26,6 +26,8 @@ func NewReviewHandler(service *services.ReviewService, userService *services.Use
 type UpsertReviewRequest struct {
 	Rating  int    `json:"rating" binding:"required,min=1,max=5"`
 	Comment string `json:"comment"`
+	// ClaimID (opcional): el canje confirmado que respalda la reseña.
+	ClaimID string `json:"claim_id"`
 }
 
 // Upsert creates or updates the caller's review for a business.
@@ -55,7 +57,17 @@ func (h *ReviewHandler) Upsert(c *gin.Context) {
 		return
 	}
 
-	review, err := h.Service.Upsert(entityID, userID, req.Rating, req.Comment)
+	var claimID *uuid.UUID
+	if req.ClaimID != "" {
+		parsed, err := uuid.Parse(req.ClaimID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "claim_id inválido"})
+			return
+		}
+		claimID = &parsed
+	}
+
+	review, err := h.Service.Upsert(entityID, userID, req.Rating, req.Comment, claimID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -67,6 +79,7 @@ func (h *ReviewHandler) Upsert(c *gin.Context) {
 		Comment:   review.Comment,
 		CreatedAt: review.CreatedAt,
 		UpdatedAt: review.UpdatedAt,
+		Verified:  review.ClaimID != nil,
 	}
 	reviewerName := "Alguien"
 	if user, err := h.UserService.FindByID(userID); err == nil && user != nil {
@@ -119,6 +132,7 @@ func (h *ReviewHandler) FindByEntity(c *gin.Context) {
 			Comment:   review.Comment,
 			CreatedAt: review.CreatedAt,
 			UpdatedAt: review.UpdatedAt,
+			Verified:  review.ClaimID != nil,
 			User: dtos.ReviewUser{
 				ID:                user.ID,
 				Name:              user.Name,
@@ -128,10 +142,11 @@ func (h *ReviewHandler) FindByEntity(c *gin.Context) {
 	}
 
 	avg, count, _ := h.Service.Summary(entityID)
+	distribution, verified, _ := h.Service.Breakdown(entityID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"data":    response,
-		"summary": dtos.ReviewSummary{Average: avg, Count: count},
+		"summary": dtos.ReviewSummary{Average: avg, Count: count, Distribution: distribution, VerifiedCount: verified},
 		"meta":    gin.H{"total": total, "page": page, "page_size": pageSize},
 	})
 }
@@ -166,6 +181,7 @@ func (h *ReviewHandler) FindMine(c *gin.Context) {
 		Comment:   review.Comment,
 		CreatedAt: review.CreatedAt,
 		UpdatedAt: review.UpdatedAt,
+		Verified:  review.ClaimID != nil,
 	}
 	if user, err := h.UserService.FindByID(userID); err == nil && user != nil {
 		response.User = dtos.ReviewUser{ID: user.ID, Name: user.Name, ProfilePictureURL: user.ProfilePictureURL}

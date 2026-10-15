@@ -11,11 +11,15 @@ import (
 // user can have at most one review per entity (enforced by a unique index);
 // writing again updates the existing row instead of creating a new one.
 type Review struct {
-	ID        uuid.UUID      `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
-	EntityID  uuid.UUID      `gorm:"type:uuid;not null;uniqueIndex:idx_review_entity_user" json:"entity_id"`
-	UserID    uuid.UUID      `gorm:"type:uuid;not null;uniqueIndex:idx_review_entity_user" json:"user_id"`
-	Rating    int            `gorm:"not null" json:"rating"`
-	Comment   string         `json:"comment"`
+	ID       uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	EntityID uuid.UUID `gorm:"type:uuid;not null;uniqueIndex:idx_review_entity_user" json:"entity_id"`
+	UserID   uuid.UUID `gorm:"type:uuid;not null;uniqueIndex:idx_review_entity_user" json:"user_id"`
+	Rating   int       `gorm:"not null" json:"rating"`
+	Comment  string    `json:"comment"`
+	// ClaimID es el canje (reclamo canjeado y confirmado por el cliente) que
+	// respalda la reseña. Con él la reseña es «verificada»; sin él, es una
+	// reseña normal. Editar el texto no quita la verificación.
+	ClaimID   *uuid.UUID     `gorm:"type:uuid;index" json:"claim_id,omitempty"`
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`

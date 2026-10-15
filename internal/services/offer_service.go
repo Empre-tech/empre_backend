@@ -198,6 +198,12 @@ func (s *OfferService) ListByEntity(entityID, ownerID uuid.UUID) ([]models.Offer
 	return s.OfferRepo.FindByEntity(entityID)
 }
 
+// ActiveListForEntity devuelve todas las ofertas vigentes y con cupos de un
+// negocio (vista pública), las que terminan antes primero.
+func (s *OfferService) ActiveListForEntity(entityID uuid.UUID) ([]models.Offer, error) {
+	return s.OfferRepo.FindActiveByEntity(entityID, utils.NowInCartagena())
+}
+
 // ActiveForEntity returns the first active offer for a business (public
 // profile view). Returns nil when there is none.
 func (s *OfferService) ActiveForEntity(entityID uuid.UUID) (*models.Offer, error) {

@@ -33,6 +33,16 @@ func (r *OfferRepository) FindByID(id uuid.UUID) (*models.Offer, error) {
 	return &offer, err
 }
 
+// FindActiveByEntity devuelve las ofertas vigentes y con cupos de un negocio, las
+// que terminan antes primero.
+func (r *OfferRepository) FindActiveByEntity(entityID uuid.UUID, now time.Time) ([]models.Offer, error) {
+	var offers []models.Offer
+	err := r.DB.
+		Where("entity_id = ? AND ends_at > ? AND used_slots < total_slots", entityID, now).
+		Order("ends_at ASC").Find(&offers).Error
+	return offers, err
+}
+
 // FindByIDs devuelve las ofertas pedidas, por id, en una sola consulta.
 func (r *OfferRepository) FindByIDs(ids []uuid.UUID) (map[uuid.UUID]*models.Offer, error) {
 	out := make(map[uuid.UUID]*models.Offer, len(ids))

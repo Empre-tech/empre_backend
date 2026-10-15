@@ -21,10 +21,16 @@ type ReviewResponse struct {
 	CreatedAt time.Time  `json:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at"`
 	User      ReviewUser `json:"user"`
+	// Verified: la reseña está respaldada por un canje confirmado.
+	Verified bool `json:"verified"`
 }
 
 // ReviewSummary is the aggregate rating shown on a business profile.
 type ReviewSummary struct {
 	Average float64 `json:"average"`
 	Count   int64   `json:"count"`
+	// Distribution: reseñas por calificación; índice 0 = 1 estrella … índice 4 = 5.
+	Distribution [5]int64 `json:"distribution"`
+	// VerifiedCount: cuántas reseñas están respaldadas por un canje confirmado.
+	VerifiedCount int64 `json:"verified_count"`
 }

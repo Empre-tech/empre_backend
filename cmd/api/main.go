@@ -150,7 +150,7 @@ func main() {
 	entityService := services.NewEntityService(entityRepo, mediaService)
 	categoryService := services.NewCategoryService(categoryRepo)
 	chatService := services.NewChatService(chatRepo)
-	reviewService := services.NewReviewService(reviewRepo)
+	reviewService := services.NewReviewService(reviewRepo, claimRepo)
 	favoriteService := services.NewFavoriteService(favoriteRepo)
 	pushService := services.NewPushService(pushTokenRepo)
 	subscriptionService := services.NewSubscriptionService(subscriptionRepo, chatService, pushService, entityService, cfg.WompiPublicKey, cfg.WompiIntegritySecret, cfg.WompiEventsSecret, cfg.WompiRedirectURL)
@@ -218,6 +218,8 @@ func main() {
 			entities.GET("/:id", middleware.OptionalAuth(cfg), entityHandler.FindByID)
 			entities.GET("/:id/reviews", reviewHandler.FindByEntity)
 			entities.GET("/:id/offer", offerHandler.Active)
+			entities.GET("/:id/offers/active", offerHandler.ActiveList)
+			entities.GET("/:id/activity", claimHandler.Activity)
 			entities.GET("/:id/status", statusHandler.Get)
 			entities.GET("/:id/promotions/active", promotionHandler.Active)
 

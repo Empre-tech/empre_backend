@@ -132,6 +132,26 @@ func (h *OfferHandler) Active(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": dtos.OfferResponseFrom(offer)})
 }
 
+// ActiveList returns every active offer of a business (public), soonest-ending first.
+// @Router /api/entities/{id}/offers/active [get]
+func (h *OfferHandler) ActiveList(c *gin.Context) {
+	entityID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID inválido"})
+		return
+	}
+	offers, err := h.Service.ActiveListForEntity(entityID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	out := make([]dtos.OfferResponse, 0, len(offers))
+	for i := range offers {
+		out = append(out, dtos.OfferResponseFrom(&offers[i]))
+	}
+	c.JSON(http.StatusOK, gin.H{"data": out})
+}
+
 // QuickAction applies extend / radius / slots to an active offer (owner only).
 // @Router /api/offers/{id} [patch]
 func (h *OfferHandler) QuickAction(c *gin.Context) {

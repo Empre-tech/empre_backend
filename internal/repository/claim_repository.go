@@ -195,6 +195,17 @@ func (r *ClaimRepository) EntityNames(ids []uuid.UUID) (map[uuid.UUID]string, er
 	return out, nil
 }
 
+// CountVerifiedRedemptionsSince cuenta los canjes que el cliente confirmó desde
+// `since` en un negocio. Solo los verificados cuentan como prueba social.
+func (r *ClaimRepository) CountVerifiedRedemptionsSince(entityID uuid.UUID, since time.Time) (int64, error) {
+	var count int64
+	err := r.DB.Model(&models.OfferClaim{}).
+		Where("entity_id = ? AND status = ? AND verified_by_client = ? AND redeemed_at >= ?",
+			entityID, models.ClaimRedeemed, true, since).
+		Count(&count).Error
+	return count, err
+}
+
 // FindByUser lists a user's claims for the wallet/active view.
 func (r *ClaimRepository) FindByUser(userID uuid.UUID) ([]models.OfferClaim, error) {
 	var claims []models.OfferClaim

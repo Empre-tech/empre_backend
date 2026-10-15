@@ -79,7 +79,8 @@ func (h *StatusHandler) Update(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"availability": status.Availability, "updated_at": status.UpdatedAt})
+	// Pasadas 6 h sin actualizar, la disponibilidad se oculta (queda solo abierto/cerrado).
+	c.JSON(http.StatusOK, gin.H{"availability": status.Current(utils.NowInCartagena()), "updated_at": status.UpdatedAt})
 }
 
 // Get returns the business availability (public).
