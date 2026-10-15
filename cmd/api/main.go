@@ -235,6 +235,7 @@ func main() {
 				entitiesProtected.PATCH("/:id/images/:photoId", entityHandler.UpdateImageCaption)
 				entitiesProtected.POST("/:id/favorite", favoriteHandler.Add)
 				entitiesProtected.DELETE("/:id/favorite", favoriteHandler.Remove)
+				entitiesProtected.GET("/:id/followers", favoriteHandler.FollowerCount)
 				entitiesProtected.POST("/:id/reviews", reviewHandler.Upsert)
 				entitiesProtected.DELETE("/:id/reviews", reviewHandler.Delete)
 				entitiesProtected.GET("/:id/reviews/mine", reviewHandler.FindMine)
@@ -320,6 +321,8 @@ func main() {
 			usersProtected.GET("/me", userHandler.FindMe)
 			usersProtected.POST("/profile/image", userHandler.UploadProfileImage)
 			usersProtected.GET("/me/favorites", favoriteHandler.FindMine)
+			usersProtected.GET("/me/novedades", favoriteHandler.Novedades)
+			usersProtected.POST("/me/novedades/seen", favoriteHandler.MarkNovedadesSeen)
 			usersProtected.POST("/push-token", pushHandler.Register)
 			usersProtected.DELETE("/push-token", pushHandler.Remove)
 		}
