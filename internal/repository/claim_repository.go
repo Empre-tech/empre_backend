@@ -166,6 +166,35 @@ func (r *ClaimRepository) CountClaimsByUserSince(userID uuid.UUID, since time.Ti
 	return count, err
 }
 
+// FindRecentByUser devuelve los reclamos de un usuario hechos desde `since`,
+// los más nuevos primero. Es lo que alimenta «mis reclamos»: los abiertos (cuya
+// ventana dura como mucho 24 h) y los que acaban de terminar.
+func (r *ClaimRepository) FindRecentByUser(userID uuid.UUID, since time.Time, limit int) ([]models.OfferClaim, error) {
+	var claims []models.OfferClaim
+	err := r.DB.Where("user_id = ? AND claimed_at >= ?", userID, since).
+		Order("claimed_at DESC").Limit(limit).Find(&claims).Error
+	return claims, err
+}
+
+// EntityNames devuelve el nombre de cada negocio pedido, en una sola consulta.
+func (r *ClaimRepository) EntityNames(ids []uuid.UUID) (map[uuid.UUID]string, error) {
+	out := make(map[uuid.UUID]string, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	var rows []struct {
+		ID   uuid.UUID
+		Name string
+	}
+	if err := r.DB.Model(&models.Entity{}).Select("id, name").Where("id IN ?", ids).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		out[row.ID] = row.Name
+	}
+	return out, nil
+}
+
 // FindByUser lists a user's claims for the wallet/active view.
 func (r *ClaimRepository) FindByUser(userID uuid.UUID) ([]models.OfferClaim, error) {
 	var claims []models.OfferClaim

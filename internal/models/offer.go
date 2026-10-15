@@ -27,6 +27,21 @@ func (t OfferType) Valid() bool {
 	return false
 }
 
+// ClaimWindow es cuánto dura un reclamo antes de expirar (Backend v2 §4.2):
+// 30 min en las ofertas por horas, 3 h en las del día y 24 h en las de la
+// semana. Es la única fuente: el servicio la usa para calcular el vencimiento y
+// la oferta la publica para que la app muestre la regla antes de reclamar.
+func (t OfferType) ClaimWindow() time.Duration {
+	switch t {
+	case OfferDay:
+		return 3 * time.Hour
+	case OfferWeek:
+		return 24 * time.Hour
+	default:
+		return 30 * time.Minute
+	}
+}
+
 // RepeatPolicy controls how many times a user can claim the same offer.
 type RepeatPolicy string
 

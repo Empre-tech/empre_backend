@@ -33,6 +33,22 @@ func (r *OfferRepository) FindByID(id uuid.UUID) (*models.Offer, error) {
 	return &offer, err
 }
 
+// FindByIDs devuelve las ofertas pedidas, por id, en una sola consulta.
+func (r *OfferRepository) FindByIDs(ids []uuid.UUID) (map[uuid.UUID]*models.Offer, error) {
+	out := make(map[uuid.UUID]*models.Offer, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	var offers []models.Offer
+	if err := r.DB.Where("id IN ?", ids).Find(&offers).Error; err != nil {
+		return nil, err
+	}
+	for i := range offers {
+		out[offers[i].ID] = &offers[i]
+	}
+	return out, nil
+}
+
 func (r *OfferRepository) FindByEntity(entityID uuid.UUID) ([]models.Offer, error) {
 	var offers []models.Offer
 	err := r.DB.Where("entity_id = ?", entityID).Order("created_at DESC").Find(&offers).Error

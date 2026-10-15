@@ -24,6 +24,8 @@ type OfferResponse struct {
 	SlotsLeft    int       `json:"slots_left"`
 	RadiusMeters int       `json:"radius_meters"`
 	RepeatPolicy string    `json:"repeat_policy"`
+	// ClaimWindowMinutes: cuánto dura un reclamo de esta oferta antes de expirar.
+	ClaimWindowMinutes int `json:"claim_window_minutes"`
 }
 
 // OfferResponseFrom converts a model offer to its response shape.
@@ -47,5 +49,7 @@ func OfferResponseFrom(o *models.Offer) OfferResponse {
 		SlotsLeft:    slotsLeft,
 		RadiusMeters: o.RadiusMeters,
 		RepeatPolicy: string(o.RepeatPolicy),
+
+		ClaimWindowMinutes: int(o.Type.ClaimWindow().Minutes()),
 	}
 }

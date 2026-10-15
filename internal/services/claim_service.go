@@ -222,7 +222,7 @@ func (s *ClaimService) Claim(offerID, userID uuid.UUID, lat, lng float64) (*Clai
 		return nil, err
 	}
 
-	window := offerTypeRules[offer.Type].claimWindow
+	window := offer.Type.ClaimWindow()
 	expires := now.Add(window)
 	if expires.After(offer.EndsAt) {
 		expires = offer.EndsAt
@@ -249,7 +249,62 @@ func (s *ClaimService) Claim(offerID, userID uuid.UUID, lat, lng float64) (*Clai
 		return nil, err
 	}
 
-	return &ClaimResult{Claim: claim, Offer: offer}, nil
+	return &ClaimResult{Claim: claim, Offer: offer, EntityName: entity.Name}, nil
+}
+
+// mineWindow y maxMine acotan «mis reclamos»: lo de las últimas 48 h (los
+// reclamos abiertos duran como mucho 24 h) y a lo sumo 30.
+const (
+	mineWindow = 48 * time.Hour
+	maxMine    = 30
+)
+
+// Describe completa un reclamo con lo que se muestra de él: la oferta y el
+// nombre del negocio.
+func (s *ClaimService) Describe(claim *models.OfferClaim) (*ClaimResult, error) {
+	offer, err := s.OfferRepo.FindByID(claim.OfferID)
+	if err != nil {
+		return nil, errors.New("oferta no encontrada")
+	}
+	names, err := s.ClaimRepo.EntityNames([]uuid.UUID{claim.EntityID})
+	if err != nil {
+		return nil, err
+	}
+	return &ClaimResult{Claim: claim, Offer: offer, EntityName: names[claim.EntityID]}, nil
+}
+
+// ListMine devuelve los reclamos recientes del usuario, los más nuevos primero,
+// con su oferta y el nombre del negocio. Los reclamos de otras personas nunca
+// aparecen. Reclamos cuya oferta ya no existe se omiten.
+func (s *ClaimService) ListMine(userID uuid.UUID) ([]*ClaimResult, error) {
+	now := utils.NowInCartagena()
+	claims, err := s.ClaimRepo.FindRecentByUser(userID, now.Add(-mineWindow), maxMine)
+	if err != nil {
+		return nil, err
+	}
+	offerIDs := make([]uuid.UUID, 0, len(claims))
+	entityIDs := make([]uuid.UUID, 0, len(claims))
+	for i := range claims {
+		offerIDs = append(offerIDs, claims[i].OfferID)
+		entityIDs = append(entityIDs, claims[i].EntityID)
+	}
+	offers, err := s.OfferRepo.FindByIDs(offerIDs)
+	if err != nil {
+		return nil, err
+	}
+	names, err := s.ClaimRepo.EntityNames(entityIDs)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*ClaimResult, 0, len(claims))
+	for i := range claims {
+		offer, ok := offers[claims[i].OfferID]
+		if !ok {
+			continue
+		}
+		out = append(out, &ClaimResult{Claim: &claims[i], Offer: offer, EntityName: names[claims[i].EntityID]})
+	}
+	return out, nil
 }
 
 // RunExpirySweeper expires lapsed claims and releases their slots every
@@ -389,14 +444,16 @@ func (s *ClaimService) redeem(claim *models.OfferClaim, redeemerID uuid.UUID, de
 		clientName = user.Name
 	}
 
-	if s.SignalService != nil {
-		s.SignalService.Record(claim.EntityID, models.SignalRedeem)
-	}
+	// La señal de popularidad NO se registra aquí: un canje cuenta para el
+	// ranking solo cuando el cliente lo confirma (ver Confirm). Así un negocio
+	// no puede inflar su posición canjeando con cuentas falsas.
 
 	return &ClaimResult{Claim: redeemed, Offer: offer, ClientName: clientName, EntityName: entity.Name}, nil
 }
 
-// Confirm marks a redeemed claim as verified by the client (antifraud signal).
+// Confirm marks a redeemed claim as verified by the client. Only verified
+// redemptions count as a popularity signal (Backend v2 §3.4, §6), so the signal
+// is recorded here, once: a repeated confirmation changes nothing.
 func (s *ClaimService) Confirm(claimID, userID uuid.UUID) error {
 	claim, err := s.ClaimRepo.FindByID(claimID)
 	if err != nil {
@@ -408,8 +465,16 @@ func (s *ClaimService) Confirm(claimID, userID uuid.UUID) error {
 	if claim.Status != models.ClaimRedeemed {
 		return errors.New("el reclamo aún no ha sido canjeado")
 	}
-	if claim.VerifiedByClient {
-		return nil
+
+	// La condición va en el UPDATE: dos confirmaciones simultáneas no registran dos señales.
+	res := s.ClaimRepo.DB.Model(&models.OfferClaim{}).
+		Where("id = ? AND verified_by_client = ?", claim.ID, false).
+		Update("verified_by_client", true)
+	if res.Error != nil {
+		return res.Error
 	}
-	return s.ClaimRepo.DB.Model(&models.OfferClaim{}).Where("id = ?", claim.ID).Update("verified_by_client", true).Error
+	if res.RowsAffected == 1 && s.SignalService != nil {
+		s.SignalService.Record(claim.EntityID, models.SignalRedeem)
+	}
+	return nil
 }

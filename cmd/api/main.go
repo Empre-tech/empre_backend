@@ -286,6 +286,7 @@ func main() {
 		claims := api.Group("/claims")
 		claims.Use(middleware.AuthMiddleware(cfg))
 		{
+			claims.GET("/mine", claimHandler.Mine)
 			claims.GET("/:id", claimHandler.Get)
 			claims.DELETE("/:id", claimHandler.Cancel)
 			claims.POST("/:id/redeem", middleware.RateLimit(20, time.Minute), claimHandler.Redeem)

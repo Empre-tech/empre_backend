@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"empre_backend/internal/dtos"
 	"empre_backend/internal/models"
@@ -34,17 +35,50 @@ type RedeemRequest struct {
 	Device string `json:"device"`
 }
 
+// effectiveStatus es el estado que ve el usuario: un reclamo abierto cuya
+// ventana ya pasó se muestra como EXPIRADO aunque el barrido periódico todavía
+// no lo haya marcado.
+func effectiveStatus(claim *models.OfferClaim, now time.Time) string {
+	if claim.Status == models.ClaimClaimed && !claim.ExpiresAt.After(now) {
+		return string(models.ClaimExpired)
+	}
+	return string(claim.Status)
+}
+
 func claimResponse(res *services.ClaimResult) dtos.ClaimResponse {
 	return dtos.ClaimResponse{
-		ID:        res.Claim.ID,
-		OfferID:   res.Claim.OfferID,
-		Status:    string(res.Claim.Status),
-		Token:     res.Claim.Token,
-		ShortCode: res.Claim.ShortCode,
-		ClaimedAt: res.Claim.ClaimedAt,
-		ExpiresAt: res.Claim.ExpiresAt,
-		Offer:     dtos.OfferResponseFrom(res.Offer),
+		ID:               res.Claim.ID,
+		OfferID:          res.Claim.OfferID,
+		Status:           effectiveStatus(res.Claim, time.Now()),
+		Token:            res.Claim.Token,
+		ShortCode:        res.Claim.ShortCode,
+		ClaimedAt:        res.Claim.ClaimedAt,
+		ExpiresAt:        res.Claim.ExpiresAt,
+		Offer:            dtos.OfferResponseFrom(res.Offer),
+		EntityName:       res.EntityName,
+		RedeemedAt:       res.Claim.RedeemedAt,
+		VerifiedByClient: res.Claim.VerifiedByClient,
 	}
+}
+
+// Mine lists the user's recent claims (QR + state), newest first.
+// @Router /api/claims/mine [get]
+func (h *ClaimHandler) Mine(c *gin.Context) {
+	userID, ok := ownerID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "No autenticado"})
+		return
+	}
+	results, err := h.Service.ListMine(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	out := make([]dtos.ClaimResponse, 0, len(results))
+	for _, res := range results {
+		out = append(out, claimResponse(res))
+	}
+	c.JSON(http.StatusOK, gin.H{"data": out})
 }
 
 // Claim reserves a slot and returns the personal QR (user).
@@ -101,13 +135,13 @@ func (h *ClaimHandler) Get(c *gin.Context) {
 		return
 	}
 
-	offer, err := h.Service.OfferRepo.FindByID(claim.OfferID)
+	res, err := h.Service.Describe(claim)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Oferta no encontrada"})
 		return
 	}
 
-	c.JSON(http.StatusOK, claimResponse(&services.ClaimResult{Claim: claim, Offer: offer}))
+	c.JSON(http.StatusOK, claimResponse(res))
 }
 
 // Cancel releases the slot (user).

@@ -17,6 +17,12 @@ type ClaimResponse struct {
 	ClaimedAt time.Time     `json:"claimed_at"`
 	ExpiresAt time.Time     `json:"expires_at"`
 	Offer     OfferResponse `json:"offer,omitempty"`
+
+	// EntityName: nombre del negocio, para mostrar el QR sin otra consulta.
+	EntityName string `json:"entity_name,omitempty"`
+	// RedeemedAt y VerifiedByClient: para el estado «canjeado» y su confirmación.
+	RedeemedAt       *time.Time `json:"redeemed_at,omitempty"`
+	VerifiedByClient bool       `json:"verified_by_client"`
 }
 
 // RedeemResponse is the business scanner result: "Válido" with what to hand

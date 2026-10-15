@@ -611,3 +611,160 @@ func TestRedeem_ValidResultHasEverythingTheScannerShows(t *testing.T) {
 		t.Errorf("cupos libres = %d, se esperaban 9", left)
 	}
 }
+
+// El vencimiento del reclamo sale de la ventana del tipo de oferta y nunca pasa
+// del final de la oferta.
+func TestClaim_ExpiryFollowsOfferTypeWindow(t *testing.T) {
+	db := openTestDB(t, true)
+
+	hours := newFixture(t, db, 5, models.OfferHours, models.RepeatOnce)
+	res, err := hours.svc.Claim(hours.offer.ID, newUser(t, db), 0, 0)
+	if err != nil {
+		t.Fatalf("reclamar (horas): %v", err)
+	}
+	if got := res.Claim.ExpiresAt.Sub(res.Claim.ClaimedAt); got != 30*time.Minute {
+		t.Errorf("ventana por horas = %v, se esperaban 30 min", got)
+	}
+
+	// La oferta de la semana da 24 h, pero esta termina en 2 h: manda el final de la oferta.
+	week := newFixture(t, db, 5, models.OfferWeek, models.RepeatOnce)
+	res, err = week.svc.Claim(week.offer.ID, newUser(t, db), 0, 0)
+	if err != nil {
+		t.Fatalf("reclamar (semana): %v", err)
+	}
+	if diff := res.Claim.ExpiresAt.Sub(week.offer.EndsAt); diff > time.Millisecond || diff < -time.Millisecond {
+		t.Errorf("el vencimiento debía recortarse al fin de la oferta: diferencia %v", diff)
+	}
+	if res.EntityName == "" {
+		t.Error("el resultado del reclamo debe traer el nombre del negocio")
+	}
+}
+
+// «Mis reclamos»: solo los del usuario, solo los recientes, los más nuevos
+// primero, y con la oferta y el negocio ya resueltos.
+func TestListMine_OnlyMyRecentClaimsNewestFirst(t *testing.T) {
+	db := openTestDB(t, true)
+	me := newUser(t, db)
+	other := newUser(t, db)
+
+	older := newFixture(t, db, 5, models.OfferHours, models.RepeatOnce)
+	newer := newFixture(t, db, 5, models.OfferHours, models.RepeatOnce)
+	ancient := newFixture(t, db, 5, models.OfferHours, models.RepeatOnce)
+
+	first, err := older.svc.Claim(older.offer.ID, me, 0, 0)
+	if err != nil {
+		t.Fatalf("reclamar 1: %v", err)
+	}
+	second, err := newer.svc.Claim(newer.offer.ID, me, 0, 0)
+	if err != nil {
+		t.Fatalf("reclamar 2: %v", err)
+	}
+	third, err := ancient.svc.Claim(ancient.offer.ID, me, 0, 0)
+	if err != nil {
+		t.Fatalf("reclamar 3: %v", err)
+	}
+	if _, err := older.svc.Claim(older.offer.ID, other, 0, 0); err != nil {
+		t.Fatalf("reclamo de otra persona: %v", err)
+	}
+
+	now := utils.NowInCartagena()
+	db.Model(&models.OfferClaim{}).Where("id = ?", first.Claim.ID).Update("claimed_at", now.Add(-time.Hour))
+	db.Model(&models.OfferClaim{}).Where("id = ?", third.Claim.ID).Update("claimed_at", now.Add(-72*time.Hour))
+
+	got, err := older.svc.ListMine(me)
+	if err != nil {
+		t.Fatalf("ListMine: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("reclamos = %d, se esperaban 2 (el de hace 72 h y el ajeno no cuentan)", len(got))
+	}
+	if got[0].Claim.ID != second.Claim.ID || got[1].Claim.ID != first.Claim.ID {
+		t.Errorf("el orden debía ser del más nuevo al más viejo")
+	}
+	for _, r := range got {
+		if r.Claim.UserID != me {
+			t.Errorf("apareció un reclamo de otra persona: %s", r.Claim.UserID)
+		}
+		if r.Offer == nil || r.Offer.Title != "Corte + barba" {
+			t.Errorf("falta la oferta resuelta: %+v", r.Offer)
+		}
+		if r.EntityName != "Barbería de prueba" {
+			t.Errorf("EntityName = %q", r.EntityName)
+		}
+	}
+
+	// Quien no reclamó nada recibe una lista vacía, no un error.
+	empty, err := older.svc.ListMine(newUser(t, db))
+	if err != nil || len(empty) != 0 {
+		t.Errorf("sin reclamos: %v, %d resultados", err, len(empty))
+	}
+}
+
+// Describe devuelve la oferta y el negocio de un reclamo suelto.
+func TestDescribe_ResolvesOfferAndBusiness(t *testing.T) {
+	f := newFixture(t, openTestDB(t, true), 5, models.OfferHours, models.RepeatOnce)
+	res, err := f.svc.Claim(f.offer.ID, newUser(t, f.db), 0, 0)
+	if err != nil {
+		t.Fatalf("reclamar: %v", err)
+	}
+	got, err := f.svc.Describe(res.Claim)
+	if err != nil {
+		t.Fatalf("Describe: %v", err)
+	}
+	if got.Offer.ID != f.offer.ID || got.EntityName != "Barbería de prueba" {
+		t.Errorf("Describe devolvió %+v / %q", got.Offer, got.EntityName)
+	}
+}
+
+func (f *fixture) redeemSignals(t *testing.T) int64 {
+	t.Helper()
+	var n int64
+	f.db.Model(&models.Signal{}).Where("entity_id = ? AND type = ?", f.offer.EntityID, models.SignalRedeem).Count(&n)
+	return n
+}
+
+// Solo cuentan los canjes verificados: canjear no suma popularidad, confirmar sí,
+// una sola vez, aunque el cliente confirme muchas veces a la vez.
+func TestConfirm_OnlyVerifiedRedemptionsCountAsSignal(t *testing.T) {
+	f := newFixture(t, openTestDB(t, true), 5, models.OfferHours, models.RepeatOnce)
+	client := newUser(t, f.db)
+
+	res, err := f.svc.Claim(f.offer.ID, client, 0, 0)
+	if err != nil {
+		t.Fatalf("reclamar: %v", err)
+	}
+
+	// Confirmar antes de que el negocio canjee no es posible.
+	if err := f.svc.Confirm(res.Claim.ID, client); err == nil {
+		t.Fatal("confirmar un reclamo sin canjear debía fallar")
+	}
+
+	if _, err := f.svc.RedeemByToken(res.Claim.Token, f.ownerID, "scanner"); err != nil {
+		t.Fatalf("canjear: %v", err)
+	}
+	if got := f.redeemSignals(t); got != 0 {
+		t.Fatalf("canjear registró %d señales de popularidad; debía registrar 0 hasta que el cliente confirme", got)
+	}
+
+	// Otra persona no puede confirmar el canje ajeno.
+	if err := f.svc.Confirm(res.Claim.ID, newUser(t, f.db)); err == nil {
+		t.Fatal("otra persona pudo confirmar un canje que no era suyo")
+	}
+	if got := f.redeemSignals(t); got != 0 {
+		t.Fatalf("una confirmación ajena registró %d señales", got)
+	}
+
+	// Veinte confirmaciones simultáneas del cliente: una sola señal.
+	ok, errs := runConcurrently(20, func(int) error { return f.svc.Confirm(res.Claim.ID, client) })
+	if ok != 20 {
+		t.Fatalf("confirmaciones sin error = %d de 20 (%v)", ok, errs)
+	}
+	if got := f.redeemSignals(t); got != 1 {
+		t.Errorf("señales de canje = %d, se esperaba exactamente 1", got)
+	}
+	var verified bool
+	f.db.Model(&models.OfferClaim{}).Select("verified_by_client").Where("id = ?", res.Claim.ID).Scan(&verified)
+	if !verified {
+		t.Error("el reclamo debía quedar verificado")
+	}
+}

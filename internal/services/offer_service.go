@@ -14,14 +14,13 @@ import (
 // offerTypeRule holds the per-type configuration from the product spec
 // (Backend v2 §4.2). A fourth type only needs a new entry here.
 type offerTypeRule struct {
-	maxActive   int           // active offers of this type per business
-	claimWindow time.Duration // how long a claim stays valid before expiring
+	maxActive int // active offers of this type per business
 }
 
 var offerTypeRules = map[models.OfferType]offerTypeRule{
-	models.OfferHours: {maxActive: 2, claimWindow: 30 * time.Minute},
-	models.OfferDay:   {maxActive: 1, claimWindow: 3 * time.Hour},
-	models.OfferWeek:  {maxActive: 1, claimWindow: 24 * time.Hour},
+	models.OfferHours: {maxActive: 2},
+	models.OfferDay:   {maxActive: 1},
+	models.OfferWeek:  {maxActive: 1},
 }
 
 const defaultRadiusMeters = 500
