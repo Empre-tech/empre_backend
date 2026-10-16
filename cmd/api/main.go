@@ -88,6 +88,7 @@ func main() {
 		&models.Place{},
 		&models.Zone{},
 		&models.Event{},
+		&models.ServiceItem{},
 	)
 	if err != nil {
 		log.Fatal("Migration failed: ", err)
@@ -211,6 +212,7 @@ func main() {
 	cellHandler := handlers.NewCellHandler(services.NewCellService(database.DB))
 	eventService := services.NewEventService(database.DB)
 	eventHandler := handlers.NewEventHandler(eventService)
+	catalogHandler := handlers.NewCatalogHandler(services.NewCatalogService(database.DB))
 	// Retención: los eventos de uso de más de 180 días se borran al arrancar.
 	if n, err := eventService.PurgeOlderThan(time.Now().AddDate(0, 0, -180)); err != nil {
 		log.Println("No se pudieron purgar eventos viejos: ", err)
@@ -250,6 +252,7 @@ func main() {
 			entities.GET("/:id/activity", claimHandler.Activity)
 			entities.GET("/:id/status", statusHandler.Get)
 			entities.GET("/:id/promotions/active", promotionHandler.Active)
+			entities.GET("/:id/catalog", catalogHandler.List)
 
 			// Protected mutations
 			entitiesProtected := entities.Use(middleware.AuthMiddleware(cfg))
@@ -257,6 +260,11 @@ func main() {
 				entitiesProtected.POST("", entityHandler.Create)
 				entitiesProtected.GET("/mine", entityHandler.FindAllByOwner)
 				entitiesProtected.PUT("/:id", entityHandler.Update)
+				// Catálogo de servicios (solo el dueño; la lectura es pública, arriba).
+				entitiesProtected.POST("/:id/catalog", catalogHandler.Create)
+				entitiesProtected.POST("/:id/catalog/confirm", catalogHandler.Confirm)
+				entitiesProtected.PUT("/:id/catalog/:itemId", catalogHandler.Update)
+				entitiesProtected.DELETE("/:id/catalog/:itemId", catalogHandler.Retire)
 				entitiesProtected.DELETE("/:id", entityHandler.Delete)
 				entitiesProtected.POST("/:id/images", entityHandler.UploadImage)
 				entitiesProtected.DELETE("/:id/images/:photoId", entityHandler.DeleteImage)
