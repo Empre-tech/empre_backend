@@ -25,6 +25,8 @@ type Entity struct {
 	OwnerID     uuid.UUID `gorm:"type:uuid;not null;index" json:"owner_id"`
 	Name        string    `gorm:"not null" json:"name"`
 	Description string    `json:"description"`
+	// Tagline es la frase corta que la tarjeta de «Descubre» muestra bajo el nombre.
+	Tagline string `gorm:"size:80" json:"tagline"`
 	CategoryID  uuid.UUID `gorm:"type:uuid;not null;index" json:"category_id"` // e.g., "Food", "Services"
 	Address     string    `json:"address"`
 	City        string    `json:"city"`

@@ -64,3 +64,38 @@ func IsOpenNow(hours []models.BusinessHour, now time.Time) bool {
 
 	return false
 }
+
+// ClosesAt dice a qué hora cierra hoy un negocio que está abierto ahora
+// ("HH:MM"), para mostrar «Abierto · hasta las 8:00 pm». Devuelve "24h" si
+// atiende las 24 horas y "" si está cerrado o no tiene horario.
+func ClosesAt(hours []models.BusinessHour, now time.Time) string {
+	today := int(now.Weekday())
+	yesterday := (today + 6) % 7
+	nowTime := now.Format("15:04")
+
+	for i := range hours {
+		h := hours[i]
+		if h.Weekday == yesterday && !h.Closed && !h.Is24h && h.OpenTime != "" && h.CloseTime != "" &&
+			h.CloseTime <= h.OpenTime && nowTime < h.CloseTime {
+			// El horario de ayer cruzó la medianoche y sigue corriendo.
+			return h.CloseTime
+		}
+	}
+	for i := range hours {
+		h := hours[i]
+		if h.Weekday != today || h.Closed {
+			continue
+		}
+		if h.Is24h {
+			return "24h"
+		}
+		if h.OpenTime == "" || h.CloseTime == "" || nowTime < h.OpenTime {
+			return ""
+		}
+		if h.CloseTime > h.OpenTime && nowTime >= h.CloseTime {
+			return ""
+		}
+		return h.CloseTime
+	}
+	return ""
+}

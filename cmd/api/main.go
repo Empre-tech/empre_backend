@@ -258,6 +258,7 @@ func main() {
 
 		// Descubrimiento: ranking contextual + diversificación (público).
 		api.GET("/discovery", discoveryHandler.Discover)
+		api.GET("/discovery/sections", discoveryHandler.Sections)
 
 		// Pestaña Ofertas: relámpagos y promociones activos (público).
 		api.GET("/offers", offerListHandler.List)

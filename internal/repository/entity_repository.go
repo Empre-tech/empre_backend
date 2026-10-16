@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"time"
+
 	"empre_backend/internal/models"
 	"empre_backend/pkg/utils"
 
@@ -257,4 +259,23 @@ func (r *EntityRepository) SetHours(entity *models.Entity, hours []models.Busine
 
 func (r *EntityRepository) Delete(entity *models.Entity) error {
 	return r.DB.Delete(entity).Error
+}
+
+// LatestPostTimes devuelve, por negocio, cuándo hizo su última publicación.
+// Los negocios que nunca publicaron no aparecen en el mapa devuelto.
+func (r *EntityRepository) LatestPostTimes(entityIDs []uuid.UUID) (map[uuid.UUID]time.Time, error) {
+	out := make(map[uuid.UUID]time.Time, len(entityIDs))
+	if len(entityIDs) == 0 {
+		return out, nil
+	}
+	var rows []struct {
+		EntityID uuid.UUID
+		Latest   time.Time
+	}
+	err := r.DB.Table("posts").Select("entity_id, MAX(created_at) AS latest").
+		Where("entity_id IN ?", entityIDs).Group("entity_id").Scan(&rows).Error
+	for _, row := range rows {
+		out[row.EntityID] = row.Latest
+	}
+	return out, err
 }

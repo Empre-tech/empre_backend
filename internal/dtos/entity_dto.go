@@ -45,6 +45,7 @@ type EntityDetailDTO struct {
 	ID                 uuid.UUID                 `json:"id"`
 	Name               string                    `json:"name"`
 	Description        string                    `json:"description"`
+	Tagline            string                    `json:"tagline"`
 	Category           CategoryResponse          `json:"category"`
 	Address            string                    `json:"address"`
 	City               string                    `json:"city"`

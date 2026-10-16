@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -59,8 +60,10 @@ func NewEntityHandler(
 }
 
 type CreateEntityRequest struct {
-	Name           string        `json:"name" binding:"required"`
-	Description    string        `json:"description"`
+	Name        string `json:"name" binding:"required"`
+	Description string `json:"description"`
+	// Tagline es opcional; en una edición, si no viene, no se toca.
+	Tagline        *string       `json:"tagline"`
 	Category       string        `json:"category"`
 	SubcategoryIDs []string      `json:"subcategory_ids"`
 	Address        string        `json:"address"`
@@ -164,6 +167,11 @@ func (h *EntityHandler) Create(c *gin.Context) {
 		return
 	}
 
+	if !validTagline(req.Tagline) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "La frase corta admite hasta 80 caracteres"})
+		return
+	}
+
 	if !models.ServiceMode(req.ServiceMode).Valid() {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid service_mode. Use in_place, delivery or both"})
 		return
@@ -174,6 +182,7 @@ func (h *EntityHandler) Create(c *gin.Context) {
 		OwnerID:        userID.(uuid.UUID),
 		Name:           req.Name,
 		Description:    req.Description,
+		Tagline:        taglineOf(req.Tagline),
 		CategoryID:     categoryID,
 		Address:        req.Address,
 		City:           req.City,
@@ -246,6 +255,7 @@ func (h *EntityHandler) Create(c *gin.Context) {
 		Subcategories: subcategoryDTOs(fullEntity.Subcategories),
 		Name:          fullEntity.Name,
 		Description:   fullEntity.Description,
+		Tagline:       fullEntity.Tagline,
 		Category: dtos.CategoryResponse{
 			ID:    fullEntity.Category.ID,
 			Name:  fullEntity.Category.Name,
@@ -326,6 +336,7 @@ func (h *EntityHandler) FindByID(c *gin.Context) {
 		ID:          entity.ID,
 		Name:        entity.Name,
 		Description: entity.Description,
+		Tagline:     entity.Tagline,
 		Category: dtos.CategoryResponse{
 			ID:    entity.Category.ID,
 			Name:  entity.Category.Name,
@@ -528,9 +539,16 @@ func (h *EntityHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	if !validTagline(req.Tagline) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "La frase corta admite hasta 80 caracteres"})
+		return
+	}
 
 	existing.Name = req.Name
 	existing.Description = req.Description
+	if req.Tagline != nil {
+		existing.Tagline = taglineOf(req.Tagline)
+	}
 	existing.Address = req.Address
 	existing.City = req.City
 	existing.ContactInfo = req.ContactInfo
@@ -1028,6 +1046,7 @@ func (h *EntityHandler) VerifyEntity(c *gin.Context) {
 		ID:          entity.ID,
 		Name:        entity.Name,
 		Description: entity.Description,
+		Tagline:     entity.Tagline,
 		Category: dtos.CategoryResponse{
 			ID:    entity.Category.ID,
 			Name:  entity.Category.Name,
@@ -1053,4 +1072,18 @@ func (h *EntityHandler) VerifyEntity(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+// TaglineMax es el largo máximo de la frase corta (cabe en una línea de la tarjeta).
+const TaglineMax = 80
+
+func validTagline(t *string) bool {
+	return t == nil || utf8.RuneCountInString(strings.TrimSpace(*t)) <= TaglineMax
+}
+
+func taglineOf(t *string) string {
+	if t == nil {
+		return ""
+	}
+	return strings.TrimSpace(*t)
 }
