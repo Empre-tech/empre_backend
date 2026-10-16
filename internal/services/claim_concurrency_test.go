@@ -67,7 +67,7 @@ func openTestDB(t *testing.T, withClaimIndex bool) *gorm.DB {
 	if err := db.AutoMigrate(
 		&models.User{}, &models.Media{}, &models.Category{}, &models.Subcategory{},
 		&models.Place{}, &models.Entity{}, &models.Post{}, &models.EntityPhoto{},
-		&models.BusinessHour{}, &models.Offer{}, &models.OfferClaim{}, &models.Signal{}, &models.Review{}, &models.Favorite{}, &models.Subscription{}, &models.Zone{}, &models.Event{}, &models.ServiceItem{}, &models.OfferItem{},
+		&models.BusinessHour{}, &models.Offer{}, &models.OfferClaim{}, &models.Signal{}, &models.Review{}, &models.Favorite{}, &models.Subscription{}, &models.Zone{}, &models.Event{}, &models.ServiceItem{}, &models.OfferItem{}, &models.Promotion{}, &models.PromotionItem{},
 	); err != nil {
 		t.Fatalf("migrar: %v", err)
 	}

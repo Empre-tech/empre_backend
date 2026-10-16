@@ -33,7 +33,9 @@ func (r *PromotionRepository) FindByID(id uuid.UUID) (*models.Promotion, error) 
 
 func (r *PromotionRepository) FindByEntity(entityID uuid.UUID) ([]models.Promotion, error) {
 	var ps []models.Promotion
-	err := r.DB.Where("entity_id = ?", entityID).Order("created_at DESC").Find(&ps).Error
+	err := r.DB.Where("entity_id = ?", entityID).
+		Preload("Items", func(db *gorm.DB) *gorm.DB { return db.Order("position ASC, created_at ASC") }).
+		Order("created_at DESC").Find(&ps).Error
 	return ps, err
 }
 
@@ -61,6 +63,7 @@ func (r *PromotionRepository) FindActive(now time.Time) ([]models.Promotion, err
 func (r *PromotionRepository) FindActiveByEntity(entityID uuid.UUID, now time.Time) ([]models.Promotion, error) {
 	var ps []models.Promotion
 	err := r.DB.Where("entity_id = ? AND status = ? AND ends_at > ?", entityID, models.PromotionActive, now).
+		Preload("Items", func(db *gorm.DB) *gorm.DB { return db.Order("position ASC, created_at ASC") }).
 		Order("ends_at ASC").Find(&ps).Error
 	return ps, err
 }

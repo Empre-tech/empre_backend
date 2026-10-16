@@ -11,14 +11,34 @@ import (
 type PromotionStatus string
 
 const (
+	// PromotionDraft es un borrador: solo lo ve el dueño, no cuenta para el límite de activas.
+	PromotionDraft    PromotionStatus = "draft"
 	PromotionActive   PromotionStatus = "active"
 	PromotionPaused   PromotionStatus = "paused"
-	PromotionFinished PromotionStatus = "finished"
+	PromotionFinished PromotionStatus = "finished" // final: no se reactiva
 )
 
 func (s PromotionStatus) Valid() bool {
 	switch s {
-	case PromotionActive, PromotionPaused, PromotionFinished:
+	case PromotionDraft, PromotionActive, PromotionPaused, PromotionFinished:
+		return true
+	}
+	return false
+}
+
+// PromotionTemplate es la plantilla visual de una campaña. Vacía = promoción de antes del editor por plantillas.
+type PromotionTemplate string
+
+const (
+	TemplateNone     PromotionTemplate = ""
+	TemplateCelebrar PromotionTemplate = "celebracion"       // aniversario, fecha: comunicar sin descuento
+	TemplateEstrella PromotionTemplate = "servicio_estrella" // foto grande y un servicio
+	TemplatePaquete  PromotionTemplate = "paquete"           // dos o más servicios juntos
+)
+
+func (t PromotionTemplate) Valid() bool {
+	switch t {
+	case TemplateNone, TemplateCelebrar, TemplateEstrella, TemplatePaquete:
 		return true
 	}
 	return false
@@ -33,6 +53,14 @@ type Promotion struct {
 
 	Title       string `gorm:"not null" json:"title"`
 	Description string `json:"description"`
+	// MotiveInternal es el porqué de la campaña, SOLO para el dueño (organizar y analizar): nunca sale en una
+	// respuesta pública. PublicMessage es lo que ve el cliente.
+	MotiveInternal string `gorm:"size:200" json:"-"`
+	PublicMessage  string `gorm:"size:240" json:"public_message"`
+	// Template es la plantilla visual elegida (ver PromotionTemplate).
+	Template PromotionTemplate `gorm:"type:varchar(20);default:''" json:"template"`
+	// Items son los servicios del catálogo que destaca, congelados al publicar.
+	Items []PromotionItem `gorm:"foreignKey:PromotionID" json:"-"`
 	// Precio o porcentaje de descuento (al menos uno); valor normal opcional.
 	Price       string `json:"price"`
 	Discount    string `json:"discount"`

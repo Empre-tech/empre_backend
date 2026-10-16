@@ -201,3 +201,40 @@ func (s *CatalogService) Confirm(entityID, userID uuid.UUID, now time.Time) (int
 		Update("confirmed_at", now)
 	return res.RowsAffected, res.Error
 }
+
+// LoadActiveServices carga los servicios ACTIVOS de un negocio por id, sin repetidos y en el orden pedido, hasta
+// `max`. Falla si alguno no existe, no es de ese negocio o ya fue retirado: así una oferta o promoción nunca incluye un
+// servicio ajeno ni uno que el negocio ya no presta.
+func LoadActiveServices(db *gorm.DB, entityID uuid.UUID, ids []uuid.UUID, max int) ([]models.ServiceItem, error) {
+	seen := map[uuid.UUID]bool{}
+	unique := make([]uuid.UUID, 0, len(ids))
+	for _, id := range ids {
+		if !seen[id] {
+			seen[id] = true
+			unique = append(unique, id)
+		}
+	}
+	if len(unique) > max {
+		return nil, fmt.Errorf("se admiten hasta %d servicios", max)
+	}
+	if len(unique) == 0 {
+		return nil, nil
+	}
+	var found []models.ServiceItem
+	if err := db.Where("id IN ? AND entity_id = ? AND status = ?", unique, entityID, models.ServiceActive).Find(&found).Error; err != nil {
+		return nil, err
+	}
+	byID := make(map[uuid.UUID]models.ServiceItem, len(found))
+	for _, f := range found {
+		byID[f.ID] = f
+	}
+	out := make([]models.ServiceItem, 0, len(unique))
+	for _, id := range unique {
+		sv, ok := byID[id]
+		if !ok {
+			return nil, errors.New("un servicio no está en tu catálogo o ya fue retirado")
+		}
+		out = append(out, sv)
+	}
+	return out, nil
+}

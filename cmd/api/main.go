@@ -90,6 +90,7 @@ func main() {
 		&models.Event{},
 		&models.ServiceItem{},
 		&models.OfferItem{},
+		&models.PromotionItem{},
 	)
 	if err != nil {
 		log.Fatal("Migration failed: ", err)
