@@ -39,6 +39,7 @@ func (r *OfferRepository) FindActiveByEntity(entityID uuid.UUID, now time.Time) 
 	var offers []models.Offer
 	err := r.DB.
 		Where("entity_id = ? AND ends_at > ? AND used_slots < total_slots", entityID, now).
+		Preload("Items", func(db *gorm.DB) *gorm.DB { return db.Order("position ASC, created_at ASC") }).
 		Order("ends_at ASC").Find(&offers).Error
 	return offers, err
 }
@@ -61,7 +62,9 @@ func (r *OfferRepository) FindByIDs(ids []uuid.UUID) (map[uuid.UUID]*models.Offe
 
 func (r *OfferRepository) FindByEntity(entityID uuid.UUID) ([]models.Offer, error) {
 	var offers []models.Offer
-	err := r.DB.Where("entity_id = ?", entityID).Order("created_at DESC").Find(&offers).Error
+	err := r.DB.Where("entity_id = ?", entityID).
+		Preload("Items", func(db *gorm.DB) *gorm.DB { return db.Order("position ASC, created_at ASC") }).
+		Order("created_at DESC").Find(&offers).Error
 	return offers, err
 }
 

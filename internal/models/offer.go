@@ -79,6 +79,15 @@ type Offer struct {
 
 	RepeatPolicy RepeatPolicy `gorm:"type:varchar(20);default:'once'" json:"repeat_policy"`
 
+	// SpecialPrice es el precio TEMPORAL de la oferta (pesos). Es propio de la oferta: nunca escribe el precio
+	// habitual del catálogo. La base lo exige entre 0 y 10.000.000 y, si hay referencia, menor que ella.
+	SpecialPrice *int `gorm:"check:chk_offers_special_price,special_price IS NULL OR (special_price >= 0 AND special_price <= 10000000 AND (reference_price IS NULL OR special_price < reference_price))" json:"special_price"`
+	// ReferencePrice es la suma del precio habitual de los servicios incluidos, CONGELADA al publicar. Solo existe
+	// si todos los servicios tenían precio: sin ella no se calcula ni se muestra ningún ahorro.
+	ReferencePrice *int `gorm:"check:chk_offers_reference_price,reference_price IS NULL OR reference_price > 0" json:"reference_price"`
+	// Items son los servicios del catálogo incluidos, congelados al publicar.
+	Items []OfferItem `gorm:"foreignKey:OfferID" json:"-"`
+
 	// Entidad dueña (para distancia y categoría en el listado de ofertas).
 	Entity Entity `gorm:"foreignKey:EntityID" json:"-"`
 

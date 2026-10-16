@@ -30,6 +30,9 @@ type CreateOfferRequest struct {
 	TotalSlots   int       `json:"total_slots" binding:"required"`
 	RadiusMeters int       `json:"radius_meters"`
 	RepeatPolicy string    `json:"repeat_policy"`
+	// Servicios del catálogo incluidos en la oferta y precio temporal propio (ambos opcionales).
+	ServiceItemIDs []string `json:"service_item_ids"`
+	SpecialPrice   *int     `json:"special_price"`
 }
 
 type QuickActionRequest struct {
@@ -66,16 +69,28 @@ func (h *OfferHandler) Publish(c *gin.Context) {
 		return
 	}
 
+	itemIDs := make([]uuid.UUID, 0, len(req.ServiceItemIDs))
+	for _, raw := range req.ServiceItemIDs {
+		id, err := uuid.Parse(raw)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "service_item_ids inválido"})
+			return
+		}
+		itemIDs = append(itemIDs, id)
+	}
+
 	offer, err := h.Service.Publish(entityID, userID, services.PublishOfferInput{
-		Type:         models.OfferType(req.Type),
-		Title:        req.Title,
-		Price:        req.Price,
-		NormalPrice:  req.NormalPrice,
-		Conditions:   req.Conditions,
-		EndsAt:       req.EndsAt,
-		TotalSlots:   req.TotalSlots,
-		RadiusMeters: req.RadiusMeters,
-		RepeatPolicy: models.RepeatPolicy(req.RepeatPolicy),
+		ServiceItemIDs: itemIDs,
+		SpecialPrice:   req.SpecialPrice,
+		Type:           models.OfferType(req.Type),
+		Title:          req.Title,
+		Price:          req.Price,
+		NormalPrice:    req.NormalPrice,
+		Conditions:     req.Conditions,
+		EndsAt:         req.EndsAt,
+		TotalSlots:     req.TotalSlots,
+		RadiusMeters:   req.RadiusMeters,
+		RepeatPolicy:   models.RepeatPolicy(req.RepeatPolicy),
 	})
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

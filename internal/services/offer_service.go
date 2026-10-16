@@ -46,7 +46,14 @@ type PublishOfferInput struct {
 	TotalSlots   int
 	RadiusMeters int
 	RepeatPolicy models.RepeatPolicy
+	// ServiceItemIDs son servicios del catálogo del mismo negocio que incluye la oferta (hasta MaxOfferItems);
+	// SpecialPrice es el precio temporal propio. Ambos son opcionales.
+	ServiceItemIDs []uuid.UUID
+	SpecialPrice   *int
 }
+
+// MaxOfferItems es el tope de servicios que incluye una oferta.
+const MaxOfferItems = 5
 
 func (s *OfferService) ensureOwner(entityID, ownerID uuid.UUID) (*models.Entity, error) {
 	entity, err := s.EntityRepo.FindByID(entityID)
@@ -91,19 +98,35 @@ func (s *OfferService) publish(entityID uuid.UUID, in PublishOfferInput) (*model
 		repeat = models.RepeatOnce
 	}
 
+	items, reference, err := s.freezeItems(entityID, in.ServiceItemIDs)
+	if err != nil {
+		return nil, err
+	}
+	if in.SpecialPrice != nil {
+		if *in.SpecialPrice < 0 || *in.SpecialPrice > MaxServicePrice {
+			return nil, errors.New("el precio especial debe estar entre 0 y 10.000.000")
+		}
+		if reference != nil && *in.SpecialPrice >= *reference {
+			return nil, errors.New("el precio especial debe ser menor al precio habitual de lo incluido")
+		}
+	}
+
 	offer := &models.Offer{
-		ID:           uuid.New(),
-		EntityID:     entityID,
-		Type:         in.Type,
-		Title:        in.Title,
-		Price:        in.Price,
-		NormalPrice:  in.NormalPrice,
-		Conditions:   in.Conditions,
-		StartsAt:     now,
-		EndsAt:       in.EndsAt,
-		TotalSlots:   in.TotalSlots,
-		RadiusMeters: radius,
-		RepeatPolicy: repeat,
+		ID:             uuid.New(),
+		EntityID:       entityID,
+		SpecialPrice:   in.SpecialPrice,
+		ReferencePrice: reference,
+		Items:          items,
+		Type:           in.Type,
+		Title:          in.Title,
+		Price:          in.Price,
+		NormalPrice:    in.NormalPrice,
+		Conditions:     in.Conditions,
+		StartsAt:       now,
+		EndsAt:         in.EndsAt,
+		TotalSlots:     in.TotalSlots,
+		RadiusMeters:   radius,
+		RepeatPolicy:   repeat,
 	}
 	if err := s.OfferRepo.Create(offer); err != nil {
 		return nil, err
@@ -188,7 +211,84 @@ func (s *OfferService) Republish(oldOfferID, ownerID uuid.UUID, in PublishOfferI
 	if in.RepeatPolicy == "" {
 		in.RepeatPolicy = old.RepeatPolicy
 	}
+	// Mismos servicios y precio especial que la oferta anterior, si no se piden otros. Los servicios se congelan
+	// de nuevo con su precio habitual de HOY; uno ya retirado simplemente no vuelve.
+	if in.ServiceItemIDs == nil {
+		var prev []models.OfferItem
+		if err := s.OfferRepo.DB.Where("offer_id = ? AND service_item_id IS NOT NULL", old.ID).Order("position ASC").Find(&prev).Error; err != nil {
+			return nil, err
+		}
+		ids := make([]uuid.UUID, 0, len(prev))
+		for _, it := range prev {
+			ids = append(ids, *it.ServiceItemID)
+		}
+		var active []models.ServiceItem
+		if len(ids) > 0 {
+			if err := s.OfferRepo.DB.Where("id IN ? AND entity_id = ? AND status = ?", ids, old.EntityID, models.ServiceActive).Find(&active).Error; err != nil {
+				return nil, err
+			}
+		}
+		still := map[uuid.UUID]bool{}
+		for _, a := range active {
+			still[a.ID] = true
+		}
+		in.ServiceItemIDs = []uuid.UUID{}
+		for _, id := range ids {
+			if still[id] {
+				in.ServiceItemIDs = append(in.ServiceItemIDs, id)
+			}
+		}
+		if in.SpecialPrice == nil {
+			in.SpecialPrice = old.SpecialPrice
+		}
+	}
 	return s.publish(old.EntityID, in)
+}
+
+// freezeItems carga los servicios pedidos (deben ser del mismo negocio y estar activos), los copia congelados y
+// calcula el precio de referencia: la suma de los precios habituales, solo si todos tienen precio.
+func (s *OfferService) freezeItems(entityID uuid.UUID, ids []uuid.UUID) ([]models.OfferItem, *int, error) {
+	if len(ids) == 0 {
+		return nil, nil, nil
+	}
+	seen := map[uuid.UUID]bool{}
+	unique := make([]uuid.UUID, 0, len(ids))
+	for _, id := range ids {
+		if !seen[id] {
+			seen[id] = true
+			unique = append(unique, id)
+		}
+	}
+	if len(unique) > MaxOfferItems {
+		return nil, nil, errors.New("una oferta incluye hasta 5 servicios")
+	}
+	var found []models.ServiceItem
+	if err := s.OfferRepo.DB.Where("id IN ? AND entity_id = ? AND status = ?", unique, entityID, models.ServiceActive).Find(&found).Error; err != nil {
+		return nil, nil, err
+	}
+	byID := make(map[uuid.UUID]models.ServiceItem, len(found))
+	for _, f := range found {
+		byID[f.ID] = f
+	}
+	items := make([]models.OfferItem, 0, len(unique))
+	total, allPriced := 0, true
+	for i, id := range unique {
+		svc, ok := byID[id]
+		if !ok {
+			return nil, nil, errors.New("un servicio no está en tu catálogo o ya fue retirado")
+		}
+		sid := svc.ID
+		items = append(items, models.OfferItem{ServiceItemID: &sid, Name: svc.Name, Price: svc.Price, Position: i})
+		if svc.Price == nil {
+			allPriced = false
+		} else {
+			total += *svc.Price
+		}
+	}
+	if !allPriced || total <= 0 {
+		return items, nil, nil
+	}
+	return items, &total, nil
 }
 
 func (s *OfferService) ListByEntity(entityID, ownerID uuid.UUID) ([]models.Offer, error) {
