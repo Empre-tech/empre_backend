@@ -123,6 +123,26 @@ func (s *PromotionService) ensureOwner(entityID, ownerID uuid.UUID) (*models.Ent
 	return entity, nil
 }
 
+// checkCover comprueba que la imagen de portada existe y es una imagen (JPEG, PNG o WebP): una promoción nunca queda con
+// una portada que no carga ni con un archivo que no es una imagen. Nil = sin portada.
+func (s *PromotionService) checkCover(id *uuid.UUID) error {
+	if id == nil {
+		return nil
+	}
+	var m models.Media
+	if err := s.PromotionRepo.DB.Select("id", "content_type").First(&m, "id = ?", *id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return invalidPromotion("la imagen de portada no existe: vuelve a subirla")
+		}
+		return err
+	}
+	switch m.ContentType {
+	case "image/jpeg", "image/png", "image/webp":
+		return nil
+	}
+	return invalidPromotion("la portada debe ser una imagen JPEG, PNG o WebP")
+}
+
 // freeze copia los servicios pedidos (activos, del mismo negocio) como elementos congelados de la promoción.
 func freezePromotionItems(db *gorm.DB, entityID uuid.UUID, ids []uuid.UUID) ([]models.PromotionItem, error) {
 	if len(ids) == 0 {
@@ -153,6 +173,9 @@ func (s *PromotionService) Publish(entityID, ownerID uuid.UUID, in PublishPromot
 		Title: in.Title, PublicMessage: in.PublicMessage, MotiveInternal: in.MotiveInternal, Template: in.Template,
 		Price: in.Price, Discount: in.Discount, ItemCount: len(items),
 	}); err != nil {
+		return nil, err
+	}
+	if err := s.checkCover(in.PhotoMediaID); err != nil {
 		return nil, err
 	}
 
@@ -215,6 +238,10 @@ func (s *PromotionService) Update(promotionID, ownerID uuid.UUID, in PublishProm
 	}
 	if p.Status == models.PromotionFinished {
 		return nil, invalidPromotion("una promoción finalizada ya no se puede cambiar")
+	}
+	// La portada nueva se valida antes de tocar nada: un cambio rechazado deja la anterior.
+	if err := s.checkCover(in.PhotoMediaID); err != nil {
+		return nil, err
 	}
 
 	if in.Title != "" {

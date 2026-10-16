@@ -24,10 +24,13 @@ type PromotionResponse struct {
 	Tags        []string  `json:"tags"`
 	Status      string    `json:"status"`
 	// Editor por plantillas: mensaje para clientes, plantilla, portada y servicios destacados (copia congelada).
-	PublicMessage string                  `json:"public_message,omitempty"`
-	Template      string                  `json:"template,omitempty"`
-	PhotoMediaID  *uuid.UUID              `json:"photo_media_id,omitempty"`
-	Items         []PromotionItemResponse `json:"items,omitempty"`
+	PublicMessage string     `json:"public_message,omitempty"`
+	Template      string     `json:"template,omitempty"`
+	PhotoMediaID  *uuid.UUID `json:"photo_media_id,omitempty"`
+	// PhotoURL es la portada lista para mostrar: la ruta pública del medio (/api/images/{id}), que redirige a un enlace
+	// nuevo cada vez (no caduca como una URL prefirmada guardada). Vacía si no hay portada.
+	PhotoURL string                  `json:"photo_url,omitempty"`
+	Items    []PromotionItemResponse `json:"items,omitempty"`
 }
 
 // PromotionItemResponse es un servicio que destaca la promoción, tal como estaba al congelarse.
@@ -81,8 +84,17 @@ func PromotionResponseFrom(p *models.Promotion) PromotionResponse {
 		PublicMessage: p.PublicMessage,
 		Template:      string(p.Template),
 		PhotoMediaID:  p.PhotoMediaID,
+		PhotoURL:      mediaPath(p.PhotoMediaID),
 		Items:         promotionItems(p.Items),
 	}
+}
+
+// mediaPath es la ruta pública de un medio, o vacía si no hay.
+func mediaPath(id *uuid.UUID) string {
+	if id == nil {
+		return ""
+	}
+	return "/api/images/" + id.String()
 }
 
 func promotionItems(items []models.PromotionItem) []PromotionItemResponse {

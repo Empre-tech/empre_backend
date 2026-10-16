@@ -358,7 +358,8 @@ func main() {
 		imagesProtected := api.Group("/images")
 		imagesProtected.Use(middleware.AuthMiddleware(cfg))
 		{
-			imagesProtected.POST("/upload", mediaHandler.Upload)
+			// Subida suelta (devuelve el id del medio): con tope de peso y límite de peticiones por usuario.
+			imagesProtected.POST("/upload", middleware.RateLimit(20, time.Minute), mediaHandler.Upload)
 		}
 
 		// Users (Protected)
