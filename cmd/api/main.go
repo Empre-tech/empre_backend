@@ -199,6 +199,7 @@ func main() {
 	discoveryHandler := handlers.NewDiscoveryHandler(rankingService)
 	statusHandler := handlers.NewStatusHandler(database.DB)
 	zoneHandler := handlers.NewZoneHandler(zoneService)
+	cellHandler := handlers.NewCellHandler(services.NewCellService(database.DB))
 	promotionHandler := handlers.NewPromotionHandler(promotionService)
 	offerListHandler := handlers.NewOfferListHandler(offerListService)
 	searchHandler := handlers.NewSearchHandler(searchService)
@@ -269,6 +270,8 @@ func main() {
 		// Descubrimiento: ranking contextual + diversificación (público).
 		api.GET("/discovery", discoveryHandler.Discover)
 		api.GET("/discovery/sections", discoveryHandler.Sections)
+		// Negocios agrupados en casillas para el mapa lejano (público).
+		api.GET("/discovery/cells", cellHandler.List)
 
 		// Zonas con nombre de una ciudad (público).
 		api.GET("/zones", zoneHandler.List)
