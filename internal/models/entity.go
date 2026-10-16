@@ -37,6 +37,8 @@ type Entity struct {
 
 	// PlaceID agrupa negocios del mismo punto físico (pin "En este lugar").
 	PlaceID *uuid.UUID `gorm:"type:uuid;index" json:"place_id,omitempty"`
+	// ZoneID es la zona con nombre donde queda el negocio; se asigna al guardarlo, no por consulta.
+	ZoneID *uuid.UUID `gorm:"type:uuid;index" json:"zone_id,omitempty"`
 	// Tags son etiquetas libres del negocio (producto/servicio); alimentan la
 	// búsqueda junto con categorías y sinónimos.
 	Tags []string `gorm:"type:jsonb;serializer:json" json:"tags,omitempty"`

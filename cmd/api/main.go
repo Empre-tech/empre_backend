@@ -78,6 +78,7 @@ func main() {
 		&models.CategoryRelation{},
 		&models.BusinessCategory{},
 		&models.Place{},
+		&models.Zone{},
 	)
 	if err != nil {
 		log.Fatal("Migration failed: ", err)
@@ -97,6 +98,12 @@ func main() {
 	}
 	if err := database.MigratePlaces(database.DB); err != nil {
 		log.Fatal("No se pudo migrar los places: ", err)
+	}
+	if err := services.SeedZones(database.DB); err != nil {
+		log.Fatal("No se pudieron sembrar las zonas: ", err)
+	}
+	if err := services.MigrateEntityZones(database.DB); err != nil {
+		log.Fatal("No se pudo asignar la zona a los negocios: ", err)
 	}
 	if err := database.SeedFamilies(database.DB); err != nil {
 		log.Fatal("No se pudieron asignar las familias: ", err)
@@ -148,6 +155,8 @@ func main() {
 	authService := services.NewAuthService(userRepo, passwordResetRepo, refreshTokenRepo, mailerService, cfg)
 	userService := services.NewUserService(userRepo, mediaService)
 	entityService := services.NewEntityService(entityRepo, mediaService)
+	zoneService := services.NewZoneService(database.DB)
+	entityService.Zones = zoneService
 	categoryService := services.NewCategoryService(categoryRepo)
 	chatService := services.NewChatService(chatRepo)
 	reviewService := services.NewReviewService(reviewRepo, claimRepo)
@@ -189,6 +198,7 @@ func main() {
 	claimHandler := handlers.NewClaimHandler(claimService)
 	discoveryHandler := handlers.NewDiscoveryHandler(rankingService)
 	statusHandler := handlers.NewStatusHandler(database.DB)
+	zoneHandler := handlers.NewZoneHandler(zoneService)
 	promotionHandler := handlers.NewPromotionHandler(promotionService)
 	offerListHandler := handlers.NewOfferListHandler(offerListService)
 	searchHandler := handlers.NewSearchHandler(searchService)
@@ -259,6 +269,9 @@ func main() {
 		// Descubrimiento: ranking contextual + diversificación (público).
 		api.GET("/discovery", discoveryHandler.Discover)
 		api.GET("/discovery/sections", discoveryHandler.Sections)
+
+		// Zonas con nombre de una ciudad (público).
+		api.GET("/zones", zoneHandler.List)
 
 		// Pestaña Ofertas: relámpagos y promociones activos (público).
 		api.GET("/offers", offerListHandler.List)

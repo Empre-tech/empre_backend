@@ -2,6 +2,7 @@ package services
 
 import (
 	"errors"
+	"log"
 
 	"empre_backend/internal/models"
 	"empre_backend/internal/repository"
@@ -13,6 +14,8 @@ import (
 type EntityService struct {
 	Repo         *repository.EntityRepository
 	MediaService *MediaService
+	// Zones asigna la zona con nombre al guardar; si es nil, no se asigna.
+	Zones *ZoneService
 }
 
 func NewEntityService(repo *repository.EntityRepository, mediaService *MediaService) *EntityService {
@@ -27,11 +30,23 @@ func (s *EntityService) CreateEntity(entity *models.Entity) error {
 	if entity.Name == "" {
 		return errors.New("name is required")
 	}
+	s.assignZone(entity)
 	return s.Repo.Create(entity)
 }
 
 func (s *EntityService) UpdateEntity(entity *models.Entity) error {
+	s.assignZone(entity)
 	return s.Repo.Update(entity)
+}
+
+// assignZone no impide guardar el negocio si falla: la zona es un dato de ayuda.
+func (s *EntityService) assignZone(entity *models.Entity) {
+	if s.Zones == nil {
+		return
+	}
+	if err := s.Zones.Assign(entity); err != nil {
+		log.Printf("no se pudo asignar la zona al negocio %s: %v", entity.ID, err)
+	}
 }
 
 func (s *EntityService) FindByID(id uuid.UUID) (*models.Entity, error) {
