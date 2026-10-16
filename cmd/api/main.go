@@ -87,6 +87,7 @@ func main() {
 		&models.BusinessCategory{},
 		&models.Place{},
 		&models.Zone{},
+		&models.Event{},
 	)
 	if err != nil {
 		log.Fatal("Migration failed: ", err)
@@ -208,6 +209,14 @@ func main() {
 	statusHandler := handlers.NewStatusHandler(database.DB)
 	zoneHandler := handlers.NewZoneHandler(zoneService)
 	cellHandler := handlers.NewCellHandler(services.NewCellService(database.DB))
+	eventService := services.NewEventService(database.DB)
+	eventHandler := handlers.NewEventHandler(eventService)
+	// Retención: los eventos de uso de más de 180 días se borran al arrancar.
+	if n, err := eventService.PurgeOlderThan(time.Now().AddDate(0, 0, -180)); err != nil {
+		log.Println("No se pudieron purgar eventos viejos: ", err)
+	} else if n > 0 {
+		log.Printf("Eventos de uso purgados: %d", n)
+	}
 	promotionHandler := handlers.NewPromotionHandler(promotionService)
 	offerListHandler := handlers.NewOfferListHandler(offerListService)
 	searchHandler := handlers.NewSearchHandler(searchService)
@@ -283,6 +292,9 @@ func main() {
 
 		// Zonas con nombre de una ciudad (público).
 		api.GET("/zones", zoneHandler.List)
+
+		// Medición de uso anónima (público, con límite de peticiones).
+		api.POST("/events", middleware.RateLimit(30, time.Minute), eventHandler.Ingest)
 
 		// Pestaña Ofertas: relámpagos y promociones activos (público).
 		api.GET("/offers", offerListHandler.List)
@@ -365,6 +377,7 @@ func main() {
 		adminGroup.Use(middleware.AuthMiddleware(cfg), middleware.RequireAdmin())
 		{
 			adminGroup.GET("/entities", entityHandler.FindAllByStatus)
+			adminGroup.GET("/events/summary", eventHandler.Summary)
 			adminGroup.PATCH("/entities/:id/verify", entityHandler.VerifyEntity)
 
 			adminGroup.POST("/categories", categoryHandler.Create)
