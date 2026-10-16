@@ -28,7 +28,7 @@ type CreatePromotionRequest struct {
 	Discount    string    `json:"discount"`
 	NormalPrice string    `json:"normal_price"`
 	StartsAt    time.Time `json:"starts_at"`
-	EndsAt      time.Time `json:"ends_at" binding:"required"`
+	EndsAt      time.Time `json:"ends_at"` // obligatoria al publicar; un borrador puede no traerla
 	Conditions  string    `json:"conditions"`
 	Tags        string    `json:"tags"`
 	// Editor por plantillas.
