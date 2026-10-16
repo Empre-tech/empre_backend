@@ -28,8 +28,10 @@ func ConnectDB(cfg *config.Config) {
 	// Optimize Connection Pool
 	sqlDB, err := DB.DB()
 	if err == nil {
-		sqlDB.SetMaxIdleConns(10)
-		sqlDB.SetMaxOpenConns(100)
+		// Por defecto 15 abiertas (lo que admite el pooler); con 100 el pooler rechazaba y daba 500.
+		open, idle := config.NormalizePool(cfg.DBMaxOpenConns, cfg.DBMaxIdleConns)
+		sqlDB.SetMaxIdleConns(idle)
+		sqlDB.SetMaxOpenConns(open)
 		sqlDB.SetConnMaxLifetime(time.Hour)
 	}
 

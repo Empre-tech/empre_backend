@@ -41,6 +41,14 @@ import (
 func main() {
 	// Load Config
 	cfg := config.LoadConfig()
+	// Un secreto débil firma tokens que cualquiera podría falsificar: en producción no se arranca con él.
+	secretWarn, secretErr := config.ValidateJWTSecret(cfg.JWTSecret, cfg.IsProduction())
+	if secretErr != nil {
+		log.Fatal("Configuración insegura: ", secretErr)
+	}
+	if secretWarn != "" {
+		log.Println("Aviso de seguridad: ", secretWarn)
+	}
 
 	// Connect to Database
 	database.ConnectDB(cfg)
