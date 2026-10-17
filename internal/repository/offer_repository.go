@@ -33,15 +33,27 @@ func (r *OfferRepository) FindByID(id uuid.UUID) (*models.Offer, error) {
 	return &offer, err
 }
 
-// FindActiveByEntity devuelve las ofertas vigentes y con cupos de un negocio, las
-// que terminan antes primero.
-func (r *OfferRepository) FindActiveByEntity(entityID uuid.UUID, now time.Time) ([]models.Offer, error) {
+// MaxActiveOffers es el tope de ofertas que se piden de una vez (el perfil muestra pocas y «Ver todas»).
+const MaxActiveOffers = 50
+
+// FindActiveByEntity devuelve las ofertas vigentes y con cupos de un negocio, las que terminan antes
+// primero y, a igualdad, la que tiene más cupos libres (una regla fija para todos los negocios). `limit`
+// corta la lista (0 = hasta MaxActiveOffers); el segundo valor es cuántas hay en total.
+func (r *OfferRepository) FindActiveByEntity(entityID uuid.UUID, now time.Time, limit int) ([]models.Offer, int64, error) {
+	if limit <= 0 || limit > MaxActiveOffers {
+		limit = MaxActiveOffers
+	}
+	base := r.DB.Model(&models.Offer{}).Where("entity_id = ? AND ends_at > ? AND used_slots < total_slots", entityID, now)
+	var total int64
+	if err := base.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
 	var offers []models.Offer
-	err := r.DB.
-		Where("entity_id = ? AND ends_at > ? AND used_slots < total_slots", entityID, now).
+	err := base.
 		Preload("Items", func(db *gorm.DB) *gorm.DB { return db.Order("position ASC, created_at ASC") }).
-		Order("ends_at ASC").Find(&offers).Error
-	return offers, err
+		Order("ends_at ASC, (total_slots - used_slots) DESC, created_at ASC").
+		Limit(limit).Find(&offers).Error
+	return offers, total, err
 }
 
 // FindByIDs devuelve las ofertas pedidas, por id, en una sola consulta.

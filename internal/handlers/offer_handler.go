@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"strconv"
 	"time"
 
 	"empre_backend/internal/dtos"
@@ -147,7 +148,8 @@ func (h *OfferHandler) Active(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": dtos.OfferResponseFrom(offer)})
 }
 
-// ActiveList returns every active offer of a business (public), soonest-ending first.
+// ActiveList returns the active offers of a business (public), soonest-ending first (ties: more free slots).
+// `limit` (optional, up to 50) trims the list; `total` says how many there are in all.
 // @Router /api/entities/{id}/offers/active [get]
 func (h *OfferHandler) ActiveList(c *gin.Context) {
 	entityID, err := uuid.Parse(c.Param("id"))
@@ -155,7 +157,8 @@ func (h *OfferHandler) ActiveList(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "ID inválido"})
 		return
 	}
-	offers, err := h.Service.ActiveListForEntity(entityID)
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	offers, total, err := h.Service.ActivePageForEntity(entityID, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -164,7 +167,7 @@ func (h *OfferHandler) ActiveList(c *gin.Context) {
 	for i := range offers {
 		out = append(out, dtos.OfferResponseFrom(&offers[i]))
 	}
-	c.JSON(http.StatusOK, gin.H{"data": out})
+	c.JSON(http.StatusOK, gin.H{"data": out, "total": total})
 }
 
 // QuickAction applies extend / radius / slots to an active offer (owner only).

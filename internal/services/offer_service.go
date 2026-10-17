@@ -298,10 +298,16 @@ func (s *OfferService) ListByEntity(entityID, ownerID uuid.UUID) ([]models.Offer
 	return s.OfferRepo.FindByEntity(entityID)
 }
 
-// ActiveListForEntity devuelve todas las ofertas vigentes y con cupos de un
-// negocio (vista pública), las que terminan antes primero.
+// ActiveListForEntity devuelve todas las ofertas vigentes y con cupos de un negocio (hasta el tope), las que
+// terminan antes primero.
 func (s *OfferService) ActiveListForEntity(entityID uuid.UUID) ([]models.Offer, error) {
-	return s.OfferRepo.FindActiveByEntity(entityID, utils.NowInCartagena())
+	list, _, err := s.OfferRepo.FindActiveByEntity(entityID, utils.NowInCartagena(), 0)
+	return list, err
+}
+
+// ActivePageForEntity es lo mismo con tope: hasta `limit` ofertas (0 = todas hasta el tope) y cuántas hay en total.
+func (s *OfferService) ActivePageForEntity(entityID uuid.UUID, limit int) ([]models.Offer, int64, error) {
+	return s.OfferRepo.FindActiveByEntity(entityID, utils.NowInCartagena(), limit)
 }
 
 // ActiveForEntity returns the first active offer for a business (public
