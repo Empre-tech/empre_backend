@@ -237,3 +237,40 @@ func (h *OfferHandler) Republish(c *gin.Context) {
 
 	c.JSON(http.StatusCreated, dtos.OfferResponseFrom(offer))
 }
+
+// Stats devuelve cómo le fue a cada oferta de los últimos 90 días y lo que dicen las ofertas pasadas (solo el dueño).
+// @Router /api/entities/{id}/offers/stats [get]
+func (h *OfferHandler) Stats(c *gin.Context) {
+	entityID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID inválido"})
+		return
+	}
+	userID, ok := ownerID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "No autenticado"})
+		return
+	}
+	stats, sum, err := h.Service.Stats(entityID, userID, time.Now())
+	if err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+	out := make([]dtos.OfferStatResponse, 0, len(stats))
+	for _, s := range stats {
+		out = append(out, dtos.OfferStatResponse{
+			OfferID: s.OfferID, Title: s.Title, Type: string(s.Type), StartsAt: s.StartsAt, EndsAt: s.EndsAt,
+			TotalSlots: s.TotalSlots, SpecialPrice: s.SpecialPrice, Ended: s.Ended, Views: s.Views, Claims: s.Claims,
+			Redeemed: s.Redeemed, FilledMinutes: s.FilledMinutes, Hour: s.Hour, Weekday: s.Weekday, DurationMinutes: s.DurationMinutes,
+		})
+	}
+	insights := make([]dtos.OfferInsightResponse, 0, len(sum.Insights))
+	for _, i := range sum.Insights {
+		insights = append(insights, dtos.OfferInsightResponse{Kind: i.Kind, Text: i.Text})
+	}
+	c.JSON(http.StatusOK, gin.H{"offers": out, "summary": dtos.OfferStatsSummaryResponse{
+		Finished: sum.Finished, Views: sum.Views, Claims: sum.Claims, Redeemed: sum.Redeemed, Enough: sum.Enough,
+		MinOffers: services.InsightMinOffers, MinViews: services.InsightMinViews, Insights: insights,
+		BestOfferID: sum.BestOfferID, PreferBand: sum.PreferBand, PreferShort: sum.PreferShort, AvgFillMinutes: sum.AvgFillMinutes,
+	}})
+}

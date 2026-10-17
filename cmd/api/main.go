@@ -284,6 +284,7 @@ func main() {
 				entitiesProtected.POST("/:id/subscription/checkout", paymentHandler.CreateCheckout)
 				entitiesProtected.POST("/:id/offers", offerHandler.Publish)
 				entitiesProtected.GET("/:id/offers", offerHandler.List)
+				entitiesProtected.GET("/:id/offers/stats", offerHandler.Stats)
 				entitiesProtected.PATCH("/:id/status", statusHandler.Update)
 				entitiesProtected.POST("/:id/promotions", promotionHandler.Publish)
 				entitiesProtected.GET("/:id/promotions", promotionHandler.List)

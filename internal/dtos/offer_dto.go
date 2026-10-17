@@ -91,3 +91,44 @@ func offerItems(items []models.OfferItem) []OfferItemResponse {
 	}
 	return out
 }
+
+// OfferStatResponse es una oferta con sus resultados (solo para el dueño).
+type OfferStatResponse struct {
+	OfferID         uuid.UUID `json:"offer_id"`
+	Title           string    `json:"title"`
+	Type            string    `json:"type"`
+	StartsAt        time.Time `json:"starts_at"`
+	EndsAt          time.Time `json:"ends_at"`
+	TotalSlots      int       `json:"total_slots"`
+	SpecialPrice    *int      `json:"special_price,omitempty"`
+	Ended           bool      `json:"ended"`
+	Views           int64     `json:"views"`
+	Claims          int64     `json:"claims"`
+	Redeemed        int64     `json:"redeemed"`
+	FilledMinutes   *int      `json:"filled_minutes,omitempty"`
+	Hour            int       `json:"hour"`
+	Weekday         int       `json:"weekday"`
+	DurationMinutes int       `json:"duration_minutes"`
+}
+
+// OfferInsightResponse es un hallazgo en palabras.
+type OfferInsightResponse struct {
+	Kind string `json:"kind"`
+	Text string `json:"text"`
+}
+
+// OfferStatsSummaryResponse resume las ofertas terminadas y lo que se puede sugerir.
+type OfferStatsSummaryResponse struct {
+	Finished       int                    `json:"finished"`
+	Views          int64                  `json:"views"`
+	Claims         int64                  `json:"claims"`
+	Redeemed       int64                  `json:"redeemed"`
+	Enough         bool                   `json:"enough"`
+	MinOffers      int                    `json:"min_offers"`
+	MinViews       int                    `json:"min_views"`
+	Insights       []OfferInsightResponse `json:"insights"`
+	BestOfferID    *uuid.UUID             `json:"best_offer_id,omitempty"`
+	PreferBand     string                 `json:"prefer_band,omitempty"`
+	PreferShort    bool                   `json:"prefer_short"`
+	AvgFillMinutes *int                   `json:"avg_fill_minutes,omitempty"`
+}
