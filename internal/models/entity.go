@@ -64,6 +64,8 @@ type Entity struct {
 	Category      Category       `gorm:"foreignKey:CategoryID" json:"category"`
 	// Photos: every photo/video of this business, flat (used by the profile grid).
 	Photos []EntityPhoto `gorm:"foreignKey:EntityID" json:"photos"`
+	// PhotosCount es cuántas fotos (sin videos) tiene en total cuando Photos trae solo una muestra (listado del mapa).
+	PhotosCount int `gorm:"-" json:"-"`
 	// Posts: the same photos grouped by publication, each with its own shared
 	// caption (used by the feed-style single-post view).
 	Posts         []Post         `gorm:"foreignKey:EntityID" json:"posts,omitempty"`

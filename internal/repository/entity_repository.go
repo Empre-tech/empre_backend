@@ -142,12 +142,8 @@ func (r *EntityRepository) FindByBBox(minLat, maxLat, minLng, maxLng float64, ca
 	var entities []models.Entity
 	var total int64
 
-	// Las fotos vienen de la publicación más reciente a la más antigua (y en su orden dentro de cada una): Descubre
-	// muestra las últimas que subió el negocio.
-	db := r.DB.Model(&models.Entity{}).Joins("Category").Joins("ProfileMedia").Joins("BannerMedia").Preload("Photos", func(db *gorm.DB) *gorm.DB {
-		return db.Joins("Media").Joins("JOIN posts ON posts.id = entity_photos.post_id").
-			Order("posts.created_at DESC").Order(`entity_photos."order" ASC`)
-	}).Preload("Subcategories").Preload("Hours")
+	// Las fotos NO se precargan todas: se agregan después solo las más recientes de cada negocio (attachRecentPhotos).
+	db := r.DB.Model(&models.Entity{}).Joins("Category").Joins("ProfileMedia").Joins("BannerMedia").Preload("Subcategories").Preload("Hours")
 
 	db = WhereCategories(db, "category_id", categoryID)
 	if subcategoryID != "" {
@@ -184,8 +180,77 @@ func (r *EntityRepository) FindByBBox(minLat, maxLat, minLng, maxLng float64, ca
 
 	db.Count(&total)
 
-	err := db.Limit(cap).Find(&entities).Error
-	return entities, total, err
+	if err := db.Limit(cap).Find(&entities).Error; err != nil {
+		return entities, total, err
+	}
+	return entities, total, r.attachRecentPhotos(entities, RecentPhotosMax)
+}
+
+// RecentPhotosMax es cuántas fotos de cada negocio trae el listado del mapa (Descubre dibuja 3 y la tira 2).
+const RecentPhotosMax = 4
+
+// ImagePath es la ruta pública y estable de un medio (/api/images/{id} redirige a un enlace firmado nuevo). Al ser
+// siempre la misma, el teléfono guarda la foto y no la vuelve a bajar en cada respuesta, y el servidor no firma nada.
+func ImagePath(mediaID uuid.UUID) string { return "/api/images/" + mediaID.String() }
+
+// attachRecentPhotos pone en cada negocio sus `max` fotos más recientes (de la publicación más nueva a la más vieja y
+// en su orden dentro de cada una; sin videos), con la ruta estable como URL, y cuántas fotos tiene en total. Antes se
+// precargaban TODAS las fotos y se firmaba un enlace por cada una: con 150 negocios de 12 fotos eran 1.800 filas y
+// 1.800 firmas por petición.
+func (r *EntityRepository) attachRecentPhotos(entities []models.Entity, max int) error {
+	if len(entities) == 0 {
+		return nil
+	}
+	ids := make([]uuid.UUID, len(entities))
+	for i := range entities {
+		ids[i] = entities[i].ID
+	}
+	type photoRow struct {
+		ID          uuid.UUID
+		PostID      uuid.UUID
+		EntityID    uuid.UUID
+		MediaID     uuid.UUID
+		Order       int `gorm:"column:order"`
+		ContentType string
+	}
+	var rows []photoRow
+	err := r.DB.Raw(`SELECT x.id, x.post_id, x.entity_id, x.media_id, x."order", x.content_type FROM (
+			SELECT ep.id, ep.post_id, ep.entity_id, ep.media_id, ep."order", m.content_type,
+				ROW_NUMBER() OVER (PARTITION BY ep.entity_id ORDER BY p.created_at DESC, ep."order" ASC) AS rn
+			FROM entity_photos ep
+			JOIN posts p ON p.id = ep.post_id
+			JOIN media m ON m.id = ep.media_id
+			WHERE ep.entity_id IN ? AND m.content_type NOT LIKE 'video/%'
+		) x WHERE x.rn <= ? ORDER BY x.entity_id, x.rn`, ids, max).Scan(&rows).Error
+	if err != nil {
+		return err
+	}
+	type countRow struct {
+		EntityID uuid.UUID
+		N        int
+	}
+	var counts []countRow
+	err = r.DB.Raw(`SELECT ep.entity_id, COUNT(*) AS n FROM entity_photos ep JOIN media m ON m.id = ep.media_id
+		WHERE ep.entity_id IN ? AND m.content_type NOT LIKE 'video/%' GROUP BY ep.entity_id`, ids).Scan(&counts).Error
+	if err != nil {
+		return err
+	}
+	byEntity := make(map[uuid.UUID][]models.EntityPhoto, len(entities))
+	for _, p := range rows {
+		byEntity[p.EntityID] = append(byEntity[p.EntityID], models.EntityPhoto{
+			ID: p.ID, PostID: p.PostID, EntityID: p.EntityID, MediaID: p.MediaID, Order: p.Order,
+			Media: models.Media{ID: p.MediaID, ContentType: p.ContentType, URL: ImagePath(p.MediaID)},
+		})
+	}
+	total := make(map[uuid.UUID]int, len(counts))
+	for _, c := range counts {
+		total[c.EntityID] = c.N
+	}
+	for i := range entities {
+		entities[i].Photos = byEntity[entities[i].ID]
+		entities[i].PhotosCount = total[entities[i].ID]
+	}
+	return nil
 }
 
 func (r *EntityRepository) FindAllByOwner(ownerID uuid.UUID, page, pageSize int) ([]models.Entity, int64, error) {

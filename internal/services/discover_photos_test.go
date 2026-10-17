@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,7 +14,8 @@ import (
 )
 
 // Descubre muestra las fotos más recientes de cada negocio: de la publicación más nueva a la más vieja (y en su
-// orden dentro de cada una), sin videos, hasta 4, y cuántas tiene en total.
+// orden dentro de cada una), sin videos, hasta 4, y cuántas tiene en total. El listado del mapa trae solo esas 4 (no todas)
+// y con la ruta estable /api/images/{id} en vez de un enlace firmado.
 func TestDiscoverPhotos_RecentFirstWithoutVideos(t *testing.T) {
 	db := openTestDB(t, false)
 	owner := newUser(t, db)
@@ -62,26 +64,44 @@ func TestDiscoverPhotos_RecentFirstWithoutVideos(t *testing.T) {
 	}
 	byName := map[string]*models.Entity{}
 	for i := range list {
-		// Sin almacenamiento en la prueba: la URL es la clave (en producción la pone el servicio de medios).
-		for j := range list[i].Photos {
-			list[i].Photos[j].Media.URL = list[i].Photos[j].Media.S3Key
-		}
 		byName[list[i].Name] = &list[i]
 	}
+	// Del id del medio a su nombre (la clave), para leer el orden.
+	var media []models.Media
+	db.Find(&media)
+	nameOf := map[string]string{}
+	for _, m := range media {
+		nameOf[repository.ImagePath(m.ID)] = m.S3Key
+	}
 
-	urls, count := PhotoSample(byName["Café"], PhotoSampleMax)
+	cafe := byName["Café"]
+	if len(cafe.Photos) != repository.RecentPhotosMax {
+		t.Fatalf("el listado trae %d fotos del negocio; debe traer solo las %d más recientes", len(cafe.Photos), repository.RecentPhotosMax)
+	}
+	urls, count := PhotoSample(cafe, PhotoSampleMax)
+	names := make([]string, len(urls))
+	for i, u := range urls {
+		if !strings.HasPrefix(u, "/api/images/") {
+			t.Fatalf("URL %q: debe ser la ruta estable, no un enlace firmado", u)
+		}
+		names[i] = nameOf[u]
+	}
 	want := []string{"nueva-1", "nueva-2", "ayer-1", "ayer-2"}
-	if fmt.Sprint(urls) != fmt.Sprint(want) {
-		t.Fatalf("fotos: %v, quería %v (más recientes primero, sin el video, hasta 4)", urls, want)
+	if fmt.Sprint(names) != fmt.Sprint(want) {
+		t.Fatalf("fotos: %v, quería %v (más recientes primero, sin el video, hasta 4)", names, want)
 	}
 	if count != 6 {
-		t.Fatalf("total de fotos: %d, quería 6 (el video no cuenta)", count)
+		t.Fatalf("total de fotos: %d, quería 6 (el video no cuenta, aunque solo vengan 4)", count)
 	}
-	if urls, count := PhotoSample(byName["Café"], 2); len(urls) != 2 || count != 6 {
+	if urls, count := PhotoSample(cafe, 2); len(urls) != 2 || count != 6 {
 		t.Fatalf("con tope 2: %v de %d", urls, count)
 	}
 	if urls, count := PhotoSample(byName["Sin fotos"], PhotoSampleMax); urls != nil || count != 0 {
 		t.Fatalf("sin fotos: %v de %d", urls, count)
+	}
+	// La portada (sin banner) es una de esas fotos, también por la ruta estable.
+	if c := CoverURL(cafe); !strings.HasPrefix(c, "/api/images/") {
+		t.Fatalf("portada: %q", c)
 	}
 
 	// Una foto sin URL (no se pudo firmar) no se manda ni se cuenta.

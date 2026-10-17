@@ -156,7 +156,8 @@ func CoverURL(e *models.Entity) string {
 const PhotoSampleMax = 4
 
 // PhotoSample son las fotos que Descubre muestra de un negocio: hasta `max`, en el orden en que llegan (de la
-// publicación más reciente a la más antigua), sin videos ni fotos sin URL; `count` es cuántas fotos tiene en total.
+// publicación más reciente a la más antigua), sin videos ni fotos sin URL; `count` es cuántas fotos tiene en total
+// (el listado del mapa trae solo una muestra y el total aparte, en PhotosCount).
 func PhotoSample(e *models.Entity, max int) (urls []string, count int) {
 	for _, p := range e.Photos {
 		if strings.HasPrefix(p.Media.ContentType, "video/") || p.Media.URL == "" {
@@ -166,6 +167,9 @@ func PhotoSample(e *models.Entity, max int) (urls []string, count int) {
 		if len(urls) < max {
 			urls = append(urls, p.Media.URL)
 		}
+	}
+	if e.PhotosCount > count {
+		count = e.PhotosCount
 	}
 	return urls, count
 }
