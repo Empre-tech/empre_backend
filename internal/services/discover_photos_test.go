@@ -110,3 +110,23 @@ func TestDiscoverPhotos_RecentFirstWithoutVideos(t *testing.T) {
 		t.Fatalf("sin URL: %v de %d", urls, count)
 	}
 }
+
+// El perfil y la portada salen con la ruta estable cuando el negocio tiene el medio guardado (3.29): el teléfono guarda
+// la miniatura y el pin no se redibuja porque cambió un enlace firmado. Sin medio, lo que traiga el negocio.
+func TestStableProfileAndCover(t *testing.T) {
+	pid, bid := uuid.New(), uuid.New()
+	e := models.Entity{ProfileMediaID: &pid, BannerMediaID: &bid, ProfileURL: "https://firmado/p?x=1", BannerURL: "https://firmado/b?x=1"}
+	if got := ProfilePath(&e); got != "/api/images/"+pid.String() {
+		t.Fatalf("perfil: %q", got)
+	}
+	if got := CoverURL(&e); got != "/api/images/"+bid.String() {
+		t.Fatalf("portada: %q", got)
+	}
+	plain := models.Entity{ProfileURL: "https://otro/p.jpg"}
+	if got := ProfilePath(&plain); got != "https://otro/p.jpg" {
+		t.Fatalf("sin medio, lo que traiga: %q", got)
+	}
+	if got := ProfilePath(&models.Entity{}); got != "" {
+		t.Fatalf("sin nada: %q", got)
+	}
+}

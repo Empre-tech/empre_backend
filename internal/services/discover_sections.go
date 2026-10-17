@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"empre_backend/internal/models"
+	"empre_backend/internal/repository"
 	"empre_backend/pkg/utils"
 
 	"github.com/google/uuid"
@@ -137,8 +138,12 @@ func BuildSectionsN(cands []SectionCandidate, now time.Time, limit int) []Sectio
 }
 
 // CoverURL es la portada de la tarjeta: el banner del negocio o, si no tiene,
-// su primera foto (los videos no sirven de portada). Vacío = sin foto.
+// su primera foto (los videos no sirven de portada). Vacío = sin foto. Con el banner guardado se usa la ruta estable
+// (/api/images/{id}): el teléfono la guarda y no la vuelve a bajar en cada respuesta (3.29).
 func CoverURL(e *models.Entity) string {
+	if e.BannerMediaID != nil {
+		return repository.ImagePath(*e.BannerMediaID)
+	}
 	if e.BannerURL != "" {
 		return e.BannerURL
 	}
@@ -150,6 +155,15 @@ func CoverURL(e *models.Entity) string {
 		}
 	}
 	return ""
+}
+
+// ProfilePath es la foto de perfil para el mapa y Descubre: la ruta estable si la tiene (la miniatura del pin se guarda
+// en el teléfono y el pin no se redibuja porque cambió un enlace firmado); si no, lo que traiga el negocio.
+func ProfilePath(e *models.Entity) string {
+	if e.ProfileMediaID != nil {
+		return repository.ImagePath(*e.ProfileMediaID)
+	}
+	return e.ProfileURL
 }
 
 // PhotoSampleMax es cuántas fotos de cada negocio manda Descubre (la tarjeta dibuja 3 y la tira del panel 2).
