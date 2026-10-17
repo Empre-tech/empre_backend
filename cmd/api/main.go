@@ -212,6 +212,7 @@ func main() {
 	statusHandler := handlers.NewStatusHandler(database.DB)
 	zoneHandler := handlers.NewZoneHandler(zoneService)
 	cellHandler := handlers.NewCellHandler(services.NewCellService(database.DB))
+	reviewSnippetHandler := handlers.NewReviewSnippetHandler(services.NewReviewSnippetService(database.DB))
 	eventService := services.NewEventService(database.DB)
 	eventHandler := handlers.NewEventHandler(eventService)
 	catalogHandler := handlers.NewCatalogHandler(services.NewCatalogService(database.DB))
@@ -299,6 +300,8 @@ func main() {
 		api.GET("/discovery/sections", discoveryHandler.Sections)
 		// Negocios agrupados en casillas para el mapa lejano (público).
 		api.GET("/discovery/cells", cellHandler.List)
+		// La frase de reseña de los destacados (público).
+		api.GET("/discovery/review-snippets", reviewSnippetHandler.List)
 
 		// Zonas con nombre de una ciudad (público).
 		api.GET("/zones", zoneHandler.List)

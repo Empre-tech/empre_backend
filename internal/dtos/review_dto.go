@@ -34,3 +34,12 @@ type ReviewSummary struct {
 	// VerifiedCount: cuántas reseñas están respaldadas por un canje confirmado.
 	VerifiedCount int64 `json:"verified_count"`
 }
+
+// ReviewSnippetResponse es la frase de reseña de un destacado: solo reseñas verificadas, autor abreviado.
+type ReviewSnippetResponse struct {
+	Text      string    `json:"text"`
+	Rating    int       `json:"rating"`
+	CreatedAt time.Time `json:"created_at"`
+	Author    string    `json:"author"`
+	Verified  bool      `json:"verified"`
+}
