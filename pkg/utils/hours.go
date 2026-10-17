@@ -99,3 +99,44 @@ func ClosesAt(hours []models.BusinessHour, now time.Time) string {
 	}
 	return ""
 }
+
+// NextOpen es la próxima apertura de un negocio que está cerrado ahora.
+type NextOpen struct {
+	// DaysAhead: 0 = hoy más tarde, 1 = mañana, 2…7 = dentro de tantos días.
+	DaysAhead int
+	// Weekday del día de apertura (0=domingo).
+	Weekday int
+	// Time de apertura, "HH:MM" ("00:00" si ese día atiende las 24 horas).
+	Time string
+}
+
+// NextOpening dice cuándo vuelve a abrir un negocio que está cerrado ahora, mirando hoy y los 7 días siguientes.
+// ok es false sin horario o si no abre ningún día. Quien llama decide si el negocio está cerrado: con el negocio
+// abierto el resultado no tiene sentido.
+func NextOpening(hours []models.BusinessHour, now time.Time) (next NextOpen, ok bool) {
+	today := int(now.Weekday())
+	nowTime := now.Format("15:04")
+	for off := 0; off <= 7; off++ {
+		wd := (today + off) % 7
+		for i := range hours {
+			h := hours[i]
+			if h.Weekday != wd || h.Closed {
+				continue
+			}
+			if h.Is24h {
+				if off == 0 {
+					continue // hoy ya está abierto todo el día
+				}
+				return NextOpen{DaysAhead: off, Weekday: wd, Time: "00:00"}, true
+			}
+			if h.OpenTime == "" || h.CloseTime == "" {
+				continue
+			}
+			if off == 0 && nowTime >= h.OpenTime {
+				continue // hoy ya abrió (y ya cerró): sigue mañana
+			}
+			return NextOpen{DaysAhead: off, Weekday: wd, Time: h.OpenTime}, true
+		}
+	}
+	return NextOpen{}, false
+}

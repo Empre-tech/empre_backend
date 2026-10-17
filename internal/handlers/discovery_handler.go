@@ -3,10 +3,12 @@ package handlers
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"empre_backend/internal/dtos"
 	"empre_backend/internal/models"
 	"empre_backend/internal/services"
+	"empre_backend/pkg/utils"
 
 	"github.com/google/uuid"
 
@@ -55,6 +57,7 @@ func (h *DiscoveryHandler) Discover(c *gin.Context) {
 			active = &o
 		}
 
+		closesAt, nextOpen := openingInfo(e.Hours, it.IsOpenNow, utils.NowInCartagena())
 		resp = append(resp, dtos.DiscoveryDTO{
 			EntityMapDTO: dtos.EntityMapDTO{
 				ID:            e.ID,
@@ -79,6 +82,8 @@ func (h *DiscoveryHandler) Discover(c *gin.Context) {
 			DistanceMeters: it.DistanceMeters,
 			HasActiveOffer: it.ActiveOffer != nil,
 			ActiveOffer:    active,
+			ClosesAt:       closesAt,
+			NextOpen:       nextOpen,
 		})
 	}
 
@@ -166,4 +171,19 @@ func firstSubcategory(subs []models.Subcategory) string {
 		return ""
 	}
 	return subs[0].Name
+}
+
+// openingInfo da lo que la ficha del mapa necesita del horario: a qué hora cierra (si está abierto) o cuándo vuelve
+// a abrir (si está cerrado). Sin horario no dice nada.
+func openingInfo(hours []models.BusinessHour, open bool, now time.Time) (string, *dtos.NextOpenDTO) {
+	if len(hours) == 0 {
+		return "", nil
+	}
+	if open {
+		return utils.ClosesAt(hours, now), nil
+	}
+	if n, ok := utils.NextOpening(hours, now); ok {
+		return "", &dtos.NextOpenDTO{DaysAhead: n.DaysAhead, Weekday: n.Weekday, Time: n.Time}
+	}
+	return "", nil
 }

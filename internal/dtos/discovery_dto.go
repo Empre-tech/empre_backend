@@ -17,6 +17,16 @@ type DiscoveryDTO struct {
 	DistanceMeters float64        `json:"distance_meters"`
 	HasActiveOffer bool           `json:"has_active_offer"`
 	ActiveOffer    *OfferResponse `json:"active_offer,omitempty"`
+	// Con el negocio abierto, a qué hora cierra ("HH:MM", "24h"); cerrado, cuándo vuelve a abrir. Sin horario, ninguno.
+	ClosesAt string       `json:"closes_at,omitempty"`
+	NextOpen *NextOpenDTO `json:"next_open,omitempty"`
+}
+
+// NextOpenDTO es la próxima apertura de un negocio cerrado: hoy más tarde, mañana o dentro de unos días.
+type NextOpenDTO struct {
+	DaysAhead int    `json:"days_ahead"`
+	Weekday   int    `json:"weekday"`
+	Time      string `json:"time"`
 }
 
 // DiscoverSectionDTO es una sección de «Descubre», ya armada por el servidor.
