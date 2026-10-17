@@ -20,6 +20,9 @@ type DiscoveryDTO struct {
 	// Con el negocio abierto, a qué hora cierra ("HH:MM", "24h"); cerrado, cuándo vuelve a abrir. Sin horario, ninguno.
 	ClosesAt string       `json:"closes_at,omitempty"`
 	NextOpen *NextOpenDTO `json:"next_open,omitempty"`
+	// Fotos recientes del negocio (hasta 4, sin videos) y cuántas tiene en total.
+	Photos      []string `json:"photos,omitempty"`
+	PhotosCount int      `json:"photos_count"`
 }
 
 // NextOpenDTO es la próxima apertura de un negocio cerrado: hoy más tarde, mañana o dentro de unos días.
@@ -53,6 +56,9 @@ type DiscoverItemDTO struct {
 	ProfileURL     string            `json:"profile_url,omitempty"`
 	Tagline        string            `json:"tagline,omitempty"`
 	Reason         DiscoverReasonDTO `json:"reason"`
+	// Fotos recientes del negocio (hasta 4, sin videos) y cuántas tiene en total.
+	Photos      []string `json:"photos,omitempty"`
+	PhotosCount int      `json:"photos_count"`
 }
 
 type DiscoverReasonDTO struct {

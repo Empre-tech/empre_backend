@@ -152,6 +152,24 @@ func CoverURL(e *models.Entity) string {
 	return ""
 }
 
+// PhotoSampleMax es cuántas fotos de cada negocio manda Descubre (la tarjeta dibuja 3 y la tira del panel 2).
+const PhotoSampleMax = 4
+
+// PhotoSample son las fotos que Descubre muestra de un negocio: hasta `max`, en el orden en que llegan (de la
+// publicación más reciente a la más antigua), sin videos ni fotos sin URL; `count` es cuántas fotos tiene en total.
+func PhotoSample(e *models.Entity, max int) (urls []string, count int) {
+	for _, p := range e.Photos {
+		if strings.HasPrefix(p.Media.ContentType, "video/") || p.Media.URL == "" {
+			continue
+		}
+		count++
+		if len(urls) < max {
+			urls = append(urls, p.Media.URL)
+		}
+	}
+	return urls, count
+}
+
 // Sections arma «Descubre» para el rectángulo visible: negocios del área (con
 // la categoría elegida), su oferta vigente, si están abiertos y su última
 // publicación.

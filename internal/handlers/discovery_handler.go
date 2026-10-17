@@ -58,6 +58,7 @@ func (h *DiscoveryHandler) Discover(c *gin.Context) {
 		}
 
 		closesAt, nextOpen := openingInfo(e.Hours, it.IsOpenNow, utils.NowInCartagena())
+		photos, photosCount := services.PhotoSample(&e, services.PhotoSampleMax)
 		resp = append(resp, dtos.DiscoveryDTO{
 			EntityMapDTO: dtos.EntityMapDTO{
 				ID:            e.ID,
@@ -84,6 +85,8 @@ func (h *DiscoveryHandler) Discover(c *gin.Context) {
 			ActiveOffer:    active,
 			ClosesAt:       closesAt,
 			NextOpen:       nextOpen,
+			Photos:         photos,
+			PhotosCount:    photosCount,
 		})
 	}
 
@@ -135,6 +138,7 @@ func SectionsToDTO(sections []services.Section) []dtos.DiscoverSectionDTO {
 			if len(e.Subcategories) > 0 {
 				sub = e.Subcategories[0].Name
 			}
+			photos, photosCount := services.PhotoSample(e, services.PhotoSampleMax)
 			items = append(items, dtos.DiscoverItemDTO{
 				EntityID:       e.ID,
 				Name:           e.Name,
@@ -151,6 +155,8 @@ func SectionsToDTO(sections []services.Section) []dtos.DiscoverSectionDTO {
 				ProfileURL:     e.ProfileURL,
 				Tagline:        e.Tagline,
 				Reason:         dtos.DiscoverReasonDTO{Kind: it.Reason.Kind, EndsAt: it.Reason.EndsAt, PostedAt: it.Reason.PostedAt, OfferTitle: it.Reason.OfferTitle},
+				Photos:         photos,
+				PhotosCount:    photosCount,
 			})
 		}
 		out = append(out, dtos.DiscoverSectionDTO{ID: sec.ID, Title: sec.Title, Items: items})

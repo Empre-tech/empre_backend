@@ -142,8 +142,11 @@ func (r *EntityRepository) FindByBBox(minLat, maxLat, minLng, maxLng float64, ca
 	var entities []models.Entity
 	var total int64
 
+	// Las fotos vienen de la publicación más reciente a la más antigua (y en su orden dentro de cada una): Descubre
+	// muestra las últimas que subió el negocio.
 	db := r.DB.Model(&models.Entity{}).Joins("Category").Joins("ProfileMedia").Joins("BannerMedia").Preload("Photos", func(db *gorm.DB) *gorm.DB {
-		return db.Joins("Media")
+		return db.Joins("Media").Joins("JOIN posts ON posts.id = entity_photos.post_id").
+			Order("posts.created_at DESC").Order(`entity_photos."order" ASC`)
 	}).Preload("Subcategories").Preload("Hours")
 
 	db = WhereCategories(db, "category_id", categoryID)
