@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	"empre_backend/internal/models"
+	"empre_backend/internal/repository"
 )
 
 // Casillas del mapa (F10): a distancia la app no necesita cada negocio sino cuántos hay por
@@ -98,9 +99,7 @@ func (s *CellService) Cells(q CellQuery) ([]Cell, float64, bool, error) {
 		Where("entities.latitude <> 0 OR entities.longitude <> 0").
 		Where("entities.latitude BETWEEN ? AND ?", q.MinLat, q.MaxLat).
 		Where("entities.longitude BETWEEN ? AND ?", q.MinLng, q.MaxLng)
-	if q.CategoryID != "" {
-		db = db.Where("entities.category_id = ?", q.CategoryID)
-	}
+	db = repository.WhereCategories(db, "entities.category_id", q.CategoryID)
 	if q.SubcategoryID != "" {
 		db = db.Where(
 			"EXISTS (SELECT 1 FROM entity_subcategories es WHERE es.entity_id = entities.id AND es.subcategory_id = ?)",

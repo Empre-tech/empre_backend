@@ -44,9 +44,7 @@ func (r *EntityRepository) FindAll(lat, long, radius float64, categoryID, subcat
 	}).Preload("Subcategories").Preload("Hours")
 
 	// Filter by Category
-	if categoryID != "" {
-		db = db.Where("category_id = ?", categoryID)
-	}
+	db = WhereCategories(db, "category_id", categoryID)
 
 	// Filter by Subcategory (many-to-many via entity_subcategories)
 	if subcategoryID != "" {
@@ -148,9 +146,7 @@ func (r *EntityRepository) FindByBBox(minLat, maxLat, minLng, maxLng float64, ca
 		return db.Joins("Media")
 	}).Preload("Subcategories").Preload("Hours")
 
-	if categoryID != "" {
-		db = db.Where("category_id = ?", categoryID)
-	}
+	db = WhereCategories(db, "category_id", categoryID)
 	if subcategoryID != "" {
 		db = db.Where(
 			"EXISTS (SELECT 1 FROM entity_subcategories es WHERE es.entity_id = entities.id AND es.subcategory_id = ?)",
