@@ -1,10 +1,18 @@
 // Command seedqr crea 5 negocios de categorías distintas, cada uno con una oferta vigente de un tipo distinto, y
-// una cuenta de cliente, para probar de punta a punta el reclamo, el QR y el canje.
+// una cuenta de cliente, para probar de punta a punta el reclamo, el QR y el canje. Además les da contenido de
+// ejemplo para que la interfaz se vea viva: publicaciones con fotos (dibujadas o tuyas), foto de perfil, reseñas,
+// una segunda oferta vigente y ofertas ya terminadas (para «Cómo te va» del dueño). Un negocio queda sin fotos ni
+// reseñas a propósito, para ver también esos casos.
 //
 // Ejecútalo a mano desde la carpeta empre_backend (usa el mismo .env que la API, que ya debe haber migrado la base):
 //
 //	go run ./cmd/seedqr
 //	go run ./cmd/seedqr -lat 4.6097 -lng -74.0817   // los negocios alrededor de donde estés
+//	go run ./cmd/seedqr -photos ./fotos_ejemplo     // tus fotos: ./fotos_ejemplo/la-sazon-de-rosa/*.jpg, etc.
+//	go run ./cmd/seedqr -nophotos                    // sin subir nada al almacenamiento
+//	go run ./cmd/seedqr -samples ./muestras          // solo guarda las fotos dibujadas en una carpeta y sale
+//
+// Las fotos se suben al mismo S3 que usa la API (S3_BUCKET del .env); sin S3_BUCKET se saltan.
 //
 // El reclamo comprueba la distancia si el teléfono manda su ubicación (radio de cada oferta: 3 km), así que si no
 // estás en Santa Marta pasa tu ubicación con -lat y -lng. Es re-ejecutable: reutiliza las cuentas y borra en duro
@@ -14,6 +22,7 @@
 // Cuentas (contraseña demo1234):
 //   - Cliente que reclama:  cliente.qr@empre.app
 //   - Dueños que escanean:  qr01@empre.app … qr05@empre.app (cada uno, su negocio)
+//   - Reseñadores de ejemplo: resena1@empre.app … resena4@empre.app
 package main
 
 import (
@@ -21,6 +30,8 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"os"
+	"path/filepath"
 	"time"
 
 	"empre_backend/config"
@@ -111,7 +122,15 @@ var shops = []shop{
 func main() {
 	lat := flag.Float64("lat", 11.2350, "latitud del centro (por defecto, Santa Marta)")
 	lng := flag.Float64("lng", -74.2050, "longitud del centro")
+	photoDir := flag.String("photos", "", "carpeta con tus fotos: <carpeta>/<nombre-del-negocio>/*.jpg (si no, se dibujan)")
+	noPhotos := flag.Bool("nophotos", false, "no subir fotos")
+	samples := flag.String("samples", "", "guardar las fotos dibujadas en esta carpeta y salir (para verlas)")
 	flag.Parse()
+
+	if *samples != "" {
+		writeSamples(*samples)
+		return
+	}
 
 	cfg := config.LoadConfig()
 	database.ConnectDB(cfg)
@@ -130,8 +149,19 @@ func main() {
 	}
 
 	client := ensureUser(db, "cliente.qr@empre.app", "Cliente de prueba")
+	reviewers := make([]models.User, len(reviewerNames))
+	for i, n := range reviewerNames {
+		reviewers[i] = ensureUser(db, fmt.Sprintf("resena%d@empre.app", i+1), n)
+	}
+	var store uploader
+	if !*noPhotos && cfg.S3Bucket != "" {
+		store = services.NewStorageService(cfg)
+	} else if !*noPhotos {
+		fmt.Println("Sin S3_BUCKET en el .env: se crean los negocios sin fotos.")
+	}
 	zones := services.NewZoneService(db)
 	now := utils.NowInCartagena()
+	totalPhotos := 0
 
 	for i, s := range shops {
 		cat, ok := catByName[s.category]
@@ -203,7 +233,7 @@ func main() {
 				offer.SpecialPrice = &special
 				offer.ReferencePrice = &ref
 			}
-			if err := tx.Create(&offer).Error; err != nil {
+			if err := tx.Omit("Entity", "Items").Create(&offer).Error; err != nil {
 				return fmt.Errorf("oferta: %w", err)
 			}
 			for j := range frozen {
@@ -214,8 +244,14 @@ func main() {
 					return fmt.Errorf("servicios de la oferta: %w", err)
 				}
 			}
-			fmt.Printf("  %-22s %-22s %-7s %2d cupos · termina %s · dueño qr%02d@empre.app\n",
-				s.name, s.category, s.offerType, s.slots, offer.EndsAt.Format("02/01 15:04"), i+1)
+			n, err := addExtras(tx, &entity, extras[i], now, store, reviewers, *photoDir)
+			if err != nil {
+				return err
+			}
+			totalPhotos += n
+			x := extras[i]
+			fmt.Printf("  %-22s %-22s %-7s %2d cupos · termina %s · %d fotos · %d reseñas · dueño qr%02d@empre.app\n",
+				s.name, s.category, s.offerType, s.slots, offer.EndsAt.Format("02/01 15:04"), n, len(x.reviews), i+1)
 			return nil
 		})
 		if err != nil {
@@ -225,6 +261,24 @@ func main() {
 
 	fmt.Printf("\nListo: %d negocios con oferta alrededor de %.5f, %.5f (radio de reclamo: 3 km).\n", len(shops), *lat, *lng)
 	fmt.Printf("Reclama con %s y escanea con el dueño de cada negocio. Contraseña de todas: %s\n", client.Email, password)
+	fmt.Printf("Contenido de ejemplo: %d fotos subidas, reseñas de resena1..resena%d@empre.app y ofertas terminadas.\n", totalPhotos, len(reviewerNames))
+}
+
+// writeSamples guarda las fotos dibujadas de cada negocio en una carpeta, para verlas sin tocar la base.
+func writeSamples(dir string) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		log.Fatal(err)
+	}
+	for i, s := range shops {
+		x := extras[i]
+		for v := 0; v < 3; v++ {
+			name := filepath.Join(dir, fmt.Sprintf("%s-%d.jpg", slug(s.name), v+1))
+			if err := os.WriteFile(name, samplePhoto(x.top, x.bottom, x.motif, v), 0o644); err != nil {
+				log.Fatal(err)
+			}
+		}
+	}
+	fmt.Println("Fotos de ejemplo guardadas en", dir)
 }
 
 // ensureUser devuelve la cuenta con ese correo o la crea.
@@ -251,7 +305,14 @@ func ensureUser(db *gorm.DB, email, name string) models.User {
 // clearOwner borra en duro los negocios del dueño y todo lo que cuelga de ellos, en el orden que piden las llaves.
 func clearOwner(tx *gorm.DB, owner uuid.UUID) error {
 	const mine = "(SELECT id FROM entities WHERE owner_id = ?)"
+	var mediaIDs []uuid.UUID
+	if err := tx.Raw("SELECT media_id FROM entity_photos WHERE entity_id IN "+mine, owner).Scan(&mediaIDs).Error; err != nil {
+		return err
+	}
 	stmts := []string{
+		"UPDATE entities SET profile_media_id = NULL, banner_media_id = NULL WHERE owner_id = ?",
+		"DELETE FROM entity_photos WHERE entity_id IN " + mine,
+		"DELETE FROM posts WHERE entity_id IN " + mine,
 		"DELETE FROM reviews WHERE entity_id IN " + mine,
 		"DELETE FROM offer_claims WHERE entity_id IN " + mine,
 		"DELETE FROM offer_items WHERE offer_id IN (SELECT id FROM offers WHERE entity_id IN " + mine + ")",
@@ -264,6 +325,11 @@ func clearOwner(tx *gorm.DB, owner uuid.UUID) error {
 	for _, q := range stmts {
 		if err := tx.Exec(q, owner).Error; err != nil {
 			return fmt.Errorf("%s: %w", q, err)
+		}
+	}
+	if len(mediaIDs) > 0 {
+		if err := tx.Exec("DELETE FROM media WHERE id IN ?", mediaIDs).Error; err != nil {
+			return fmt.Errorf("medios: %w", err)
 		}
 	}
 	return nil
