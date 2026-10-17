@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"empre_backend/internal/dtos"
+	"empre_backend/internal/repository"
 	"empre_backend/internal/services"
 
 	"github.com/gin-gonic/gin"
@@ -104,7 +106,10 @@ func (h *ReviewHandler) Upsert(c *gin.Context) {
 // @Produce json
 // @Param id path string true "Entity ID"
 // @Param page query int false "Page number" default(1)
-// @Param pageSize query int false "Items per page" default(20)
+// @Param pageSize query int false "Items per page (max 50)" default(20)
+// @Param stars query int false "Only this rating (1-5)"
+// @Param verified query bool false "Only reviews backed by a confirmed redemption"
+// @Param with_comment query bool false "Only reviews with a comment"
 // @Success 200 {object} map[string]interface{}
 // @Router /api/entities/{id}/reviews [get]
 func (h *ReviewHandler) FindByEntity(c *gin.Context) {
@@ -116,7 +121,12 @@ func (h *ReviewHandler) FindByEntity(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "20"))
 
-	reviews, total, err := h.Service.FindByEntity(entityID, page, pageSize)
+	if pageSize > repository.MaxReviewPage {
+		pageSize = repository.MaxReviewPage
+	}
+	stars, _ := strconv.Atoi(c.Query("stars"))
+	filter := repository.ReviewFilter{Stars: stars, Verified: truthy(c.Query("verified")), WithComment: truthy(c.Query("with_comment"))}
+	reviews, total, err := h.Service.FindByEntityFiltered(entityID, page, pageSize, filter)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -212,4 +222,13 @@ func (h *ReviewHandler) Delete(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "Reseña eliminada"})
+}
+
+// truthy lee un parámetro booleano de la consulta: «1», «true» o «si» (sin importar mayúsculas).
+func truthy(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "si", "sí":
+		return true
+	}
+	return false
 }

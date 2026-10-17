@@ -44,13 +44,18 @@ func (s *ReviewService) Breakdown(entityID uuid.UUID) ([5]int64, int64, error) {
 }
 
 func (s *ReviewService) FindByEntity(entityID uuid.UUID, page, pageSize int) ([]models.Review, int64, error) {
+	return s.FindByEntityFiltered(entityID, page, pageSize, repository.ReviewFilter{})
+}
+
+// FindByEntityFiltered lista las reseñas de un negocio con filtro (nota, verificadas, con comentario).
+func (s *ReviewService) FindByEntityFiltered(entityID uuid.UUID, page, pageSize int, f repository.ReviewFilter) ([]models.Review, int64, error) {
 	if page <= 0 {
 		page = 1
 	}
 	if pageSize <= 0 {
 		pageSize = 20
 	}
-	return s.Repo.FindByEntity(entityID, page, pageSize)
+	return s.Repo.FindByEntityFiltered(entityID, page, pageSize, f)
 }
 
 func (s *ReviewService) FindMine(entityID, userID uuid.UUID) (*models.Review, error) {

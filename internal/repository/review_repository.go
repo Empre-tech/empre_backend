@@ -43,11 +43,42 @@ func (r *ReviewRepository) Upsert(entityID, userID uuid.UUID, rating int, commen
 	return &review, nil
 }
 
+// ReviewFilter acota la lista de reseñas de un negocio. El resumen y la distribución de notas no dependen del filtro.
+type ReviewFilter struct {
+	// Stars: solo esa nota (1 a 5); 0 = todas.
+	Stars int
+	// Verified: solo las respaldadas por un canje confirmado.
+	Verified bool
+	// WithComment: solo las que traen un comentario (no vacío ni solo espacios).
+	WithComment bool
+}
+
+// MaxReviewPage es el tope de reseñas por página.
+const MaxReviewPage = 50
+
 func (r *ReviewRepository) FindByEntity(entityID uuid.UUID, page, pageSize int) ([]models.Review, int64, error) {
+	return r.FindByEntityFiltered(entityID, page, pageSize, ReviewFilter{})
+}
+
+// FindByEntityFiltered lista las reseñas de un negocio, las más recientes primero, con el filtro dado; el total
+// es el de las que cumplen el filtro.
+func (r *ReviewRepository) FindByEntityFiltered(entityID uuid.UUID, page, pageSize int, f ReviewFilter) ([]models.Review, int64, error) {
 	var reviews []models.Review
 	var total int64
+	if pageSize > MaxReviewPage {
+		pageSize = MaxReviewPage
+	}
 
 	db := r.DB.Model(&models.Review{}).Where("entity_id = ?", entityID)
+	if f.Stars >= 1 && f.Stars <= 5 {
+		db = db.Where("rating = ?", f.Stars)
+	}
+	if f.Verified {
+		db = db.Where("claim_id IS NOT NULL")
+	}
+	if f.WithComment {
+		db = db.Where("btrim(comment) <> ''")
+	}
 	db.Count(&total)
 
 	offset := (page - 1) * pageSize
