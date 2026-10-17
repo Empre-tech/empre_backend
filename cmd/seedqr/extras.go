@@ -44,6 +44,13 @@ type offerSpec struct {
 	slots      int
 }
 
+// catSpec es un servicio más del catálogo (aparte de los que entran en la oferta), con su sección.
+type catSpec struct {
+	name, desc, section string
+	price               int // 0 = gratis; -1 = sin precio («Consultar»)
+	from                bool
+}
+
 type pastOffer struct {
 	title     string
 	daysAgo   int
@@ -62,6 +69,8 @@ type extra struct {
 	reviews     []reviewSpec
 	second      *offerSpec
 	past        []pastOffer
+	// Catálogo de ejemplo con secciones: la app lo llama Carta, Servicios, Productos o Reparaciones según la categoría.
+	catalog []catSpec
 }
 
 var reviewerNames = []string{"Laura Gómez", "Andrés Pertuz", "Camila Rojas", "Diego Fontalvo"}
@@ -86,6 +95,14 @@ var extras = []extra{
 			{"Jugo gratis con el almuerzo", 6, 12, 7, 2 * time.Hour, models.OfferHours},
 			{"Bandeja de mariscos con 20 %", 10, 8, 8, 24 * time.Hour, models.OfferDay},
 		},
+		catalog: []catSpec{
+			{"Corrientazo", "Sopa y seco", "Almuerzos", 14000, false}, {"Almuerzo infantil", "Porción pequeña", "Almuerzos", 15000, false},
+			{"Bandeja de mariscos", "Para compartir", "Platos fuertes", 58000, false}, {"Cazuela de mariscos", "Solo viernes", "Platos fuertes", 42000, false},
+			{"Pescado frito", "Con patacón y arroz de coco", "Platos fuertes", 35000, false}, {"Arroz de coco", "Porción", "Acompañantes", 8000, false},
+			{"Patacón", "Porción", "Acompañantes", 6000, false}, {"Jugo de corozo", "Natural", "Bebidas", 6000, false},
+			{"Limonada de coco", "Natural", "Bebidas", 9000, false}, {"Tinto", "Café de la Sierra", "Bebidas", 2500, false},
+			{"Enyucado", "Tradicional", "Postres", 5000, false}, {"Domicilio", "Hasta 3 km", "Otros", -1, false},
+		},
 	},
 	{ // Barbería El Parque: fotos y reseñas; ofertas terminadas para ver los resultados.
 		top: color.RGBA{43, 163, 160, 255}, bottom: color.RGBA{4, 58, 60, 255}, motif: motifPole,
@@ -105,12 +122,21 @@ var extras = []extra{
 			{"Corte infantil a mitad de precio", 5, 8, 3, 3 * time.Hour, models.OfferHours},
 			{"Arreglo de barba gratis con el corte", 9, 6, 5, 2 * time.Hour, models.OfferHours},
 		},
+		catalog: []catSpec{
+			{"Degradado", "40 min", "Cortes", 28000, false}, {"Diseño en el corte", "Líneas o figuras", "Cortes", 8000, true},
+			{"Afeitado clásico", "Con navaja", "Barba", 15000, false}, {"Cejas", "Perfilado", "Barba", 6000, false},
+			{"Tinte de barba", "", "Color", 20000, true}, {"Corte infantil", "Hasta 12 años", "Niños", 18000, false},
+		},
 	},
 	{ // Café Sierra Nevada: dos fotos y dos reseñas.
 		top: color.RGBA{200, 162, 122, 255}, bottom: color.RGBA{60, 32, 14, 255}, motif: motifCup,
 		posts: []postSpec{
 			{"Pandebono recién salido del horno, todas las mañanas", 2, 1},
 			{"Nuestro café de la Sierra, tostado aquí mismo", 40, 1},
+		},
+		catalog: []catSpec{
+			{"Tinto", "Café de la Sierra", "Café", 2500, false}, {"Capuchino", "", "Café", 6000, false}, {"Pandebono", "Recién horneado", "Panadería", 2000, false},
+			{"Torta de queso", "Porción", "Postres", 7000, false},
 		},
 		reviews: []reviewSpec{
 			{2, 5, "El tinto más rico del barrio y el pandebono calientico.", 3},
@@ -125,9 +151,17 @@ var extras = []extra{
 		reviews: []reviewSpec{
 			{0, 5, "Atendieron a mi perrita con mucho cariño.", 4},
 		},
+		catalog: []catSpec{
+			{"Consulta general", "30 min", "Consultas", 45000, false}, {"Vacuna triple", "Perros", "Vacunas", 60000, false},
+			{"Baño y corte", "Según el tamaño", "Estética", 40000, true}, {"Urgencias", "Las 24 horas", "Urgencias", -1, false},
+		},
 	},
 	{ // CeluFix Express: sin fotos ni reseñas, para ver «Aún sin fotos» y «Aún sin reseñas».
 		top: color.RGBA{70, 134, 216, 255}, bottom: color.RGBA{16, 40, 90, 255}, motif: motifPhone,
+		catalog: []catSpec{
+			{"Revisión", "Diagnóstico", "Software", 0, false}, {"Cambio de pantalla", "Según el modelo", "Pantallas", 90000, true},
+			{"Cambio de batería", "Según el modelo", "Baterías", 60000, true}, {"Puerto de carga", "", "Puertos", 40000, true},
+		},
 	},
 }
 
@@ -174,6 +208,19 @@ func addExtras(tx *gorm.DB, e *models.Entity, x extra, now time.Time, store uplo
 			if err := tx.Model(&models.Entity{}).Where("id = ?", e.ID).Update("profile_media_id", *profile).Error; err != nil {
 				return uploaded, fmt.Errorf("foto de perfil: %w", err)
 			}
+		}
+	}
+
+	for i, c := range x.catalog {
+		svc := models.ServiceItem{EntityID: e.ID, Name: c.name, Description: c.desc, Section: c.section, PriceFrom: c.from, Status: models.ServiceActive, Position: 10 + i}
+		if c.price >= 0 {
+			price, stamp := c.price, now
+			svc.Price, svc.PriceUpdatedAt, svc.ConfirmedAt = &price, &stamp, &stamp
+		} else {
+			svc.PriceFrom = false
+		}
+		if err := tx.Create(&svc).Error; err != nil {
+			return uploaded, fmt.Errorf("catálogo: %w", err)
 		}
 	}
 

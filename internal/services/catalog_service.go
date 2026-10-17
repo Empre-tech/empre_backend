@@ -22,6 +22,7 @@ const (
 	maxServiceName    = 80
 	maxServiceDesc    = 240
 	minServiceName    = 2
+	maxServiceSection = 40
 	// MaxServicePrice es el tope razonable de un precio habitual (pesos).
 	MaxServicePrice = 10_000_000
 	// CatalogFreshDays es cuántos días un precio se considera vigente sin confirmar de nuevo.
@@ -44,6 +45,8 @@ type ServiceInput struct {
 	Description string `json:"description"`
 	Price       *int   `json:"price"`
 	PriceFrom   bool   `json:"price_from"`
+	// Section es opcional; vacía, el servicio va sin sección.
+	Section string `json:"section"`
 }
 
 // ValidateServiceInput limpia y valida un servicio. El precio es opcional; «desde» sin precio no tiene sentido y se
@@ -51,6 +54,11 @@ type ServiceInput struct {
 func ValidateServiceInput(in ServiceInput) (ServiceInput, error) {
 	in.Name = strings.TrimSpace(in.Name)
 	in.Description = strings.TrimSpace(in.Description)
+	// La sección se limpia de espacios repetidos para que «Bebidas» y « Bebidas » agrupen juntas.
+	in.Section = strings.Join(strings.Fields(in.Section), " ")
+	if utf8.RuneCountInString(in.Section) > maxServiceSection {
+		return in, invalidService("la sección admite hasta 40 caracteres")
+	}
 	if n := utf8.RuneCountInString(in.Name); n < minServiceName || n > maxServiceName {
 		return in, invalidService("el nombre debe tener entre 2 y 80 caracteres")
 	}
@@ -127,7 +135,7 @@ func (s *CatalogService) Create(entityID, userID uuid.UUID, in ServiceInput, now
 		return nil, ErrCatalogLimit
 	}
 	item := models.ServiceItem{
-		EntityID: entityID, Name: in.Name, Description: in.Description,
+		EntityID: entityID, Name: in.Name, Description: in.Description, Section: in.Section,
 		Price: in.Price, PriceFrom: in.PriceFrom, Status: models.ServiceActive, Position: int(active),
 	}
 	if in.Price != nil {
@@ -158,7 +166,7 @@ func (s *CatalogService) Update(entityID, itemID, userID uuid.UUID, in ServiceIn
 	}
 	priceChanged := (item.Price == nil) != (in.Price == nil) ||
 		(item.Price != nil && in.Price != nil && *item.Price != *in.Price) || item.PriceFrom != in.PriceFrom
-	item.Name, item.Description, item.PriceFrom = in.Name, in.Description, in.PriceFrom
+	item.Name, item.Description, item.Section, item.PriceFrom = in.Name, in.Description, in.Section, in.PriceFrom
 	item.Price = in.Price
 	if priceChanged {
 		if in.Price != nil {
@@ -168,7 +176,7 @@ func (s *CatalogService) Update(entityID, itemID, userID uuid.UUID, in ServiceIn
 		}
 	}
 	// Se guarda todo explícitamente: un precio nulo debe poder quedar nulo.
-	if err := s.DB.Model(&item).Select("name", "description", "price", "price_from", "price_updated_at").Updates(&item).Error; err != nil {
+	if err := s.DB.Model(&item).Select("name", "description", "section", "price", "price_from", "price_updated_at").Updates(&item).Error; err != nil {
 		return nil, err
 	}
 	return &item, nil

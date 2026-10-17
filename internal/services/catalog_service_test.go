@@ -33,11 +33,21 @@ func TestValidateServiceInput(t *testing.T) {
 		"descripción larga":    {Name: "Corte", Description: strings.Repeat("x", 241)},
 		"precio negativo":      {Name: "Corte", Price: intp(-1)},
 		"precio sobre el tope": {Name: "Corte", Price: intp(MaxServicePrice + 1)},
+		"sección larga":        {Name: "Corte", Section: strings.Repeat("x", 41)},
 	}
 	for name, in := range bad {
 		if _, err := ValidateServiceInput(in); !errors.Is(err, ErrCatalogInvalid) {
 			t.Errorf("%s: debía dar ErrCatalogInvalid, dio %v", name, err)
 		}
+	}
+	if s, err := ValidateServiceInput(ServiceInput{Name: "Jugo", Section: "  Bebidas   naturales "}); err != nil || s.Section != "Bebidas naturales" {
+		t.Fatalf("la sección se limpia de espacios: %v %q", err, s.Section)
+	}
+	if s, err := ValidateServiceInput(ServiceInput{Name: "Jugo"}); err != nil || s.Section != "" {
+		t.Fatalf("sin sección es válido: %v %q", err, s.Section)
+	}
+	if _, err := ValidateServiceInput(ServiceInput{Name: "Jugo", Section: strings.Repeat("ñ", 40)}); err != nil {
+		t.Errorf("40 letras con tilde caben en la sección: %v", err)
 	}
 	if _, err := ValidateServiceInput(ServiceInput{Name: strings.Repeat("ñ", 80)}); err != nil {
 		t.Errorf("80 letras con tilde caben (se cuentan letras, no bytes): %v", err)
@@ -129,6 +139,30 @@ func TestCatalog_FromDatabase(t *testing.T) {
 	var stored models.ServiceItem
 	if err := db.First(&stored, "id = ?", barba.ID).Error; err != nil || stored.Price != nil || stored.PriceUpdatedAt != nil {
 		t.Fatalf("lo guardado debe tener precio nulo: %v %+v", err, stored)
+	}
+
+	// La sección se guarda, se puede cambiar sin tocar la fecha del precio y se puede quitar.
+	upd, err = svc.Update(shop.ID, corte.ID, owner, ServiceInput{Name: "Corte clásico premium", Price: intp(28000), PriceFrom: true, Section: " Cortes "}, t2.AddDate(0, 0, 1))
+	if err != nil || upd.Section != "Cortes" || !upd.PriceUpdatedAt.Equal(t2) {
+		t.Fatalf("poner sección: %v %+v", err, upd)
+	}
+	var withSection models.ServiceItem
+	if err := db.First(&withSection, "id = ?", corte.ID).Error; err != nil || withSection.Section != "Cortes" {
+		t.Fatalf("la sección debe quedar guardada: %v %q", err, withSection.Section)
+	}
+	if _, err := svc.Update(shop.ID, corte.ID, owner, ServiceInput{Name: "Corte clásico premium", Price: intp(28000), PriceFrom: true}, t2); err != nil {
+		t.Fatal(err)
+	}
+	var cleared models.ServiceItem
+	if err := db.First(&cleared, "id = ?", corte.ID).Error; err != nil || cleared.Section != "" {
+		t.Fatalf("quitar la sección la deja vacía (se guarda de verdad): %v %q", err, cleared.Section)
+	}
+	conSeccion, err := svc.Create(shop.ID, owner, ServiceInput{Name: "Afeitado", Section: "Barba"}, t0)
+	if err != nil || conSeccion.Section != "Barba" {
+		t.Fatalf("crear con sección: %v %+v", err, conSeccion)
+	}
+	if err := svc.Retire(shop.ID, conSeccion.ID, owner); err != nil {
+		t.Fatal(err)
 	}
 
 	// Un negocio ajeno no edita ni retira mis servicios, ni uno sirve con el id de otro negocio.

@@ -119,6 +119,9 @@ var shops = []shop{
 	},
 }
 
+// Sección de los servicios que entran en la oferta, por categoría.
+var offerSection = map[string]string{"Restaurantes": "Almuerzos", "Belleza y peluquería": "Cortes", "Mascotas": "Vacunas"}
+
 func main() {
 	lat := flag.Float64("lat", 11.2350, "latitud del centro (por defecto, Santa Marta)")
 	lng := flag.Float64("lng", -74.2050, "longitud del centro")
@@ -221,7 +224,7 @@ func main() {
 				for pos, it := range s.catalog {
 					price := it.price
 					stamp := now
-					svc := models.ServiceItem{EntityID: entity.ID, Name: it.name, Price: &price, PriceUpdatedAt: &stamp, ConfirmedAt: &stamp, Status: models.ServiceActive, Position: pos}
+					svc := models.ServiceItem{EntityID: entity.ID, Name: it.name, Section: offerSection[s.category], Price: &price, PriceUpdatedAt: &stamp, ConfirmedAt: &stamp, Status: models.ServiceActive, Position: pos}
 					if err := tx.Create(&svc).Error; err != nil {
 						return fmt.Errorf("catálogo: %w", err)
 					}

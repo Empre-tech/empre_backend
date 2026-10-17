@@ -23,6 +23,9 @@ type ServiceItem struct {
 
 	Name        string `gorm:"size:80;not null" json:"name"`
 	Description string `gorm:"size:240" json:"description"`
+	// Section agrupa el catálogo («Almuerzos», «Cortes», «Calzado»): texto libre del dueño, opcional. Vale para cualquier
+	// tipo de negocio; la app le sugiere secciones según su categoría.
+	Section string `gorm:"size:40" json:"section"`
 
 	// Price es el precio habitual en pesos colombianos, sin decimales. Nil = el negocio no publica precio
 	// (un dato desconocido NO es cero).

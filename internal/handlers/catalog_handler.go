@@ -24,6 +24,7 @@ type serviceItemDTO struct {
 	ID             uuid.UUID  `json:"id"`
 	Name           string     `json:"name"`
 	Description    string     `json:"description"`
+	Section        string     `json:"section"`
 	Price          *int       `json:"price"`
 	PriceFrom      bool       `json:"price_from"`
 	PriceUpdatedAt *time.Time `json:"price_updated_at"`
@@ -34,7 +35,7 @@ type serviceItemDTO struct {
 
 func toServiceDTO(it models.ServiceItem, now time.Time) serviceItemDTO {
 	return serviceItemDTO{
-		ID: it.ID, Name: it.Name, Description: it.Description, Price: it.Price, PriceFrom: it.PriceFrom,
+		ID: it.ID, Name: it.Name, Description: it.Description, Section: it.Section, Price: it.Price, PriceFrom: it.PriceFrom,
 		PriceUpdatedAt: it.PriceUpdatedAt, ConfirmedAt: it.ConfirmedAt, Fresh: services.PriceFreshness(it, now),
 	}
 }
