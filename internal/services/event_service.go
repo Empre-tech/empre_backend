@@ -51,6 +51,9 @@ var EventSpecs = map[string]EventSpec{
 	"contact_started":   {NeedsEntity: true},
 	"directions_tapped": {NeedsEntity: true, Props: map[string]propKind{"origin": propString}},
 	"follow_toggled":    {NeedsEntity: true, Props: map[string]propKind{"following": propBool}},
+	// «Pregúntale»: qué se preguntó (la intención, nunca el texto) y si había dato para responder.
+	"question_asked":  {NeedsEntity: true, Props: map[string]propKind{"intent": propString, "answered": propBool}},
+	"booking_started": {NeedsEntity: true, Props: map[string]propKind{"origin": propString}},
 }
 
 // EventInput es un evento tal como llega de la app.
