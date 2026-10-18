@@ -236,6 +236,7 @@ func main() {
 	offerListHandler := handlers.NewOfferListHandler(offerListService)
 	searchHandler := handlers.NewSearchHandler(searchService)
 	agendaHandler := handlers.NewAgendaHandler(agendaService)
+	inboxHandler := handlers.NewInboxHandler(services.NewInboxService(database.DB))
 
 	wsHub := websocket.NewHub(database.DB, pushService, subscriptionService)
 	go wsHub.Run()
@@ -417,6 +418,7 @@ func main() {
 			usersProtected.POST("/profile/image", userHandler.UploadProfileImage)
 			usersProtected.GET("/me/favorites", favoriteHandler.FindMine)
 			usersProtected.GET("/me/novedades", favoriteHandler.Novedades)
+			usersProtected.GET("/me/inbox-summary", inboxHandler.Summary)
 			usersProtected.POST("/me/novedades/seen", favoriteHandler.MarkNovedadesSeen)
 			usersProtected.POST("/push-token", pushHandler.Register)
 			usersProtected.DELETE("/push-token", pushHandler.Remove)
