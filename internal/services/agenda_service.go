@@ -515,6 +515,8 @@ type Summary struct {
 	SlotMinutes int               `json:"slot_minutes"`
 	HorizonDays int               `json:"horizon_days"`
 	Services    []BookableService `json:"services"`
+	// Cómo recibe el negocio (manual | rules | auto): la app dice si la cita se confirma al instante o espera respuesta.
+	IntakeMode string `json:"intake_mode"`
 }
 
 func (s *AgendaService) Summary(viewerID, entityID uuid.UUID) (Summary, error) {
@@ -531,6 +533,7 @@ func (s *AgendaService) Summary(viewerID, entityID uuid.UUID) (Summary, error) {
 		return out, nil
 	}
 	out.Enabled = true
+	out.IntakeMode = st.IntakeMode
 	out.SlotMinutes = st.SlotMinutes
 	out.HorizonDays = st.HorizonDays
 	if out.Services, err = s.ListServices(entityID, true); err != nil {

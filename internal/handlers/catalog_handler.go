@@ -31,12 +31,16 @@ type serviceItemDTO struct {
 	ConfirmedAt    *time.Time `json:"confirmed_at"`
 	// Fresh: el precio se fijó o confirmó hace poco. Sin fecha o viejo, la app lo marca «sin confirmar».
 	Fresh bool `json:"fresh"`
+	// Agenda (D2): cuánto dura y si se puede reservar por Empre. «Pregúntale» y la hoja de reservar los usan.
+	DurationMin *int `json:"duration_min"`
+	Bookable    bool `json:"bookable"`
 }
 
 func toServiceDTO(it models.ServiceItem, now time.Time) serviceItemDTO {
 	return serviceItemDTO{
 		ID: it.ID, Name: it.Name, Description: it.Description, Section: it.Section, Price: it.Price, PriceFrom: it.PriceFrom,
 		PriceUpdatedAt: it.PriceUpdatedAt, ConfirmedAt: it.ConfirmedAt, Fresh: services.PriceFreshness(it, now),
+		DurationMin: it.DurationMin, Bookable: it.Bookable,
 	}
 }
 
