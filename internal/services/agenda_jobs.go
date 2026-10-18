@@ -4,7 +4,10 @@ import (
 	"context"
 	"log"
 	"strconv"
+	"strings"
 	"time"
+
+	"github.com/google/uuid"
 
 	"empre_backend/internal/agenda"
 	"empre_backend/internal/models"
@@ -41,6 +44,7 @@ func (s *AgendaService) safeTick() {
 // Tick runs one pass of every job at instant now.
 func (s *AgendaService) Tick(now time.Time) {
 	s.expireRequests(now)
+	s.digestOwners(now)
 	s.remindHalfway(now)
 	s.remindUpcoming(now)
 	s.promptClosing(now)
@@ -76,9 +80,6 @@ func (s *AgendaService) expireRequests(now time.Time) {
 // remindHalfway nudges the business when half of the answer window passed
 // (capped at 12h for long windows), unless it is quiet hours.
 func (s *AgendaService) remindHalfway(now time.Time) {
-	if agenda.InSilence(now.In(nowCO().Location())) {
-		return
-	}
 	var rows []models.Appointment
 	if err := s.db.Where("kind = ? AND status = ? AND halfway_reminded_at IS NULL AND expires_at > ?",
 		models.AppointmentBooking, models.ApptRequested, now.Add(agenda.MinWindow)).
@@ -88,6 +89,10 @@ func (s *AgendaService) remindHalfway(now time.Time) {
 	for i := range rows {
 		a := &rows[i]
 		if a.ExpiresAt == nil || agenda.HalfwayPoint(a.CreatedAt, *a.ExpiresAt).After(now) {
+			continue
+		}
+		// El silencio es el del negocio (su horario o el que eligió), no uno fijo para todos.
+		if st, err := s.settings(a.EntityID); err == nil && s.quietFor(st, a.EntityID, now) {
 			continue
 		}
 		res := s.db.Model(&models.Appointment{}).
@@ -206,4 +211,62 @@ func humanDuration(d time.Duration) string {
 		return "1 hora"
 	}
 	return strconv.Itoa(h) + " horas"
+}
+
+// digestOwners manda a cada dueño UN resumen de las citas y solicitudes que aún no se le avisaron, cuando pasó su
+// intervalo (notify_every) y no está en silencio. Lo que llega en silencio espera al primer resumen al abrir.
+func (s *AgendaService) digestOwners(now time.Time) {
+	type row struct {
+		EntityID  uuid.UUID
+		Requested int
+		Confirmed int
+	}
+	var rows []row
+	if err := s.db.Model(&models.Appointment{}).
+		Select("entity_id, count(*) FILTER (WHERE status = ?) AS requested, count(*) FILTER (WHERE status = ?) AS confirmed", models.ApptRequested, models.ApptConfirmed).
+		Where("kind = ? AND owner_notified_at IS NULL AND status IN ? AND created_at > ?", models.AppointmentBooking,
+			[]models.AppointmentStatus{models.ApptRequested, models.ApptConfirmed}, now.Add(-48*time.Hour)).
+		Group("entity_id").Limit(200).Scan(&rows).Error; err != nil {
+		log.Println("agenda: digest query:", err)
+		return
+	}
+	for _, r := range rows {
+		st, err := s.settings(r.EntityID)
+		if err != nil || s.quietFor(st, r.EntityID, now) {
+			continue
+		}
+		if st.NotifyEvery > 0 && st.LastDigestAt != nil && now.Sub(*st.LastDigestAt) < time.Duration(st.NotifyEvery)*time.Minute {
+			continue
+		}
+		e, err := s.entity(r.EntityID)
+		if err != nil {
+			continue
+		}
+		// Se marcan primero (con la condición en el UPDATE): dos instancias no mandan el mismo resumen.
+		res := s.db.Model(&models.Appointment{}).
+			Where("entity_id = ? AND kind = ? AND owner_notified_at IS NULL AND status IN ?", r.EntityID, models.AppointmentBooking,
+				[]models.AppointmentStatus{models.ApptRequested, models.ApptConfirmed}).
+			Update("owner_notified_at", now)
+		if res.Error != nil || res.RowsAffected == 0 {
+			continue
+		}
+		s.db.Model(&models.AgendaSettings{}).Where("entity_id = ?", r.EntityID).Update("last_digest_at", now)
+		s.notify(e.OwnerID, e.Name, DigestText(r.Requested, r.Confirmed), map[string]string{"type": "appointment_digest", "entity_id": r.EntityID.String()}, "appointment_request", true)
+	}
+}
+
+// DigestText arma el resumen: «3 solicitudes por revisar · 5 citas nuevas».
+func DigestText(requested, confirmed int) string {
+	parts := []string{}
+	if requested == 1 {
+		parts = append(parts, "1 solicitud por revisar")
+	} else if requested > 1 {
+		parts = append(parts, strconv.Itoa(requested)+" solicitudes por revisar")
+	}
+	if confirmed == 1 {
+		parts = append(parts, "1 cita nueva")
+	} else if confirmed > 1 {
+		parts = append(parts, strconv.Itoa(confirmed)+" citas nuevas")
+	}
+	return strings.Join(parts, " · ")
 }

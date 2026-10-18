@@ -17,13 +17,25 @@ type AgendaSettings struct {
 	// business has not defined services (15/30/45/60).
 	SlotMinutes int `gorm:"not null;default:30" json:"slot_minutes"`
 	// "HH:MM" or empty.
-	LunchStart   string    `json:"lunch_start"`
-	LunchEnd     string    `json:"lunch_end"`
-	BufferMin    int       `gorm:"not null;default:0" json:"buffer_min"`
-	MinNoticeMin int       `gorm:"not null;default:45" json:"min_notice_min"`
-	HorizonDays  int       `gorm:"not null;default:14" json:"horizon_days"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	LunchStart   string `json:"lunch_start"`
+	LunchEnd     string `json:"lunch_end"`
+	BufferMin    int    `gorm:"not null;default:0" json:"buffer_min"`
+	MinNoticeMin int    `gorm:"not null;default:45" json:"min_notice_min"`
+	HorizonDays  int    `gorm:"not null;default:14" json:"horizon_days"`
+	// Cómo recibe las solicitudes (§9b): manual | rules | auto. Por defecto, con reglas.
+	IntakeMode       string `gorm:"type:varchar(10);not null;default:'rules'" json:"intake_mode"`
+	ReviewNoShows    int    `gorm:"not null;default:2" json:"review_no_shows"` // 0 = apagada
+	ReviewFirstVisit bool   `gorm:"not null;default:false" json:"review_first_visit"`
+	ReviewNoticeMin  int    `gorm:"not null;default:120" json:"review_notice_min"` // 0 = apagada
+	// Avisos al dueño, editables y según su horario: cada cuántos minutos llega el resumen (0 = al instante) y
+	// cuándo no se le molesta (hours | custom | off).
+	NotifyEvery  int        `gorm:"not null;default:60" json:"notify_every"`
+	QuietMode    string     `gorm:"type:varchar(10);not null;default:'hours'" json:"quiet_mode"`
+	QuietFrom    string     `json:"quiet_from"`
+	QuietTo      string     `json:"quiet_to"`
+	LastDigestAt *time.Time `json:"-"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
 }
 
 func (AgendaSettings) TableName() string { return "agenda_settings" }
@@ -93,6 +105,11 @@ type Appointment struct {
 	ClosingPromptedAt   *time.Time `gorm:"column:closing_prompted_at" json:"-"`
 	ClosingReminded24At *time.Time `gorm:"column:closing_reminded24_at" json:"-"`
 
+	// Clave del intento de reserva que manda la app: un reintento con la misma clave devuelve la misma cita.
+	IdempotencyKey *string `gorm:"type:varchar(64)" json:"-"`
+	// Cuándo se le avisó al dueño (directo o en un resumen). Nulo = pendiente de avisar.
+	OwnerNotifiedAt *time.Time `json:"-"`
+
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 
@@ -101,9 +118,9 @@ type Appointment struct {
 	// Alternative start times offered when the business declined (decoded from ProposedSlots).
 	Proposed []time.Time `gorm:"-" json:"proposed_slots,omitempty"`
 
-	Entity   Entity              `gorm:"foreignKey:EntityID" json:"entity,omitempty"`
-	Customer *User               `gorm:"foreignKey:CustomerID" json:"customer,omitempty"`
-	Service  *ServiceItem         `gorm:"foreignKey:ServiceID" json:"service,omitempty"`
+	Entity   Entity       `gorm:"foreignKey:EntityID" json:"entity,omitempty"`
+	Customer *User        `gorm:"foreignKey:CustomerID" json:"customer,omitempty"`
+	Service  *ServiceItem `gorm:"foreignKey:ServiceID" json:"service,omitempty"`
 }
 
 func (Appointment) TableName() string { return "appointments" }

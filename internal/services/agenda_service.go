@@ -151,6 +151,78 @@ type SettingsInput struct {
 	BufferMin    int    `json:"buffer_min"`
 	MinNoticeMin int    `json:"min_notice_min"`
 	HorizonDays  int    `json:"horizon_days"`
+	// Recepción y avisos (§9b). Opcionales: nil deja lo guardado, así una app vieja no los borra.
+	IntakeMode       *string `json:"intake_mode"`
+	ReviewNoShows    *int    `json:"review_no_shows"`
+	ReviewFirstVisit *bool   `json:"review_first_visit"`
+	ReviewNoticeMin  *int    `json:"review_notice_min"`
+	NotifyEvery      *int    `json:"notify_every"`
+	QuietMode        *string `json:"quiet_mode"`
+	QuietFrom        *string `json:"quiet_from"`
+	QuietTo          *string `json:"quiet_to"`
+}
+
+// applyIntake valida y pone en st la recepción y los avisos que llegaron.
+func applyIntake(st *models.AgendaSettings, in SettingsInput) error {
+	if in.IntakeMode != nil {
+		switch *in.IntakeMode {
+		case agenda.IntakeManual, agenda.IntakeRules, agenda.IntakeAuto:
+			st.IntakeMode = *in.IntakeMode
+		default:
+			return &InvalidError{"intake_mode debe ser manual, rules o auto"}
+		}
+	}
+	if in.ReviewNoShows != nil {
+		if *in.ReviewNoShows < 0 || *in.ReviewNoShows > 10 {
+			return &InvalidError{"review_no_shows debe estar entre 0 y 10"}
+		}
+		st.ReviewNoShows = *in.ReviewNoShows
+	}
+	if in.ReviewFirstVisit != nil {
+		st.ReviewFirstVisit = *in.ReviewFirstVisit
+	}
+	if in.ReviewNoticeMin != nil {
+		if *in.ReviewNoticeMin < 0 || *in.ReviewNoticeMin > 1440 {
+			return &InvalidError{"review_notice_min debe estar entre 0 y 1440"}
+		}
+		st.ReviewNoticeMin = *in.ReviewNoticeMin
+	}
+	if in.NotifyEvery != nil {
+		switch *in.NotifyEvery {
+		case 0, 30, 60, 360:
+			st.NotifyEvery = *in.NotifyEvery
+		default:
+			return &InvalidError{"notify_every debe ser 0, 30, 60 o 360"}
+		}
+	}
+	if in.QuietFrom != nil {
+		st.QuietFrom = *in.QuietFrom
+	}
+	if in.QuietTo != nil {
+		st.QuietTo = *in.QuietTo
+	}
+	if in.QuietMode != nil {
+		switch *in.QuietMode {
+		case agenda.QuietHours, agenda.QuietOff:
+		case agenda.QuietCustom:
+			if !agenda.ValidClock(st.QuietFrom) || !agenda.ValidClock(st.QuietTo) || st.QuietFrom == st.QuietTo {
+				return &InvalidError{"el silencio necesita desde y hasta distintos (HH:MM)"}
+			}
+		default:
+			return &InvalidError{"quiet_mode debe ser hours, custom u off"}
+		}
+		st.QuietMode = *in.QuietMode
+	}
+	return nil
+}
+
+// quietFor dice si en t no se le avisa al dueño de ese negocio.
+func (s *AgendaService) quietFor(st models.AgendaSettings, entityID uuid.UUID, t time.Time) bool {
+	hrs, err := s.hours(entityID)
+	if err != nil {
+		return false
+	}
+	return agenda.InQuiet(agenda.Quiet{Mode: st.QuietMode, From: st.QuietFrom, To: st.QuietTo}, hrs, t.In(nowCO().Location()))
 }
 
 func validClock(v string) bool {
@@ -205,6 +277,9 @@ func (s *AgendaService) UpdateSettings(ownerID, entityID uuid.UUID, in SettingsI
 	st.BufferMin = in.BufferMin
 	st.MinNoticeMin = in.MinNoticeMin
 	st.HorizonDays = in.HorizonDays
+	if err := applyIntake(&st, in); err != nil {
+		return st, err
+	}
 	if err := s.db.Save(&st).Error; err != nil {
 		return st, err
 	}
@@ -435,10 +510,10 @@ func (s *AgendaService) Availability(viewerID, entityID uuid.UUID, day time.Time
 
 // Summary is the profile's availability signal.
 type Summary struct {
-	Enabled     bool                        `json:"enabled"`
-	NextSlot    *time.Time                  `json:"next_slot,omitempty"`
-	SlotMinutes int                         `json:"slot_minutes"`
-	HorizonDays int                         `json:"horizon_days"`
+	Enabled     bool              `json:"enabled"`
+	NextSlot    *time.Time        `json:"next_slot,omitempty"`
+	SlotMinutes int               `json:"slot_minutes"`
+	HorizonDays int               `json:"horizon_days"`
 	Services    []BookableService `json:"services"`
 }
 
@@ -601,8 +676,52 @@ func isOverlapViolation(err error) bool {
 	return strings.Contains(m, "appointments_no_overlap") || strings.Contains(m, "23P01")
 }
 
-// CreateAppointment is a customer asking for a space.
-func (s *AgendaService) CreateAppointment(customerID, entityID uuid.UUID, serviceID *uuid.UUID, startsAt time.Time, note string) (*models.Appointment, error) {
+// isRetryableConflict: interbloqueo o serialización. Con el candado por negocio no debería pasar; si pasa, se trata
+// como «hora ocupada» (con alternativas) y nunca como error del servidor.
+func isRetryableConflict(err error) bool {
+	if err == nil {
+		return false
+	}
+	m := err.Error()
+	return strings.Contains(m, "40P01") || strings.Contains(m, "40001") || strings.Contains(m, "deadlock detected")
+}
+
+func isIdemViolation(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "appointments_idem")
+}
+
+// CreateAppointment is a customer asking for a space. `idemKey` (opcional) es la clave del intento que manda la app:
+// un reintento con la misma clave devuelve la misma cita sin crear otra, incluso si llega a la vez que el original
+// (la copia tardía vería «hora ocupada» por su propio gemelo; aquí se devuelve la cita que sí se creó).
+func (s *AgendaService) CreateAppointment(customerID, entityID uuid.UUID, serviceID *uuid.UUID, startsAt time.Time, note, idemKey string) (*models.Appointment, error) {
+	if prev := s.byIdemKey(customerID, idemKey); prev != nil {
+		return prev, nil
+	}
+	a, err := s.createAppointment(customerID, entityID, serviceID, startsAt, note, idemKey)
+	if err != nil {
+		if prev := s.byIdemKey(customerID, idemKey); prev != nil {
+			return prev, nil
+		}
+	}
+	return a, err
+}
+
+func (s *AgendaService) byIdemKey(customerID uuid.UUID, idemKey string) *models.Appointment {
+	if idemKey == "" {
+		return nil
+	}
+	var prev models.Appointment
+	if s.db.Select("id").Where("customer_id = ? AND idempotency_key = ?", customerID, idemKey).Take(&prev).Error != nil {
+		return nil
+	}
+	a, err := s.load(prev.ID)
+	if err != nil {
+		return nil
+	}
+	return a
+}
+
+func (s *AgendaService) createAppointment(customerID, entityID uuid.UUID, serviceID *uuid.UUID, startsAt time.Time, note, idemKey string) (*models.Appointment, error) {
 	e, err := s.entity(entityID)
 	if err != nil {
 		return nil, ErrApptNotFound
@@ -659,25 +778,61 @@ func (s *AgendaService) CreateAppointment(customerID, entityID uuid.UUID, servic
 		return nil, ErrCustomerBusy
 	}
 
-	expires := agenda.ComputeExpiry(nowCO(), start, hrs)
+	// ¿Se confirma sola o espera al dueño? (modo y reglas del negocio, con el historial de este cliente aquí)
+	var hist agenda.History
+	var completed, noShows int64
+	s.db.Model(&models.Appointment{}).Where("entity_id = ? AND customer_id = ? AND status = ?", entityID, customerID, models.ApptCompleted).Count(&completed)
+	s.db.Model(&models.Appointment{}).Where("entity_id = ? AND customer_id = ? AND status = ?", entityID, customerID, models.ApptNoShow).Count(&noShows)
+	hist.Completed, hist.NoShows = int(completed), int(noShows)
+	now := nowCO()
+	review, _ := agenda.NeedsReview(agenda.Intake{Mode: st.IntakeMode, ReviewNoShows: st.ReviewNoShows, ReviewFirstVisit: st.ReviewFirstVisit, ReviewNoticeMin: st.ReviewNoticeMin}, hist, start, now)
+
 	appt := models.Appointment{
 		EntityID: entityID, Kind: models.AppointmentBooking, CustomerID: &customerID, ServiceID: serviceID,
 		StartsAt: start, EndsAt: end, BlocksUntil: end.Add(time.Duration(st.BufferMin) * time.Minute),
-		Status: models.ApptRequested, CustomerNote: strings.TrimSpace(note), ExpiresAt: &expires,
+		Status: models.ApptRequested, CustomerNote: strings.TrimSpace(note),
+	}
+	cardText := "Pidió una cita para " + formatWhen(start)
+	if review {
+		expires := agenda.ComputeExpiry(now, start, hrs)
+		appt.ExpiresAt = &expires
+	} else {
+		deadline := end.Add(closingDeadlineAfterEnd)
+		respondedAt := time.Now()
+		appt.Status, appt.RespondedAt, appt.ClosingDeadline = models.ApptConfirmed, &respondedAt, &deadline
+		cardText = "Reservó una cita para " + formatWhen(start)
+	}
+	if idemKey != "" {
+		k := idemKey
+		appt.IdempotencyKey = &k
+	}
+	// El dueño recibe el aviso al instante solo si lo pidió así y no está en silencio; si no, va en el resumen.
+	instant := st.NotifyEvery == 0 && !s.quietFor(st, entityID, time.Now())
+	if instant {
+		t := time.Now()
+		appt.OwnerNotifiedAt = &t
 	}
 	var card models.Message
 	err = s.db.Transaction(func(tx *gorm.DB) error {
+		// Las reservas de un mismo negocio pasan en fila: con muchas a la vez, la restricción EXCLUDE sola produce
+		// interbloqueos (probado: 1 de cada 3 corridas con 100 clientes). Negocios distintos no se esperan.
+		if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(?::text, 0))", entityID.String()).Error; err != nil {
+			return err
+		}
 		if err := tx.Omit(clause.Associations).Create(&appt).Error; err != nil {
 			return err
 		}
 		card = models.Message{
 			SenderID: customerID, EntityID: entityID, UserID: customerID, SentByEntity: false,
-			Content: "Pidió una cita para " + formatWhen(start), Kind: "appointment", AppointmentID: &appt.ID,
+			Content: cardText, Kind: "appointment", AppointmentID: &appt.ID,
 		}
 		return tx.Omit(clause.Associations).Create(&card).Error
 	})
 	if err != nil {
-		if isOverlapViolation(err) {
+		if isIdemViolation(err) {
+			return nil, err // CreateAppointment devuelve la cita que ya existe con esa clave
+		}
+		if isOverlapViolation(err) || isRetryableConflict(err) {
 			return nil, &SlotTakenError{Alternatives: s.alternatives(st, hrs, entityID, start, dur, nil)}
 		}
 		return nil, err
@@ -685,13 +840,21 @@ func (s *AgendaService) CreateAppointment(customerID, entityID uuid.UUID, servic
 
 	s.sendCard(&card, customerID, e.OwnerID)
 	s.broadcast(appt.ID, customerID, e.OwnerID)
-	who := "Un cliente"
-	var u models.User
-	if s.db.Select("name").First(&u, "id = ?", customerID).Error == nil && u.Name != "" {
-		who = u.Name
+	if !review {
+		s.notify(customerID, e.Name, "Cita confirmada: "+formatWhen(start), apptData("appointment_confirmed", &appt), "", false)
 	}
-	s.notify(e.OwnerID, "Nueva solicitud de cita", fmt.Sprintf("%s pide %s", who, formatWhen(start)),
-		apptData("appointment_request", &appt), "appointment_request", false)
+	if instant {
+		who := "Un cliente"
+		var u models.User
+		if s.db.Select("name").First(&u, "id = ?", customerID).Error == nil && u.Name != "" {
+			who = u.Name
+		}
+		title, body := "Nueva solicitud de cita", fmt.Sprintf("%s pide %s", who, formatWhen(start))
+		if !review {
+			title, body = "Nueva cita", fmt.Sprintf("%s reservó %s", who, formatWhen(start))
+		}
+		s.notify(e.OwnerID, title, body, apptData("appointment_request", &appt), "appointment_request", false)
+	}
 	return s.load(appt.ID)
 }
 
