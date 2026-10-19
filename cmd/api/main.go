@@ -234,6 +234,7 @@ func main() {
 	}
 	promotionHandler := handlers.NewPromotionHandler(promotionService)
 	offerListHandler := handlers.NewOfferListHandler(offerListService)
+	offerMarketHandler := handlers.NewOfferMarketHandler(services.NewOfferMarketService(database.DB, reviewService))
 	searchHandler := handlers.NewSearchHandler(searchService)
 	agendaHandler := handlers.NewAgendaHandler(agendaService)
 	inboxHandler := handlers.NewInboxHandler(services.NewInboxService(database.DB))
@@ -343,6 +344,8 @@ func main() {
 
 		// Pestaña Ofertas: relámpagos y promociones activos (público).
 		api.GET("/offers", offerListHandler.List)
+		// Vitrina de ofertas (3.38): pública; con sesión suma «Recomendado para ti».
+		api.GET("/offers/market", middleware.OptionalAuth(cfg), middleware.RateLimit(60, time.Minute), offerMarketHandler.Market)
 
 		// Búsqueda por niveles + chips dinámicos (público).
 		api.GET("/search", searchHandler.Search)
