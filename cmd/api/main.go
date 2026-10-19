@@ -346,6 +346,7 @@ func main() {
 		api.GET("/offers", offerListHandler.List)
 		// Vitrina de ofertas (3.38): pública; con sesión suma «Recomendado para ti».
 		api.GET("/offers/market", middleware.OptionalAuth(cfg), middleware.RateLimit(60, time.Minute), offerMarketHandler.Market)
+		api.GET("/offers/market/all", middleware.RateLimit(120, time.Minute), offerMarketHandler.MarketAll)
 
 		// Búsqueda por niveles + chips dinámicos (público).
 		api.GET("/search", searchHandler.Search)

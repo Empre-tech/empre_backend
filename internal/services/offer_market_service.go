@@ -39,6 +39,9 @@ type MarketResult struct {
 	Lat, Long  float64
 	Personal   bool
 	Categories map[uuid.UUID]bool
+	City       string       // ciudad de la vitrina; vacía = sin ciudad (se ve todo)
+	Here       *models.Zone // zona donde está la persona
+	Zones      []MarketZone
 }
 
 type OfferMarketService struct {
@@ -136,52 +139,92 @@ func (s *OfferMarketService) personalReasons(viewer uuid.UUID, offers []models.O
 	return out, nil
 }
 
-// Market arma la vitrina para quien mira (viewer nil = sin sesión).
-func (s *OfferMarketService) Market(viewer *uuid.UUID, lat, long float64, hasLoc bool, categoryRaw, term, sortKey string, now time.Time) (MarketResult, error) {
-	res := MarketResult{HasLoc: hasLoc, Lat: lat, Long: long, Personal: viewer != nil}
+// marketBase: las ofertas vigentes (con el filtro de categoría) como candidatas, la ciudad de la vitrina y las zonas.
+type marketBase struct {
+	cands []MarketCandidate // ya de la ciudad
+	city  string
+	here  *models.Zone
+	zones []models.Zone
+}
+
+func (s *OfferMarketService) load(viewer *uuid.UUID, lat, long float64, hasLoc bool, cityHint, categoryRaw string, withSignals bool, now time.Time) (marketBase, error) {
+	var b marketBase
 	var offers []models.Offer
 	q := s.db.Preload("Entity.Category").Preload("Items").
 		Where("ends_at > ? AND starts_at <= ? AND used_slots < total_slots", now, now)
 	if ids, asked := repository.ParseCategoryIDs(categoryRaw); asked {
 		if len(ids) == 0 {
-			return res, nil
+			return b, nil
 		}
 		q = q.Where("entity_id IN (SELECT id FROM entities WHERE category_id IN ? AND deleted_at IS NULL)", ids)
 	}
 	if err := q.Order("ends_at ASC").Find(&offers).Error; err != nil {
-		return res, err
+		return b, err
 	}
-
-	trend, err := s.trendScores(now)
+	zones, err := NewZoneService(s.db).List("")
 	if err != nil {
-		return res, err
+		return b, err
 	}
-	entityIDs := make([]uuid.UUID, 0, len(offers))
+	b.zones = zones
+	// La ciudad sale de todas las ofertas vigentes (sin el filtro de categoría no cambia: se resuelve con estas mismas).
+	points := make([]CityPoint, 0, len(offers))
 	for _, o := range offers {
-		entityIDs = append(entityIDs, o.EntityID)
+		points = append(points, CityPoint{City: o.Entity.City, Lat: o.Entity.Latitude, Long: o.Entity.Longitude})
 	}
+	b.city, b.here = ResolveCity(zones, points, lat, long, hasLoc, cityHint)
+
+	inCity := offers[:0:0]
+	for _, o := range offers {
+		if b.city == "" || SameCity(o.Entity.City, b.city) {
+			inCity = append(inCity, o)
+		}
+	}
+	trend := map[uuid.UUID]float64{}
 	ratings := map[uuid.UUID]repository.ReviewSummary{}
-	if s.reviews != nil && len(entityIDs) > 0 {
-		if r, err := s.reviews.Summaries(entityIDs); err == nil {
-			ratings = r
-		}
-	}
 	reasons := map[uuid.UUID]string{}
-	if viewer != nil {
-		if reasons, err = s.personalReasons(*viewer, offers); err != nil {
-			return res, err
+	if withSignals {
+		if trend, err = s.trendScores(now); err != nil {
+			return b, err
+		}
+		entityIDs := make([]uuid.UUID, 0, len(inCity))
+		for _, o := range inCity {
+			entityIDs = append(entityIDs, o.EntityID)
+		}
+		if s.reviews != nil && len(entityIDs) > 0 {
+			if r, err := s.reviews.Summaries(entityIDs); err == nil {
+				ratings = r
+			}
+		}
+		if viewer != nil {
+			if reasons, err = s.personalReasons(*viewer, inCity); err != nil {
+				return b, err
+			}
 		}
 	}
-	cands := make([]MarketCandidate, 0, len(offers))
-	for _, o := range offers {
+	b.cands = make([]MarketCandidate, 0, len(inCity))
+	for _, o := range inCity {
 		d := -1.0
 		if hasLoc {
 			d = utils.DistanceMeters(lat, long, o.Entity.Latitude, o.Entity.Longitude)
 		}
-		cands = append(cands, MarketCandidate{Offer: o, DistanceM: d, Trend: trend[o.ID], Rating: ratings[o.EntityID].Avg, Reason: reasons[o.ID]})
+		b.cands = append(b.cands, MarketCandidate{Offer: o, DistanceM: d, Trend: trend[o.ID], Rating: ratings[o.EntityID].Avg, Reason: reasons[o.ID]})
 	}
+	return b, nil
+}
 
-	// Términos: los más buscados, primero los que hoy tienen alguna oferta en la zona.
+// Market arma la vitrina para quien mira (viewer nil = sin sesión). `cityHint` es la última ciudad conocida; solo se usa
+// sin ubicación.
+func (s *OfferMarketService) Market(viewer *uuid.UUID, lat, long float64, hasLoc bool, cityHint, categoryRaw, term string, now time.Time) (MarketResult, error) {
+	res := MarketResult{HasLoc: hasLoc, Lat: lat, Long: long, Personal: viewer != nil}
+	b, err := s.load(viewer, lat, long, hasLoc, cityHint, categoryRaw, true, now)
+	if err != nil {
+		return res, err
+	}
+	res.City, res.Here = b.city, b.here
+	res.Zones = BuildZones(b.zones, b.cands, b.city, b.here, lat, long, hasLoc)
+	cands := b.cands
+
+	// Términos: los más buscados, primero los que hoy tienen alguna oferta en la ciudad.
 	raw, err := s.TopSearchTerms(now)
 	if err != nil {
 		return res, err
@@ -194,7 +237,7 @@ func (s *OfferMarketService) Market(viewer *uuid.UUID, lat, long float64, hasLoc
 	for _, t := range raw {
 		hit := false
 		for _, c := range cands {
-			if (!hasLoc || c.DistanceM <= MarketZoneRadiusM) && MatchesTerm(c.Offer, t) {
+			if MatchesTerm(c.Offer, t) {
 				hit = true
 				break
 			}
@@ -217,6 +260,24 @@ func (s *OfferMarketService) Market(viewer *uuid.UUID, lat, long float64, hasLoc
 	}
 	res.Term = chosen
 
-	res.Sections = BuildMarket(cands, MarketOptions{HasLocation: hasLoc, Term: chosen, Sort: sortKey, Personal: viewer != nil})
+	res.Sections = BuildMarket(cands, MarketOptions{HasLocation: hasLoc, Term: chosen, Personal: viewer != nil})
 	return res, nil
+}
+
+// MarketAllResult es una tanda de «Todas las ofertas de la ciudad».
+type MarketAllResult struct {
+	City  string
+	Items []MarketCandidate
+	Next  int // -1 = no hay más
+}
+
+// MarketAll: la lista completa de la ciudad, por tandas, con zona, búsqueda y orden. Resuelve la ciudad igual que
+// Market, así la lista y las secciones siempre hablan de la misma.
+func (s *OfferMarketService) MarketAll(lat, long float64, hasLoc bool, cityHint, categoryRaw string, zone *uuid.UUID, query, sortKey string, offset int, now time.Time) (MarketAllResult, error) {
+	b, err := s.load(nil, lat, long, hasLoc, cityHint, categoryRaw, true, now)
+	if err != nil {
+		return MarketAllResult{Next: -1}, err
+	}
+	page, next := PageAll(b.cands, AllOptions{HasLocation: hasLoc, Zone: zone, Query: query, Sort: sortKey}, offset, MarketPageSize)
+	return MarketAllResult{City: b.city, Items: page, Next: next}, nil
 }

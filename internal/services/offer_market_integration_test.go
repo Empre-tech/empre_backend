@@ -16,7 +16,7 @@ import (
 // por seguidos y reclamos propios, valoración sin sesión, zona y sin ofertas repetidas.
 func TestOfferMarketIntegration(t *testing.T) {
 	db := testDB(t)
-	if err := db.AutoMigrate(&models.Offer{}, &models.OfferItem{}, &models.OfferClaim{}, &models.Event{}, &models.Favorite{}, &models.Review{}, &models.Subcategory{}); err != nil {
+	if err := db.AutoMigrate(&models.Offer{}, &models.OfferItem{}, &models.OfferClaim{}, &models.Event{}, &models.Favorite{}, &models.Review{}, &models.Subcategory{}, &models.Zone{}); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now()
@@ -32,9 +32,18 @@ func TestOfferMarketIntegration(t *testing.T) {
 	beauty := models.Category{Name: "Belleza"}
 	db.Create(&food)
 	db.Create(&beauty)
-	// Centro de referencia 11.2400, -74.2000; 0.001° ≈ 111 m.
+	// Centro de referencia 11.2400, -74.2000; 0.001° ≈ 111 m. Una zona «Centro» de 1 km en la ciudad de prueba (3.39).
+	centro := models.Zone{City: "Santa Marta", Name: "Centro", Latitude: 11.24, Longitude: -74.2, RadiusM: 1000, Active: true}
+	db.Create(&centro)
 	mkEnt := func(name string, cat models.Category, dLat float64) models.Entity {
-		e := models.Entity{OwnerID: owner.ID, Name: name, CategoryID: cat.ID, Latitude: 11.24 + dLat, Longitude: -74.2}
+		city := "santa marta" // escrita distinto a la zona: igual cuenta como la misma ciudad
+		if dLat > 0.1 {
+			city = "Otro pueblo"
+		}
+		e := models.Entity{OwnerID: owner.ID, Name: name, CategoryID: cat.ID, Latitude: 11.24 + dLat, Longitude: -74.2, City: city}
+		if dLat < 0.009 {
+			e.ZoneID = &centro.ID
+		}
 		if err := db.Omit("Owner", "Category").Create(&e).Error; err != nil {
 			t.Fatal(err)
 		}
@@ -95,7 +104,7 @@ func TestOfferMarketIntegration(t *testing.T) {
 	db.Omit("User").Create(&models.Review{EntityID: spa.ID, UserID: other.ID, Rating: 5})
 
 	svc := NewOfferMarketService(db, nil)
-	res, err := svc.Market(&viewer.ID, 11.24, -74.2, true, "", "", "near", now)
+	res, err := svc.Market(&viewer.ID, 11.24, -74.2, true, "", "", "", now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,8 +116,14 @@ func TestOfferMarketIntegration(t *testing.T) {
 		}
 		return strings.Join(out, ", ")
 	}
-	t.Logf("términos %v · buscado [%s] · para ti [%s] · cerca [%s] · tendencia [%s] · todas [%s]",
-		res.Terms, titles(s.Searched), titles(s.ForYou), titles(s.Near), titles(s.Trending), titles(s.All))
+	t.Logf("ciudad %q · zonas %d · términos %v · buscado [%s] · para ti [%s] · cerca [%s] · tendencia [%s]",
+		res.City, len(res.Zones), res.Terms, titles(s.Searched), titles(s.ForYou), titles(s.Near), titles(s.Trending))
+	if res.City != "Santa Marta" || res.Here == nil || res.Here.ID != centro.ID {
+		t.Fatalf("ciudad por la zona que contiene la ubicación: %q %v", res.City, res.Here)
+	}
+	if len(res.Zones) != 1 || !res.Zones[0].Here || len(res.Zones[0].Looks) != 2 {
+		t.Fatalf("por zona: %+v", res.Zones)
+	}
 
 	if len(res.Terms) != 1 || res.Terms[0].Term != "almuerzo" || res.Terms[0].Label != "Almuerzo" || res.Term != "almuerzo" {
 		t.Fatalf("términos: %+v (pizza no pasa el mínimo y «viejo» es de hace 10 días)", res.Terms)
@@ -125,18 +140,40 @@ func TestOfferMarketIntegration(t *testing.T) {
 	if s.Trending != nil {
 		t.Fatalf("tendencia: pizza y masaje ya salieron cerca, debía esconderse: %s", titles(s.Trending))
 	}
-	for _, c := range s.All {
+	all, err := svc.MarketAll(11.24, -74.2, true, "", "", nil, "", "near", 0, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range all.Items {
 		if c.Offer.EntityID == lejos.ID || c.Offer.ID == vencida.ID {
-			t.Fatalf("en «todas» no va la lejana ni la vencida: %s", c.Offer.Title)
+			t.Fatalf("en «todas» no va la de otra ciudad ni la vencida: %s", c.Offer.Title)
 		}
 	}
-	if len(s.All) != 4 {
-		t.Fatalf("todas: %s", titles(s.All))
+	if titles(all.Items) != "Almuerzo ejecutivo + jugo, Corte + barba, Pizza mediana, Masaje 45 min" || all.Next != -1 || all.City != "Santa Marta" {
+		t.Fatalf("todas (ciudad entera, la más cercana primero): %s next=%d", titles(all.Items), all.Next)
+	}
+	// Por zona: solo las del Centro; búsqueda en el servidor.
+	if z, _ := svc.MarketAll(11.24, -74.2, true, "", "", &centro.ID, "", "ends", 0, now); titles(z.Items) != "Almuerzo ejecutivo + jugo, Corte + barba" {
+		t.Fatalf("zona Centro: %s", titles(z.Items))
+	}
+	if q, _ := svc.MarketAll(11.24, -74.2, true, "", "", nil, "pizza", "near", 0, now); titles(q.Items) != "Pizza mediana" {
+		t.Fatalf("búsqueda: %s", titles(q.Items))
+	}
+	// Sin ubicación y con la última ciudad conocida: esa ciudad; sin ninguna, todas (también la de otro pueblo).
+	if h, _ := svc.MarketAll(0, 0, false, "Santa Marta", "", nil, "", "near", 0, now); len(h.Items) != 4 || h.City != "Santa Marta" {
+		t.Fatalf("última ciudad: %s", titles(h.Items))
+	}
+	if h, _ := svc.MarketAll(0, 0, false, "", "", nil, "", "near", 0, now); len(h.Items) != 5 || h.City != "" {
+		t.Fatalf("sin ciudad: %s", titles(h.Items))
+	}
+	// Desde otro pueblo, la vitrina es la de allá.
+	if o, _ := svc.Market(nil, 11.74, -74.2, true, "", "", "", now); o.City != "Otro pueblo" || o.Here != nil || len(o.Zones) != 0 {
+		t.Fatalf("otro pueblo: %q", o.City)
 	}
 
 	// Sin ubicación y sin sesión: sin «cerca», tendencia con pizza y masaje, y «mejor valoradas» si hay reseñas.
 	svc2 := NewOfferMarketService(db, nil)
-	res2, err := svc2.Market(nil, 0, 0, false, "", "", "near", now)
+	res2, err := svc2.Market(nil, 0, 0, false, "Santa Marta", "", "", now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +186,7 @@ func TestOfferMarketIntegration(t *testing.T) {
 	}
 	// Sin sesión y con reseñas: «mejor valoradas» toma el spa (5 estrellas) antes que la tendencia.
 	svc3 := NewOfferMarketService(db, NewReviewService(repository.NewReviewRepository(db), nil))
-	res4, err := svc3.Market(nil, 11.24, -74.2, true, "", "", "near", now)
+	res4, err := svc3.Market(nil, 11.24, -74.2, true, "", "", "", now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,8 +194,8 @@ func TestOfferMarketIntegration(t *testing.T) {
 		t.Fatalf("mejor valoradas: %s", titles(res4.Sections.ForYou))
 	}
 	// Filtro de categoría: solo Belleza.
-	res3, _ := svc.Market(&viewer.ID, 11.24, -74.2, true, beauty.ID.String(), "", "near", now)
-	for _, c := range res3.Sections.All {
+	res3, _ := svc.MarketAll(11.24, -74.2, true, "", beauty.ID.String(), nil, "", "near", 0, now)
+	for _, c := range res3.Items {
 		if c.Offer.Entity.CategoryID != beauty.ID {
 			t.Fatalf("filtro de categoría: %s", c.Offer.Title)
 		}
