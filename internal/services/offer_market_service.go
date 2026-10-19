@@ -42,6 +42,7 @@ type MarketResult struct {
 	City       string       // ciudad de la vitrina; vacía = sin ciudad (se ve todo)
 	Here       *models.Zone // zona donde está la persona
 	Zones      []MarketZone
+	Featured   *MarketCandidate // «Mayor ahorro de hoy» (3.40); nil si ninguna termina hoy con ahorro
 }
 
 type OfferMarketService struct {
@@ -260,6 +261,11 @@ func (s *OfferMarketService) Market(viewer *uuid.UUID, lat, long float64, hasLoc
 	}
 	res.Term = chosen
 
+	// La destacada sale primero y no se repite en las secciones (sí en la lista completa).
+	if f := PickFeatured(cands, now); f != nil {
+		res.Featured = f
+		cands = WithoutOffer(cands, f.Offer.ID)
+	}
 	res.Sections = BuildMarket(cands, MarketOptions{HasLocation: hasLoc, Term: chosen, Personal: viewer != nil})
 	return res, nil
 }

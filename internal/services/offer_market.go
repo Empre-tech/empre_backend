@@ -3,6 +3,7 @@ package services
 import (
 	"sort"
 	"strings"
+	"time"
 	"unicode"
 
 	"empre_backend/internal/models"
@@ -374,6 +375,48 @@ func BuildMarket(cands []MarketCandidate, opt MarketOptions) MarketSections {
 	}
 	if len(out.Trending) < MarketMinRail {
 		out.Trending = nil
+	}
+	return out
+}
+
+// marketTZ: «hoy» es el día en Colombia (el servidor puede correr en UTC).
+var marketTZ = func() *time.Location {
+	if l, err := time.LoadLocation("America/Bogota"); err == nil {
+		return l
+	}
+	return time.FixedZone("COT", -5*3600)
+}()
+
+// PickFeatured es la destacada de la vitrina (3.40): la de mayor ahorro entre las que terminan hoy. Es una regla a la
+// vista («Mayor ahorro de hoy»), nunca pagada. Sin ahorro real no hay destacada; empate: la que termina antes.
+func PickFeatured(cands []MarketCandidate, now time.Time) *MarketCandidate {
+	y, m, d := now.In(marketTZ).Date()
+	endOfDay := time.Date(y, m, d+1, 0, 0, 0, 0, marketTZ)
+	var best *MarketCandidate
+	for i := range cands {
+		c := &cands[i]
+		if !c.Offer.EndsAt.After(now) || !c.Offer.EndsAt.Before(endOfDay) || offerSaving(c.Offer) <= 0 {
+			continue
+		}
+		if best == nil {
+			best = c
+			continue
+		}
+		sb, sc := offerSaving(best.Offer), offerSaving(c.Offer)
+		if sc > sb || (sc == sb && c.Offer.EndsAt.Before(best.Offer.EndsAt)) {
+			best = c
+		}
+	}
+	return best
+}
+
+// WithoutOffer devuelve las candidatas sin esa oferta (la destacada no se repite en las secciones).
+func WithoutOffer(cands []MarketCandidate, id uuid.UUID) []MarketCandidate {
+	out := make([]MarketCandidate, 0, len(cands))
+	for _, c := range cands {
+		if c.Offer.ID != id {
+			out = append(out, c)
+		}
 	}
 	return out
 }

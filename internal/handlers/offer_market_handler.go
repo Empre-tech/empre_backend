@@ -58,12 +58,14 @@ type MarketResponse struct {
 	// City: ciudad de la vitrina (de la ubicación o, sin ella, la última conocida). Vacía = todas las ciudades.
 	City string `json:"city"`
 	// Zone: nombre de la zona donde está la persona; vacío si no está en ninguna.
-	Zone     string           `json:"zone"`
-	Zones    []MarketZoneItem `json:"zones"`
-	Near     []MarketItem     `json:"near"`
-	Searched marketSearched   `json:"searched"`
-	Trending []MarketItem     `json:"trending"`
-	ForYou   marketForYou     `json:"for_you"`
+	Zone  string           `json:"zone"`
+	Zones []MarketZoneItem `json:"zones"`
+	// Featured: «Mayor ahorro de hoy», por regla a la vista (nunca pagada); nulo si ninguna termina hoy con ahorro.
+	Featured *MarketItem    `json:"featured"`
+	Near     []MarketItem   `json:"near"`
+	Searched marketSearched `json:"searched"`
+	Trending []MarketItem   `json:"trending"`
+	ForYou   marketForYou   `json:"for_you"`
 }
 
 // MarketAllResponse es una tanda de «Todas las ofertas de la ciudad». NextCursor vacío = no hay más.
@@ -155,7 +157,13 @@ func (h *OfferMarketHandler) Market(c *gin.Context) {
 	if res.Here != nil {
 		zone = res.Here.Name
 	}
+	var featured *MarketItem
+	if res.Featured != nil {
+		f := marketItems([]services.MarketCandidate{*res.Featured})[0]
+		featured = &f
+	}
 	c.JSON(http.StatusOK, MarketResponse{
+		Featured:    featured,
 		HasLocation: hasLoc,
 		City:        res.City,
 		Zone:        zone,

@@ -55,8 +55,9 @@ func TestOfferMarketIntegration(t *testing.T) {
 	spa := mkEnt("Spa Mamatoco", beauty, 0.024)          // ~2.7 km
 	lejos := mkEnt("Otro pueblo", food, 0.5)             // ~55 km
 	mkOffer := func(e models.Entity, title string, ends time.Duration) models.Offer {
-		sp, rf := 1000, 2000
-		o := models.Offer{EntityID: e.ID, Type: models.OfferHours, Title: title, StartsAt: now.Add(-time.Hour), EndsAt: now.Add(ends), TotalSlots: 10, SpecialPrice: &sp, ReferencePrice: &rf}
+		// Sin precio de referencia (sin ahorro): así no hay «Mayor ahorro de hoy» que dependa de la hora del día.
+		sp := 1000
+		o := models.Offer{EntityID: e.ID, Type: models.OfferHours, Title: title, StartsAt: now.Add(-time.Hour), EndsAt: now.Add(ends), TotalSlots: 10, SpecialPrice: &sp}
 		if err := db.Omit("Entity", "Items").Create(&o).Error; err != nil {
 			t.Fatal(err)
 		}
@@ -118,6 +119,9 @@ func TestOfferMarketIntegration(t *testing.T) {
 	}
 	t.Logf("ciudad %q · zonas %d · términos %v · buscado [%s] · para ti [%s] · cerca [%s] · tendencia [%s]",
 		res.City, len(res.Zones), res.Terms, titles(s.Searched), titles(s.ForYou), titles(s.Near), titles(s.Trending))
+	if res.Featured != nil {
+		t.Fatalf("sin ahorro no hay destacada: %s", res.Featured.Offer.Title)
+	}
 	if res.City != "Santa Marta" || res.Here == nil || res.Here.ID != centro.ID {
 		t.Fatalf("ciudad por la zona que contiene la ubicación: %q %v", res.City, res.Here)
 	}
@@ -198,6 +202,29 @@ func TestOfferMarketIntegration(t *testing.T) {
 	for _, c := range res3.Items {
 		if c.Offer.Entity.CategoryID != beauty.ID {
 			t.Fatalf("filtro de categoría: %s", c.Offer.Title)
+		}
+	}
+
+	// 3.40: una oferta con ahorro que termina hoy es la destacada y no se repite en ninguna sección.
+	y, m, d := now.In(marketTZ).Date()
+	mid := now.Add(time.Date(y, m, d+1, 0, 0, 0, 0, marketTZ).Sub(now) / 2)
+	sp, rf := 6000, 12000
+	feat := models.Offer{EntityID: bahia.ID, Type: models.OfferHours, Title: "Pizza familiar a mitad", StartsAt: now.Add(-time.Hour), EndsAt: mid, TotalSlots: 5, SpecialPrice: &sp, ReferencePrice: &rf}
+	if err := db.Omit("Entity", "Items").Create(&feat).Error; err != nil {
+		t.Fatal(err)
+	}
+	r5, err := svc.Market(&viewer.ID, 11.24, -74.2, true, "", "", "", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r5.Featured == nil || r5.Featured.Offer.ID != feat.ID {
+		t.Fatalf("destacada: %v", r5.Featured)
+	}
+	for _, l := range [][]MarketCandidate{r5.Sections.Near, r5.Sections.Searched, r5.Sections.Trending, r5.Sections.ForYou} {
+		for _, c := range l {
+			if c.Offer.ID == feat.ID {
+				t.Fatal("la destacada se repitió en una sección")
+			}
 		}
 	}
 	_ = fmt.Sprintf
