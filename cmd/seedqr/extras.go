@@ -1,10 +1,8 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"image/color"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -12,15 +10,11 @@ import (
 	"time"
 
 	"empre_backend/internal/models"
+	"empre_backend/internal/seedphotos"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
-
-// uploader es lo único que el seed necesita del almacenamiento (services.StorageService lo cumple).
-type uploader interface {
-	UploadFile(filename string, body io.Reader, contentType string) error
-}
 
 type postSpec struct {
 	caption  string
@@ -64,7 +58,7 @@ type pastOffer struct {
 // una segunda oferta vigente y ofertas ya terminadas (para «Cómo te va» del dueño).
 type extra struct {
 	top, bottom color.RGBA
-	motif       motif
+	motif       seedphotos.Motif
 	posts       []postSpec
 	reviews     []reviewSpec
 	second      *offerSpec
@@ -77,7 +71,7 @@ var reviewerNames = []string{"Laura Gómez", "Andrés Pertuz", "Camila Rojas", "
 
 var extras = []extra{
 	{ // La Sazón de Rosa: muchas fotos (se ve «+N»), dos ofertas vigentes (se apilan en el perfil) y buenas reseñas.
-		top: color.RGBA{245, 154, 75, 255}, bottom: color.RGBA{142, 59, 0, 255}, motif: motifPlate,
+		top: color.RGBA{245, 154, 75, 255}, bottom: color.RGBA{142, 59, 0, 255}, motif: seedphotos.MotifPlate,
 		posts: []postSpec{
 			{"Hoy: sancocho de pescado con arroz de coco y patacón", 3, 2},
 			{"Jugos naturales de corozo y lulo, recién hechos", 20, 1},
@@ -105,7 +99,7 @@ var extras = []extra{
 		},
 	},
 	{ // Barbería El Parque: fotos y reseñas; ofertas terminadas para ver los resultados.
-		top: color.RGBA{43, 163, 160, 255}, bottom: color.RGBA{4, 58, 60, 255}, motif: motifPole,
+		top: color.RGBA{43, 163, 160, 255}, bottom: color.RGBA{4, 58, 60, 255}, motif: seedphotos.MotifPole,
 		posts: []postSpec{
 			{"Degradado con diseño: el corte de la semana", 6, 2},
 			{"Nuevo sillón y más espacio para esperar", 30, 1},
@@ -129,7 +123,7 @@ var extras = []extra{
 		},
 	},
 	{ // Café Sierra Nevada: dos fotos y dos reseñas.
-		top: color.RGBA{200, 162, 122, 255}, bottom: color.RGBA{60, 32, 14, 255}, motif: motifCup,
+		top: color.RGBA{200, 162, 122, 255}, bottom: color.RGBA{60, 32, 14, 255}, motif: seedphotos.MotifCup,
 		posts: []postSpec{
 			{"Pandebono recién salido del horno, todas las mañanas", 2, 1},
 			{"Nuestro café de la Sierra, tostado aquí mismo", 40, 1},
@@ -144,7 +138,7 @@ var extras = []extra{
 		},
 	},
 	{ // Veterinaria Patitas: una sola foto (ocupa todo el ancho) y una reseña (aún sin nota: hacen falta 3).
-		top: color.RGBA{91, 192, 190, 255}, bottom: color.RGBA{10, 58, 58, 255}, motif: motifPaw,
+		top: color.RGBA{91, 192, 190, 255}, bottom: color.RGBA{10, 58, 58, 255}, motif: seedphotos.MotifPaw,
 		posts: []postSpec{
 			{"Jornada de vacunación este sábado", 26, 1},
 		},
@@ -157,7 +151,7 @@ var extras = []extra{
 		},
 	},
 	{ // CeluFix Express: sin fotos ni reseñas, para ver «Aún sin fotos» y «Aún sin reseñas».
-		top: color.RGBA{70, 134, 216, 255}, bottom: color.RGBA{16, 40, 90, 255}, motif: motifPhone,
+		top: color.RGBA{70, 134, 216, 255}, bottom: color.RGBA{16, 40, 90, 255}, motif: seedphotos.MotifPhone,
 		catalog: []catSpec{
 			{"Revisión", "Diagnóstico", "Software", 0, false}, {"Cambio de pantalla", "Según el modelo", "Pantallas", 90000, true},
 			{"Cambio de batería", "Según el modelo", "Baterías", 60000, true}, {"Puerto de carga", "", "Puertos", 40000, true},
@@ -167,7 +161,7 @@ var extras = []extra{
 
 // addExtras crea las publicaciones con fotos, la foto de perfil, las reseñas y las ofertas extra de un negocio.
 // Sin almacenamiento (`store` nil) se saltan las fotos. Devuelve cuántas fotos subió.
-func addExtras(tx *gorm.DB, e *models.Entity, x extra, now time.Time, store uploader, reviewers []models.User, photoDir string) (int, error) {
+func addExtras(tx *gorm.DB, e *models.Entity, x extra, now time.Time, store seedphotos.Uploader, reviewers []models.User, photoDir string) (int, error) {
 	uploaded := 0
 	if store != nil {
 		real := realPhotos(photoDir, e.Name)
@@ -179,27 +173,19 @@ func addExtras(tx *gorm.DB, e *models.Entity, x extra, now time.Time, store uplo
 				return uploaded, fmt.Errorf("publicación: %w", err)
 			}
 			for j := 0; j < p.photos; j++ {
-				data, ct := samplePhoto(x.top, x.bottom, x.motif, variant), "image/jpeg"
+				data, ct := seedphotos.Sample(x.top, x.bottom, x.motif, variant), "image/jpeg"
 				if len(real) > 0 {
 					if b, err := os.ReadFile(real[variant%len(real)]); err == nil {
 						data, ct = b, contentTypeOf(real[variant%len(real)])
 					}
 				}
 				variant++
-				key := fmt.Sprintf("seed/qr/%s%s", uuid.NewString(), extOf(ct))
-				if err := store.UploadFile(key, bytes.NewReader(data), ct); err != nil {
-					return uploaded, fmt.Errorf("subir foto: %w", err)
-				}
-				media := models.Media{S3Key: key, OriginalName: "ejemplo" + extOf(ct), ContentType: ct, Size: int64(len(data))}
-				if err := tx.Create(&media).Error; err != nil {
-					return uploaded, fmt.Errorf("medio: %w", err)
-				}
-				if err := tx.Omit("Media", "Post").Create(&models.EntityPhoto{PostID: post.ID, EntityID: e.ID, MediaID: media.ID, Order: j}).Error; err != nil {
-					return uploaded, fmt.Errorf("foto: %w", err)
+				id, err := seedphotos.AddToPost(tx, store, "seed/qr/", &post, j, data, ct)
+				if err != nil {
+					return uploaded, err
 				}
 				uploaded++
 				if profile == nil {
-					id := media.ID
 					profile = &id
 				}
 			}
@@ -290,16 +276,5 @@ func contentTypeOf(path string) string {
 		return "image/webp"
 	default:
 		return "image/jpeg"
-	}
-}
-
-func extOf(ct string) string {
-	switch ct {
-	case "image/png":
-		return ".png"
-	case "image/webp":
-		return ".webp"
-	default:
-		return ".jpg"
 	}
 }

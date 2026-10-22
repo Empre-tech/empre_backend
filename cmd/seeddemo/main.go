@@ -5,6 +5,9 @@
 // overlapping pins behave). Every business has an active offer with a special
 // price and its usual price, ending at different times (one in under an hour,
 // to see the urgent badge) so the map and the Offers tab can be reviewed.
+// Half of them (the even-indexed ones) also get a profile photo and a post
+// with 3 sample photos drawn in their category's color, so cards and pins can
+// be judged with images; the other half keep the icon-only look.
 //
 // Run it manually from the empre_backend folder:
 //
@@ -12,7 +15,8 @@
 //
 // It is idempotent: each demo user (demo01..demo20@empre.app, password
 // "demo1234") is reused and its previous businesses are hard-deleted before
-// recreating them. It uses the same .env as the API.
+// recreating them (with their posts, photos and media). It uses the same
+// .env as the API; photos go to its S3 (S3_BUCKET) and are skipped without it.
 package main
 
 import (
@@ -23,6 +27,7 @@ import (
 	"empre_backend/config"
 	"empre_backend/internal/database"
 	"empre_backend/internal/models"
+	"empre_backend/internal/seedphotos"
 	"empre_backend/internal/services"
 
 	"github.com/google/uuid"
@@ -92,7 +97,15 @@ func main() {
 		{"Luisa Martínez", "Salud y bienestar", "Spa Mamatoco", "Masajes y tratamientos.", 11.24700, -74.19600, models.OfferDay, "Masaje relajante 45 min", 60000, 85000, 9 * time.Hour},
 	}
 
+	var store seedphotos.Uploader
+	if cfg.S3Bucket != "" {
+		store = services.NewStorageService(cfg)
+	} else {
+		fmt.Println("Sin S3_BUCKET en el .env: se crean los negocios demo sin fotos.")
+	}
+
 	zones := services.NewZoneService(db)
+	withPhotos := 0
 	for i, b := range list {
 		email := fmt.Sprintf("demo%02d@empre.app", i+1)
 
@@ -163,10 +176,54 @@ func main() {
 		if err := db.Create(&offer).Error; err != nil {
 			log.Fatal("No se pudo crear la oferta: ", err)
 		}
+
+		if store != nil && i%2 == 0 {
+			if err := db.Transaction(func(tx *gorm.DB) error { return addPhotos(tx, store, &entity, cat, now) }); err != nil {
+				log.Fatalf("%s: %v", b.name, err)
+			}
+			withPhotos++
+		}
 	}
 
 	fmt.Printf("Listo: %d negocios demo en Santa Marta, cada uno con su oferta y dueño distinto (demo01..demo%02d@empre.app / demo1234).\n", len(list), len(list))
 	fmt.Println("Pilas de pines en Centro Histórico y El Rodadero; también hay negocios en Taganga y en sectores sin zona.")
+	if store != nil {
+		fmt.Printf("Fotos: %d negocios con foto de perfil y una publicación de %d fotos; el resto, solo con el ícono.\n", withPhotos, photosPerPost)
+	}
+}
+
+const photosPerPost = 3
+
+// motifs: el dibujo de las fotos de ejemplo por categoría; las demás llevan solo el fondo con su color.
+var motifs = map[string]seedphotos.Motif{
+	"Restaurantes":         seedphotos.MotifPlate,
+	"Cafeterías y postres": seedphotos.MotifCup,
+	"Belleza y peluquería": seedphotos.MotifPole,
+	"Mascotas":             seedphotos.MotifPaw,
+	"Tecnología":           seedphotos.MotifPhone,
+}
+
+// addPhotos crea una publicación con 3 fotos dibujadas en el color de la categoría y usa la primera como foto de perfil.
+func addPhotos(tx *gorm.DB, store seedphotos.Uploader, e *models.Entity, cat models.Category, now time.Time) error {
+	post := models.Post{EntityID: e.ID, Caption: "Así se ve " + e.Name, CreatedAt: now.Add(-2 * time.Hour), UpdatedAt: now}
+	if err := tx.Omit("Photos").Create(&post).Error; err != nil {
+		return fmt.Errorf("publicación: %w", err)
+	}
+	top, bottom := seedphotos.Gradient(cat.Color)
+	var profile uuid.UUID
+	for j := 0; j < photosPerPost; j++ {
+		id, err := seedphotos.AddToPost(tx, store, "seed/demo/", &post, j, seedphotos.Sample(top, bottom, motifs[cat.Name], j), "image/jpeg")
+		if err != nil {
+			return err
+		}
+		if j == 0 {
+			profile = id
+		}
+	}
+	if err := tx.Model(&models.Entity{}).Where("id = ?", e.ID).Update("profile_media_id", profile).Error; err != nil {
+		return fmt.Errorf("foto de perfil: %w", err)
+	}
+	return nil
 }
 
 // pesos: 25000 → «$25.000».
@@ -182,13 +239,23 @@ func pesos(n int) string {
 	return "$" + out
 }
 
-// clearDemo borra en duro los negocios (y sus ofertas/promociones) del usuario
-// demo, para que el comando sea re-ejecutable sin duplicar.
+// clearDemo borra en duro los negocios (y sus ofertas/promociones,
+// publicaciones, fotos y medios) del usuario demo, para que el comando sea
+// re-ejecutable sin duplicar.
 func clearDemo(db *gorm.DB, uid uuid.UUID) {
+	const mine = "(SELECT id FROM entities WHERE owner_id = ?)"
+	var mediaIDs []uuid.UUID
+	db.Raw("SELECT media_id FROM entity_photos WHERE entity_id IN "+mine+" UNION SELECT profile_media_id FROM entities WHERE owner_id = ? AND profile_media_id IS NOT NULL", uid, uid).Scan(&mediaIDs)
+	db.Exec(`UPDATE entities SET profile_media_id = NULL, banner_media_id = NULL WHERE owner_id = ?`, uid)
+	db.Exec(`DELETE FROM entity_photos WHERE entity_id IN `+mine, uid)
+	db.Exec(`DELETE FROM posts WHERE entity_id IN `+mine, uid)
 	db.Exec(`DELETE FROM offer_claims WHERE entity_id IN (SELECT id FROM entities WHERE owner_id = ?)`, uid)
 	db.Exec(`DELETE FROM offer_items WHERE offer_id IN (SELECT o.id FROM offers o JOIN entities e ON e.id = o.entity_id WHERE e.owner_id = ?)`, uid)
 	db.Exec(`DELETE FROM offers WHERE entity_id IN (SELECT id FROM entities WHERE owner_id = ?)`, uid)
 	db.Exec(`DELETE FROM promotions WHERE entity_id IN (SELECT id FROM entities WHERE owner_id = ?)`, uid)
 	db.Exec(`DELETE FROM business_hours WHERE entity_id IN (SELECT id FROM entities WHERE owner_id = ?)`, uid)
 	db.Exec(`DELETE FROM entities WHERE owner_id = ?`, uid)
+	if len(mediaIDs) > 0 {
+		db.Exec(`DELETE FROM media WHERE id IN ?`, mediaIDs)
+	}
 }

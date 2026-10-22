@@ -37,6 +37,7 @@ import (
 	"empre_backend/config"
 	"empre_backend/internal/database"
 	"empre_backend/internal/models"
+	"empre_backend/internal/seedphotos"
 	"empre_backend/internal/services"
 	"empre_backend/pkg/utils"
 
@@ -156,7 +157,7 @@ func main() {
 	for i, n := range reviewerNames {
 		reviewers[i] = ensureUser(db, fmt.Sprintf("resena%d@empre.app", i+1), n)
 	}
-	var store uploader
+	var store seedphotos.Uploader
 	if !*noPhotos && cfg.S3Bucket != "" {
 		store = services.NewStorageService(cfg)
 	} else if !*noPhotos {
@@ -276,7 +277,7 @@ func writeSamples(dir string) {
 		x := extras[i]
 		for v := 0; v < 3; v++ {
 			name := filepath.Join(dir, fmt.Sprintf("%s-%d.jpg", slug(s.name), v+1))
-			if err := os.WriteFile(name, samplePhoto(x.top, x.bottom, x.motif, v), 0o644); err != nil {
+			if err := os.WriteFile(name, seedphotos.Sample(x.top, x.bottom, x.motif, v), 0o644); err != nil {
 				log.Fatal(err)
 			}
 		}

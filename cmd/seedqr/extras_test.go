@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"empre_backend/internal/models"
+	"empre_backend/internal/seedphotos"
 
 	"github.com/google/uuid"
 	"gorm.io/driver/postgres"
@@ -30,12 +31,12 @@ func (f *fakeStore) UploadFile(name string, body io.Reader, _ string) error {
 // Las fotos dibujadas son JPEG válidos de 960×720 y cambian con la variante.
 func TestSamplePhoto(t *testing.T) {
 	for _, x := range extras {
-		a, b := samplePhoto(x.top, x.bottom, x.motif, 0), samplePhoto(x.top, x.bottom, x.motif, 1)
+		a, b := seedphotos.Sample(x.top, x.bottom, x.motif, 0), seedphotos.Sample(x.top, x.bottom, x.motif, 1)
 		img, err := jpeg.Decode(bytes.NewReader(a))
 		if err != nil {
 			t.Fatalf("%s: no es JPEG: %v", x.motif, err)
 		}
-		if r := img.Bounds(); r.Dx() != photoW || r.Dy() != photoH {
+		if r := img.Bounds(); r.Dx() != seedphotos.W || r.Dy() != seedphotos.H {
 			t.Fatalf("%s: tamaño %v", x.motif, r)
 		}
 		if bytes.Equal(a, b) {

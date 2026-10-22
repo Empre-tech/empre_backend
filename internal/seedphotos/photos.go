@@ -1,4 +1,6 @@
-package main
+// Package seedphotos dibuja las fotos de ejemplo de los comandos de seed (seedqr, seeddemo) y las sube al almacenamiento
+// como publicaciones del negocio.
+package seedphotos
 
 import (
 	"bytes"
@@ -9,23 +11,27 @@ import (
 	"math/rand"
 )
 
-// motif es el dibujo sencillo que identifica la categoría en las fotos de ejemplo.
-type motif string
+// Motif es el dibujo sencillo que identifica la categoría en las fotos de ejemplo.
+type Motif string
 
 const (
-	motifPlate motif = "plate" // plato con comida (restaurante)
-	motifCup   motif = "cup"   // taza de café
-	motifPole  motif = "pole"  // poste de barbería
-	motifPaw   motif = "paw"   // huella (mascotas)
-	motifPhone motif = "phone" // celular (tecnología)
+	MotifNone  Motif = ""      // solo fondo, luces y mesa
+	MotifPlate Motif = "plate" // plato con comida (restaurante)
+	MotifCup   Motif = "cup"   // taza de café
+	MotifPole  Motif = "pole"  // poste de barbería
+	MotifPaw   Motif = "paw"   // huella (mascotas)
+	MotifPhone Motif = "phone" // celular (tecnología)
 )
 
 const photoW, photoH = 960, 720
 
-// samplePhoto dibuja una foto de ejemplo (JPEG 960×720): fondo en degradado con los colores dados, luces suaves
+// W y H son el tamaño de las fotos dibujadas.
+const W, H = photoW, photoH
+
+// Sample dibuja una foto de ejemplo (JPEG 960×720): fondo en degradado con los colores dados, luces suaves
 // desenfocadas, una mesa abajo y el motivo de la categoría. `variant` cambia la composición para que las fotos de un
 // mismo negocio no se vean iguales. No pretende ser una foto real: es para ver cómo lucen las tarjetas con imágenes.
-func samplePhoto(top, bottom color.RGBA, m motif, variant int) []byte {
+func Sample(top, bottom color.RGBA, m Motif, variant int) []byte {
 	img := image.NewRGBA(image.Rect(0, 0, photoW, photoH))
 	r := rand.New(rand.NewSource(int64(variant)*7919 + int64(len(m))*104729))
 
@@ -53,7 +59,7 @@ func samplePhoto(top, bottom color.RGBA, m motif, variant int) []byte {
 	cx := photoW * (0.38 + 0.24*float64(variant%3)/2)
 	cy := tableY - 10
 	switch m {
-	case motifPlate:
+	case MotifPlate:
 		disc(img, cx, cy, 190, color.RGBA{248, 246, 240, 255})
 		disc(img, cx, cy, 150, color.RGBA{236, 232, 222, 255})
 		// Comida: montoncitos de colores.
@@ -63,13 +69,13 @@ func samplePhoto(top, bottom color.RGBA, m motif, variant int) []byte {
 			disc(img, cx+math.Cos(a)*70, cy+math.Sin(a)*50, 42+r.Float64()*14, colors[(i+variant)%len(colors)])
 		}
 		disc(img, cx, cy, 52, colors[(variant+1)%len(colors)])
-	case motifCup:
+	case MotifCup:
 		disc(img, cx, cy+40, 170, color.RGBA{240, 236, 228, 255}) // plato
 		rect(img, cx-95, cy-140, cx+95, cy+40, color.RGBA{250, 248, 244, 255})
 		ring(img, cx+120, cy-50, 55, 22, color.RGBA{250, 248, 244, 255})
 		disc(img, cx, cy-140, 95, color.RGBA{92, 54, 28, 255}) // café visto desde arriba
 		disc(img, cx-20, cy-150, 30, color.RGBA{196, 150, 104, 255})
-	case motifPole:
+	case MotifPole:
 		w := 110.0
 		for y := cy - 360; y < cy; y++ {
 			for x := cx - w/2; x < cx+w/2; x++ {
@@ -80,7 +86,7 @@ func samplePhoto(top, bottom color.RGBA, m motif, variant int) []byte {
 		}
 		rect(img, cx-70, cy-390, cx+70, cy-360, color.RGBA{210, 210, 215, 255})
 		rect(img, cx-70, cy, cx+70, cy+30, color.RGBA{210, 210, 215, 255})
-	case motifPaw:
+	case MotifPaw:
 		pad := color.RGBA{250, 246, 238, 255}
 		disc(img, cx, cy-40, 110, pad)
 		for i, dx := range []float64{-120, -45, 45, 120} {
@@ -90,7 +96,7 @@ func samplePhoto(top, bottom color.RGBA, m motif, variant int) []byte {
 			}
 			disc(img, cx+dx, cy+dy-40, 46, pad)
 		}
-	case motifPhone:
+	case MotifPhone:
 		rect(img, cx-110, cy-330, cx+110, cy+20, color.RGBA{24, 28, 36, 255})
 		rect(img, cx-95, cy-305, cx+95, cy-10, color.RGBA{70, 140, 230, 255})
 		disc(img, cx, cy-160, 50, color.RGBA{255, 255, 255, 200})
