@@ -47,6 +47,7 @@ func SeedCategories(db *gorm.DB) {
 		return
 	}
 	if count > 0 {
+		FillCategoryLooks(db)
 		return
 	}
 
@@ -64,6 +65,28 @@ func SeedCategories(db *gorm.DB) {
 // defaultSubcategories maps a Category name (as seeded above) to the
 // subcategories it starts with. A category not listed here simply gets none;
 // admins can add more later from the admin panel.
+// FillCategoryLooks completa el color y el icono de las categorías conocidas que no los tienen (auditoría de pines, 22
+// oct). Las bases creadas antes de que existiera el color quedaron sin él y la app pintaba todo con el azul principal:
+// de lejos, cada negocio era el mismo punto azul. Solo llena vacíos: un color o icono ya puesto no se toca.
+func FillCategoryLooks(db *gorm.DB) {
+	filled := 0
+	for _, c := range defaultCategories {
+		res := db.Model(&models.Category{}).Where("name = ? AND (color IS NULL OR color = '')", c.Name).Update("color", c.Color)
+		if res.Error != nil {
+			log.Println("Seed categories: could not fill color: ", res.Error)
+			return
+		}
+		filled += int(res.RowsAffected)
+		if err := db.Model(&models.Category{}).Where("name = ? AND (icon IS NULL OR icon = '')", c.Name).Update("icon", c.Icon).Error; err != nil {
+			log.Println("Seed categories: could not fill icon: ", err)
+			return
+		}
+	}
+	if filled > 0 {
+		log.Printf("Seed categories: filled the color of %d categories", filled)
+	}
+}
+
 var defaultSubcategories = map[string][]string{
 	"Restaurantes": {
 		"Comida rápida",
