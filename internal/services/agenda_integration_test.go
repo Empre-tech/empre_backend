@@ -1,6 +1,7 @@
 package services
 
 import (
+	"empre_backend/internal/agenda"
 	"os"
 	"testing"
 	"time"
@@ -17,9 +18,13 @@ import (
 // Integration test against a real Postgres. Skipped unless AGENDA_TEST_DSN is
 // set, e.g. "host=/tmp port=5544 user=pgtest dbname=empre_test sslmode=disable".
 func testDB(t *testing.T) *gorm.DB {
-	dsn := os.Getenv("AGENDA_TEST_DSN")
+	// La misma base de pruebas que el resto de la suite (TEST_DATABASE_URL); AGENDA_TEST_DSN sigue valiendo.
+	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
-		t.Skip("AGENDA_TEST_DSN no definido")
+		dsn = os.Getenv("AGENDA_TEST_DSN")
+	}
+	if dsn == "" {
+		t.Skip("TEST_DATABASE_URL no definido")
 	}
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	if err != nil {
@@ -28,7 +33,7 @@ func testDB(t *testing.T) *gorm.DB {
 	db.Exec("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
 	db.Exec("CREATE EXTENSION IF NOT EXISTS pgcrypto")
 	if err := db.AutoMigrate(&models.User{}, &models.Entity{}, &models.Message{}, &models.Category{}, &models.Media{},
-		&models.BusinessHour{}, &models.Subscription{}, &models.AgendaSettings{}, &models.AppointmentService{}, &models.Appointment{}); err != nil {
+		&models.BusinessHour{}, &models.Subscription{}, &models.AgendaSettings{}, &models.ServiceItem{}, &models.Appointment{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := database.EnsureAgendaConstraints(db); err != nil {
@@ -69,7 +74,7 @@ func TestAgendaFlow(t *testing.T) {
 	if _, err := svc.UpdateSettings(c1.ID, ent.ID, SettingsInput{Enabled: true, SlotMinutes: 30, HorizonDays: 14}); err != ErrApptForbidden {
 		t.Fatalf("un cliente no puede configurar: %v", err)
 	}
-	if _, err := svc.UpdateSettings(owner.ID, ent.ID, SettingsInput{Enabled: true, SlotMinutes: 30, BufferMin: 10, HorizonDays: 14}); err != nil {
+	if _, err := svc.UpdateSettings(owner.ID, ent.ID, SettingsInput{Enabled: true, SlotMinutes: 30, BufferMin: 10, HorizonDays: 14, IntakeMode: strp(agenda.IntakeManual)}); err != nil {
 		t.Fatal(err)
 	}
 	tall, err := svc.CreateService(owner.ID, ent.ID, AgendaServiceInput{Name: "Tinte", DurationMin: 60})
@@ -88,7 +93,7 @@ func TestAgendaFlow(t *testing.T) {
 	}
 	start := slots[10] // alrededor de 5:00 a.m. con horario 00:00–23:59
 
-	a1, err := svc.CreateAppointment(c1.ID, ent.ID, &tall.ID, start, "nota")
+	a1, err := svc.CreateAppointment(c1.ID, ent.ID, &tall.ID, start, "nota", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,13 +110,13 @@ func TestAgendaFlow(t *testing.T) {
 	}
 
 	// Mismo bloque: slot_taken con alternativas.
-	_, err = svc.CreateAppointment(c2.ID, ent.ID, &tall.ID, start, "")
+	_, err = svc.CreateAppointment(c2.ID, ent.ID, &tall.ID, start, "", "")
 	taken, ok := err.(*SlotTakenError)
 	if !ok || len(taken.Alternatives) == 0 {
 		t.Fatalf("esperaba slot_taken con alternativas, got %v", err)
 	}
 	// Solape parcial (30 min después) también choca (cita de 60 + margen).
-	if _, err = svc.CreateAppointment(c2.ID, ent.ID, &tall.ID, start.Add(30*time.Minute), ""); err == nil {
+	if _, err = svc.CreateAppointment(c2.ID, ent.ID, &tall.ID, start.Add(30*time.Minute), "", ""); err == nil {
 		t.Fatal("el solape parcial debería fallar")
 	}
 	// La base de datos misma lo impide aunque se salte el código.
@@ -135,7 +140,7 @@ func TestAgendaFlow(t *testing.T) {
 
 	// Segunda cita: rechazar con alternativa.
 	other := slots[20]
-	a2, err := svc.CreateAppointment(c2.ID, ent.ID, &tall.ID, other, "")
+	a2, err := svc.CreateAppointment(c2.ID, ent.ID, &tall.ID, other, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +152,7 @@ func TestAgendaFlow(t *testing.T) {
 		t.Fatalf("decline: %v proposed=%v", err, a2.Proposed)
 	}
 	// El espacio rechazado vuelve a estar libre.
-	if _, err := svc.CreateAppointment(c1.ID, ent.ID, &tall.ID, other, ""); err != nil {
+	if _, err := svc.CreateAppointment(c1.ID, ent.ID, &tall.ID, other, "", ""); err != nil {
 		t.Fatalf("debería liberarse: %v", err)
 	}
 
@@ -164,7 +169,7 @@ func TestAgendaFlow(t *testing.T) {
 		t.Fatalf("la cita debía cancelarse: %+v", got.Status)
 	}
 	// El bloqueo ocupa el espacio.
-	if _, err := svc.CreateAppointment(c2.ID, ent.ID, &tall.ID, start, ""); err == nil {
+	if _, err := svc.CreateAppointment(c2.ID, ent.ID, &tall.ID, start, "", ""); err == nil {
 		t.Fatal("el bloqueo debería ocupar el espacio")
 	}
 
@@ -180,7 +185,7 @@ func TestAgendaFlow(t *testing.T) {
 	// Límite de solicitudes pendientes por cliente y negocio.
 	var last error
 	for i := 0; i < 4; i++ {
-		_, last = svc.CreateAppointment(c2.ID, ent.ID, &tall.ID, slots[30+i*3], "")
+		_, last = svc.CreateAppointment(c2.ID, ent.ID, &tall.ID, slots[30+i*3], "", "")
 	}
 	if last != ErrTooManyPending {
 		t.Fatalf("esperaba too_many_pending, got %v", last)
@@ -248,3 +253,5 @@ func TestAgendaJobs(t *testing.T) {
 		t.Error("segundo tick cambió el estado")
 	}
 }
+
+func strp(s string) *string { return &s }

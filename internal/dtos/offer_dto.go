@@ -39,6 +39,9 @@ type OfferResponse struct {
 type OfferItemResponse struct {
 	Name  string `json:"name"`
 	Price *int   `json:"price,omitempty"`
+	// ServiceItemID: el servicio del catálogo al que aplica, para responder «¿hay oferta para el corte?» sin adivinar
+	// por el nombre.
+	ServiceItemID *uuid.UUID `json:"service_item_id,omitempty"`
 }
 
 // OfferSaving es lo que se ahorra: precio de referencia menos precio especial. Nil si falta alguno o si el especial
@@ -87,7 +90,7 @@ func offerItems(items []models.OfferItem) []OfferItemResponse {
 	}
 	out := make([]OfferItemResponse, 0, len(items))
 	for _, it := range items {
-		out = append(out, OfferItemResponse{Name: it.Name, Price: it.Price})
+		out = append(out, OfferItemResponse{Name: it.Name, Price: it.Price, ServiceItemID: it.ServiceItemID})
 	}
 	return out
 }

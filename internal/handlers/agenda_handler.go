@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"empre_backend/internal/models"
@@ -152,7 +153,12 @@ func (h *AgendaHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "note too long"})
 		return
 	}
-	appt, err := h.service.CreateAppointment(user, req.EntityID, req.ServiceID, req.StartsAt, req.Note)
+	key := strings.TrimSpace(c.GetHeader("Idempotency-Key"))
+	if len(key) > 64 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Idempotency-Key too long"})
+		return
+	}
+	appt, err := h.service.CreateAppointment(user, req.EntityID, req.ServiceID, req.StartsAt, req.Note, key)
 	if err != nil {
 		h.fail(c, err)
 		return
@@ -342,7 +348,7 @@ func (h *AgendaHandler) ListServices(c *gin.Context) {
 		return
 	}
 	if rows == nil {
-		rows = []models.AppointmentService{}
+		rows = []services.BookableService{}
 	}
 	c.JSON(http.StatusOK, gin.H{"data": rows})
 }

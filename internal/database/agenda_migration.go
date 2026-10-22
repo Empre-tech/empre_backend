@@ -29,6 +29,10 @@ func EnsureAgendaConstraints(db *gorm.DB) error {
 	if err != nil {
 		return err
 	}
+	// Un reintento con la misma clave nunca crea una segunda cita.
+	if err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS appointments_idem ON appointments (customer_id, idempotency_key) WHERE idempotency_key IS NOT NULL`).Error; err != nil {
+		return err
+	}
 	log.Println("Agenda: restricción anti-solapamiento lista")
 	return nil
 }

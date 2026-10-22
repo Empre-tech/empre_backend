@@ -37,6 +37,11 @@ type ServiceItem struct {
 	// ConfirmedAt es cuándo el dueño confirmó que el catálogo sigue vigente.
 	ConfirmedAt *time.Time `json:"confirmed_at"`
 
+	// DurationMin es cuánto ocupa en la agenda (5–480 min). Nulo = no publicada.
+	DurationMin *int `gorm:"check:chk_service_items_duration,duration_min IS NULL OR (duration_min >= 5 AND duration_min <= 480)" json:"duration_min"`
+	// Bookable: se puede reservar por Empre. Exige duración (CONVERSACIONES_Y_AGENDA.md, D2: una sola lista de servicios).
+	Bookable bool `gorm:"default:false" json:"bookable"`
+
 	Status   ServiceItemStatus `gorm:"type:varchar(20);not null;default:'active';index" json:"status"`
 	Position int               `gorm:"default:0" json:"position"`
 

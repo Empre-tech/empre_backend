@@ -79,9 +79,6 @@ func main() {
 		&models.BusinessHour{},
 		&models.Subscription{},
 		&models.SubscriptionPayment{},
-		&models.AgendaSettings{},
-		&models.AppointmentService{},
-		&models.Appointment{},
 		&models.Offer{},
 		&models.OfferClaim{},
 		&models.BusinessStatus{},
@@ -95,6 +92,8 @@ func main() {
 		&models.ServiceItem{},
 		&models.OfferItem{},
 		&models.PromotionItem{},
+		&models.AgendaSettings{},
+		&models.Appointment{},
 	)
 	if err != nil {
 		log.Fatal("Migration failed: ", err)
@@ -216,7 +215,6 @@ func main() {
 	pushHandler := handlers.NewPushHandler(pushService)
 	aiHandler := handlers.NewAIHandler(aiService, categoryService)
 	paymentHandler := handlers.NewPaymentHandler(subscriptionService, entityService)
-	agendaHandler := handlers.NewAgendaHandler(agendaService)
 	offerHandler := handlers.NewOfferHandler(offerService)
 	claimHandler := handlers.NewClaimHandler(claimService)
 	discoveryHandler := handlers.NewDiscoveryHandler(rankingService)
@@ -236,7 +234,11 @@ func main() {
 	}
 	promotionHandler := handlers.NewPromotionHandler(promotionService)
 	offerListHandler := handlers.NewOfferListHandler(offerListService)
+	offerMarketHandler := handlers.NewOfferMarketHandler(services.NewOfferMarketService(database.DB, reviewService))
+	completenessHandler := handlers.NewCompletenessHandler(services.NewCompletenessService(database.DB))
 	searchHandler := handlers.NewSearchHandler(searchService)
+	agendaHandler := handlers.NewAgendaHandler(agendaService)
+	inboxHandler := handlers.NewInboxHandler(services.NewInboxService(database.DB))
 
 	wsHub := websocket.NewHub(database.DB, pushService, subscriptionService)
 	go wsHub.Run()
@@ -298,6 +300,13 @@ func main() {
 				entitiesProtected.GET("/:id/reviews/mine", reviewHandler.FindMine)
 				entitiesProtected.GET("/:id/subscription", paymentHandler.GetSubscription)
 				entitiesProtected.POST("/:id/subscription/checkout", paymentHandler.CreateCheckout)
+				entitiesProtected.POST("/:id/offers", offerHandler.Publish)
+				entitiesProtected.GET("/:id/offers", offerHandler.List)
+				entitiesProtected.GET("/:id/offers/stats", offerHandler.Stats)
+				entitiesProtected.GET("/:id/completeness", completenessHandler.Get)
+				entitiesProtected.PATCH("/:id/status", statusHandler.Update)
+				entitiesProtected.POST("/:id/promotions", promotionHandler.Publish)
+				entitiesProtected.GET("/:id/promotions", promotionHandler.List)
 
 				// Agenda de citas
 				entitiesProtected.GET("/:id/agenda/summary", agendaHandler.Summary)
@@ -311,12 +320,6 @@ func main() {
 				entitiesProtected.DELETE("/:id/agenda/services/:serviceId", agendaHandler.DeleteService)
 				entitiesProtected.POST("/:id/agenda/blocks", agendaHandler.CreateBlock)
 				entitiesProtected.DELETE("/:id/agenda/blocks/:blockId", agendaHandler.DeleteBlock)
-				entitiesProtected.POST("/:id/offers", offerHandler.Publish)
-				entitiesProtected.GET("/:id/offers", offerHandler.List)
-				entitiesProtected.GET("/:id/offers/stats", offerHandler.Stats)
-				entitiesProtected.PATCH("/:id/status", statusHandler.Update)
-				entitiesProtected.POST("/:id/promotions", promotionHandler.Publish)
-				entitiesProtected.GET("/:id/promotions", promotionHandler.List)
 			}
 		}
 
@@ -343,6 +346,9 @@ func main() {
 
 		// Pestaña Ofertas: relámpagos y promociones activos (público).
 		api.GET("/offers", offerListHandler.List)
+		// Vitrina de ofertas (3.38): pública; con sesión suma «Recomendado para ti».
+		api.GET("/offers/market", middleware.OptionalAuth(cfg), middleware.RateLimit(60, time.Minute), offerMarketHandler.Market)
+		api.GET("/offers/market/all", middleware.RateLimit(120, time.Minute), offerMarketHandler.MarketAll)
 
 		// Búsqueda por niveles + chips dinámicos (público).
 		api.GET("/search", searchHandler.Search)
@@ -386,7 +392,6 @@ func main() {
 			chatGroup.GET("/ws", chatHandler.HandleWebSocket)
 			chatGroup.GET("/conversations", chatHandler.FindAllConversations)
 			chatGroup.GET("/history/:entity_id", chatHandler.FindMessagesHistory)
-			chatGroup.GET("/presence/:entity_id", chatHandler.GetPresence)
 		}
 
 		// Citas (cliente y negocio; la autorización se resuelve por cita)
@@ -419,6 +424,7 @@ func main() {
 			usersProtected.POST("/profile/image", userHandler.UploadProfileImage)
 			usersProtected.GET("/me/favorites", favoriteHandler.FindMine)
 			usersProtected.GET("/me/novedades", favoriteHandler.Novedades)
+			usersProtected.GET("/me/inbox-summary", inboxHandler.Summary)
 			usersProtected.POST("/me/novedades/seen", favoriteHandler.MarkNovedadesSeen)
 			usersProtected.POST("/push-token", pushHandler.Register)
 			usersProtected.DELETE("/push-token", pushHandler.Remove)

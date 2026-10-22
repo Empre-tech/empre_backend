@@ -47,6 +47,10 @@ type ServiceInput struct {
 	PriceFrom   bool   `json:"price_from"`
 	// Section es opcional; vacía, el servicio va sin sección.
 	Section string `json:"section"`
+	// DurationMin y Bookable son opcionales: nil deja lo que había (un editor que no los conoce no los borra).
+	// DurationMin 0 quita la duración y, con ella, que se pueda reservar.
+	DurationMin *int  `json:"duration_min"`
+	Bookable    *bool `json:"bookable"`
 }
 
 // ValidateServiceInput limpia y valida un servicio. El precio es opcional; «desde» sin precio no tiene sentido y se
@@ -71,7 +75,30 @@ func ValidateServiceInput(in ServiceInput) (ServiceInput, error) {
 	if in.Price == nil {
 		in.PriceFrom = false
 	}
+	if in.DurationMin != nil && *in.DurationMin != 0 && (*in.DurationMin < 5 || *in.DurationMin > 480) {
+		return in, invalidService("la duración debe estar entre 5 y 480 minutos")
+	}
 	return in, nil
+}
+
+// applySchedule pone la duración y «se puede reservar» en el ítem. Reservable exige duración.
+func applySchedule(item *models.ServiceItem, in ServiceInput) error {
+	if in.DurationMin != nil {
+		if *in.DurationMin == 0 {
+			item.DurationMin = nil
+			item.Bookable = false
+		} else {
+			d := *in.DurationMin
+			item.DurationMin = &d
+		}
+	}
+	if in.Bookable != nil {
+		item.Bookable = *in.Bookable
+	}
+	if item.Bookable && item.DurationMin == nil {
+		return invalidService("para reservar, el servicio necesita duración")
+	}
+	return nil
 }
 
 // PriceFreshness dice si el precio de un servicio se puede dar por vigente: se fijó o se confirmó hace menos de
@@ -141,6 +168,9 @@ func (s *CatalogService) Create(entityID, userID uuid.UUID, in ServiceInput, now
 	if in.Price != nil {
 		item.PriceUpdatedAt = &now
 	}
+	if err := applySchedule(&item, in); err != nil {
+		return nil, err
+	}
 	if err := s.DB.Create(&item).Error; err != nil {
 		return nil, err
 	}
@@ -175,8 +205,11 @@ func (s *CatalogService) Update(entityID, itemID, userID uuid.UUID, in ServiceIn
 			item.PriceUpdatedAt = nil
 		}
 	}
-	// Se guarda todo explícitamente: un precio nulo debe poder quedar nulo.
-	if err := s.DB.Model(&item).Select("name", "description", "section", "price", "price_from", "price_updated_at").Updates(&item).Error; err != nil {
+	if err := applySchedule(&item, in); err != nil {
+		return nil, err
+	}
+	// Se guarda todo explícitamente: un precio o una duración nulos deben poder quedar nulos.
+	if err := s.DB.Model(&item).Select("name", "description", "section", "price", "price_from", "price_updated_at", "duration_min", "bookable").Updates(&item).Error; err != nil {
 		return nil, err
 	}
 	return &item, nil

@@ -1,7 +1,10 @@
 // Command seeddemo creates 20 demo businesses in Santa Marta, each owned by a
-// DIFFERENT demo user (with a realistic owner name), spread across the city
-// with two tight clusters (to see how overlapping pins behave) and several
-// with active offers/promotions.
+// DIFFERENT demo user (with a realistic owner name), covering the 16
+// categories and spread across the city's zones (Centro, El Rodadero, Taganga
+// and the sectors without a zone), with two tight clusters (to see how
+// overlapping pins behave). Every business has an active offer with a special
+// price and its usual price, ending at different times (one in under an hour,
+// to see the urgent badge) so the map and the Offers tab can be reviewed.
 //
 // Run it manually from the empre_backend folder:
 //
@@ -20,13 +23,14 @@ import (
 	"empre_backend/config"
 	"empre_backend/internal/database"
 	"empre_backend/internal/models"
+	"empre_backend/internal/services"
 
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
-// biz describe un negocio demo. offerType vacío = sin relámpago.
+// biz describe un negocio demo con su oferta: precio especial, precio habitual y cuánto falta para que termine.
 type biz struct {
 	owner      string
 	category   string
@@ -35,8 +39,9 @@ type biz struct {
 	lat, lng   float64
 	offerType  models.OfferType
 	offerTitle string
-	offerPrice string
-	promo      bool
+	special    int
+	usual      int
+	endsIn     time.Duration
 }
 
 func main() {
@@ -59,31 +64,35 @@ func main() {
 	now := time.Now()
 
 	list := []biz{
-		// Cluster A — Centro Histórico (4 muy juntos, ~30 m entre sí).
-		{"Carlos Rodríguez", "Restaurantes", "Casa Canoas", "Comida típica samaria frente al parque.", 11.24200, -74.21100, models.OfferHours, "Almuerzo típico 2x1", "$14.000", false},
-		{"Andrés Felipe Torres", "Belleza y peluquería", "Barbería Samaria", "Cortes clásicos y degradados.", 11.24202, -74.21103, models.OfferDay, "Corte + barba", "$30.000", false},
-		{"Camila Sánchez", "Cafeterías y postres", "Café Quinta de San Pedro", "Café de origen y postres artesanales.", 11.24201, -74.21098, "", "", "", false},
-		{"Diego Ramírez", "Tiendas y comercio", "Almacén El Faro", "Ropa, calzado y accesorios.", 11.24203, -74.21101, models.OfferHours, "20% en camisas de lino", "$45.000", false},
-		// Cluster B — El Rodadero (3 juntos).
-		{"Santiago Herrera", "Bares y vida nocturna", "Beach Club Tayrona", "Cócteles y música frente al mar.", 11.20300, -74.22900, models.OfferHours, "2x1 en mojitos", "$22.000", false},
-		{"Valentina Díaz", "Salud y bienestar", "Droguería del Mar", "Farmacia y cuidado personal.", 11.20297, -74.22903, "", "", "", false},
-		{"Felipe Vargas", "Automotriz", "Taller Rodadero Motors", "Mecánica y alineación.", 11.20299, -74.22897, models.OfferDay, "Alineación + balanceo", "$80.000", false},
-		// Dispersos.
-		{"Daniela Rojas", "Deporte y recreación", "Gimnasio Fit Beach", "Entrenamiento funcional.", 11.20500, -74.22500, models.OfferHours, "Día de prueba gratis", "$0", false},
-		{"Nicolás Moreno", "Turismo y hospedaje", "Hotel Playa Blanca", "Hospedaje con vista al mar.", 11.19000, -74.23000, "", "", "", true},
-		{"Gabriela Mendoza", "Educación", "Colegio de Idiomas Samario", "Clases de inglés y francés.", 11.23700, -74.20600, "", "", "", false},
-		{"Sebastián Ortega", "Tecnología", "ReparaTech Santa Marta", "Reparación de celulares.", 11.21000, -74.21800, models.OfferDay, "Cambio de pantalla", "$90.000", false},
-		{"Alejandra Navarro", "Mascotas", "Veterinaria Colibrí", "Atención y peluquería canina.", 11.22300, -74.20200, models.OfferHours, "Consulta + desparasitación", "$35.000", false},
-		{"Mateo Gil", "Servicios del hogar", "Plomería del Caribe", "Plomería a domicilio.", 11.23000, -74.21300, "", "", "", true},
-		{"Laura Restrepo", "Fotografía y diseño", "FotoStudio Tayrona", "Fotografía de producto y retrato.", 11.21500, -74.21000, "", "", "", false},
-		{"Esteban Cárdenas", "Eventos y fiestas", "Eventos Magdalena", "Decoración y organización.", 11.22600, -74.20800, "", "", "", false},
-		{"Paula Salazar", "Otros", "Miscelánea El Camellón", "Artículos de aseo y uso diario.", 11.24100, -74.21000, models.OfferHours, "10% en aseo", "$8.000", false},
-		{"María Fernanda Pérez", "Restaurantes", "Pescadería El Morro", "Mariscos frescos en Taganga.", 11.26600, -74.19100, models.OfferDay, "Plato de pescado + jugo", "$18.000", false},
-		{"Juan Pablo Gómez", "Cafeterías y postres", "Café Bello Horizonte", "Café y repostería.", 11.18600, -74.22900, models.OfferHours, "Café + postre", "$9.000", false},
-		{"Luisa Martínez", "Belleza y peluquería", "Spa Mamatoco", "Masajes y tratamientos.", 11.24700, -74.19600, "", "", "", true},
-		{"Isabella Castro", "Tiendas y comercio", "Ferretería Gaira", "Herramientas y materiales.", 11.19200, -74.21100, "", "", "", false},
+		// Centro Histórico: 4 muy juntos (~30 m entre sí) para ver la pila de pines.
+		{"Carlos Rodríguez", "Restaurantes", "Casa Canoas", "Comida típica samaria frente al parque.", 11.24200, -74.21100, models.OfferHours, "Almuerzo típico 2x1", 14000, 28000, 2 * time.Hour},
+		{"Andrés Felipe Torres", "Belleza y peluquería", "Barbería Samaria", "Cortes clásicos y degradados.", 11.24202, -74.21103, models.OfferDay, "Corte + barba", 30000, 38000, 9 * time.Hour},
+		{"Camila Sánchez", "Cafeterías y postres", "Café Quinta de San Pedro", "Café de origen y postres artesanales.", 11.24201, -74.21098, models.OfferHours, "2x1 en capuchino", 8000, 16000, 40 * time.Minute},
+		{"Diego Ramírez", "Tiendas y comercio", "Almacén El Faro", "Ropa, calzado y accesorios.", 11.24203, -74.21101, models.OfferWeek, "Camisas de lino 25 % menos", 45000, 60000, 5 * 24 * time.Hour},
+		// Centro, dispersos.
+		{"Gabriela Mendoza", "Educación", "Colegio de Idiomas Samario", "Clases de inglés y francés.", 11.23700, -74.20600, models.OfferWeek, "Primera clase de inglés a mitad", 25000, 50000, 6 * 24 * time.Hour},
+		{"Paula Salazar", "Otros", "Miscelánea El Camellón", "Artículos de aseo y uso diario.", 11.24100, -74.21000, models.OfferDay, "Kit de aseo con 20 % menos", 32000, 40000, 7 * time.Hour},
+		{"Esteban Cárdenas", "Eventos y fiestas", "Eventos Magdalena", "Decoración y organización.", 11.23900, -74.20900, models.OfferWeek, "Decoración de cumpleaños", 180000, 240000, 4 * 24 * time.Hour},
+		// El Rodadero: 3 juntos.
+		{"Santiago Herrera", "Bares y vida nocturna", "Beach Club Tayrona", "Cócteles y música frente al mar.", 11.20300, -74.22900, models.OfferHours, "2x1 en mojitos", 22000, 44000, 3 * time.Hour},
+		{"Valentina Díaz", "Salud y bienestar", "Droguería del Mar", "Farmacia y cuidado personal.", 11.20297, -74.22903, models.OfferDay, "Bloqueador solar 30 % menos", 42000, 60000, 10 * time.Hour},
+		{"Felipe Vargas", "Automotriz", "Taller Rodadero Motors", "Mecánica y alineación.", 11.20299, -74.22897, models.OfferDay, "Alineación + balanceo", 80000, 110000, 8 * time.Hour},
+		// El Rodadero, dispersos.
+		{"Daniela Rojas", "Deporte y recreación", "Gimnasio Fit Beach", "Entrenamiento funcional.", 11.20500, -74.22500, models.OfferWeek, "Semana de prueba", 30000, 60000, 6 * 24 * time.Hour},
+		{"Nicolás Moreno", "Turismo y hospedaje", "Hotel Playa Blanca", "Hospedaje con vista al mar.", 11.20800, -74.22700, models.OfferWeek, "Noche entre semana con desayuno", 210000, 280000, 5 * 24 * time.Hour},
+		// Taganga.
+		{"María Fernanda Pérez", "Restaurantes", "Pescadería El Morro", "Mariscos frescos en Taganga.", 11.26600, -74.19100, models.OfferDay, "Plato de pescado + jugo", 18000, 26000, 6 * time.Hour},
+		{"Tomás Ríos", "Deporte y recreación", "Taganga Dive", "Buceo y snorkel en el Tayrona.", 11.26750, -74.19250, models.OfferWeek, "Bautizo de buceo", 180000, 240000, 3 * 24 * time.Hour},
+		{"Lucía Ospina", "Bares y vida nocturna", "Bar La Bahía", "Atardeceres y música en vivo.", 11.26500, -74.19000, models.OfferHours, "Cerveza artesanal 2x1", 12000, 24000, 50 * time.Minute},
+		// Sectores sin zona: Mamatoco, Bello Horizonte, Gaira y alrededores.
+		{"Sebastián Ortega", "Tecnología", "ReparaTech Santa Marta", "Reparación de celulares.", 11.21000, -74.21800, models.OfferDay, "Cambio de pantalla", 90000, 120000, 11 * time.Hour},
+		{"Alejandra Navarro", "Mascotas", "Veterinaria Colibrí", "Atención y peluquería canina.", 11.22300, -74.20200, models.OfferHours, "Consulta + desparasitación", 35000, 50000, 4 * time.Hour},
+		{"Mateo Gil", "Servicios del hogar", "Plomería del Caribe", "Plomería a domicilio.", 11.23000, -74.21300, models.OfferWeek, "Revisión de fugas a domicilio", 40000, 60000, 4 * 24 * time.Hour},
+		{"Laura Restrepo", "Fotografía y diseño", "FotoStudio Tayrona", "Fotografía de producto y retrato.", 11.21500, -74.21000, models.OfferWeek, "Sesión de retrato 30 min", 70000, 100000, 5 * 24 * time.Hour},
+		{"Luisa Martínez", "Salud y bienestar", "Spa Mamatoco", "Masajes y tratamientos.", 11.24700, -74.19600, models.OfferDay, "Masaje relajante 45 min", 60000, 85000, 9 * time.Hour},
 	}
 
+	zones := services.NewZoneService(db)
 	for i, b := range list {
 		email := fmt.Sprintf("demo%02d@empre.app", i+1)
 
@@ -127,57 +136,57 @@ func main() {
 			IsVerified:         true,
 			ServiceMode:        models.ServiceModeInPlace,
 		}
+		if err := zones.Assign(&entity); err != nil {
+			log.Fatal("No se pudo asignar la zona: ", err)
+		}
 		if err := db.Create(&entity).Error; err != nil {
 			log.Fatal("No se pudo crear el negocio: ", err)
 		}
 
-		if b.offerType != "" {
-			endsAt := now.Add(3 * time.Hour)
-			if b.offerType == models.OfferDay {
-				endsAt = now.Add(8 * time.Hour)
-			}
-			offer := models.Offer{
-				ID:           uuid.New(),
-				EntityID:     entity.ID,
-				Type:         b.offerType,
-				Title:        b.offerTitle,
-				Price:        b.offerPrice,
-				StartsAt:     now,
-				EndsAt:       endsAt,
-				TotalSlots:   10,
-				UsedSlots:    0,
-				RadiusMeters: 2000,
-				RepeatPolicy: models.RepeatOnce,
-			}
-			if err := db.Create(&offer).Error; err != nil {
-				log.Fatal("No se pudo crear la oferta: ", err)
-			}
+		sp, rp := b.special, b.usual
+		offer := models.Offer{
+			ID:             uuid.New(),
+			EntityID:       entity.ID,
+			Type:           b.offerType,
+			Title:          b.offerTitle,
+			Price:          pesos(b.special),
+			NormalPrice:    pesos(b.usual),
+			SpecialPrice:   &sp,
+			ReferencePrice: &rp,
+			StartsAt:       now.Add(-10 * time.Minute),
+			EndsAt:         now.Add(b.endsIn),
+			TotalSlots:     10 + i%3*5,
+			UsedSlots:      0,
+			RadiusMeters:   3000,
+			RepeatPolicy:   models.RepeatOnce,
 		}
-
-		if b.promo {
-			promo := models.Promotion{
-				ID:          uuid.New(),
-				EntityID:    entity.ID,
-				Title:       fmt.Sprintf("Promoción en %s", b.name),
-				Description: b.desc,
-				Discount:    "15%",
-				StartsAt:    now,
-				EndsAt:      now.Add(14 * 24 * time.Hour),
-				Status:      models.PromotionActive,
-			}
-			if err := db.Create(&promo).Error; err != nil {
-				log.Fatal("No se pudo crear la promoción: ", err)
-			}
+		if err := db.Create(&offer).Error; err != nil {
+			log.Fatal("No se pudo crear la oferta: ", err)
 		}
 	}
 
-	fmt.Printf("Listo: %d negocios demo creados en Santa Marta, cada uno con dueño distinto (demo01..demo%02d@empre.app / demo1234).\n", len(list), len(list))
-	fmt.Println("Hay dos clusters (Centro Histórico y El Rodadero) y el resto dispersos por Santa Marta.")
+	fmt.Printf("Listo: %d negocios demo en Santa Marta, cada uno con su oferta y dueño distinto (demo01..demo%02d@empre.app / demo1234).\n", len(list), len(list))
+	fmt.Println("Pilas de pines en Centro Histórico y El Rodadero; también hay negocios en Taganga y en sectores sin zona.")
+}
+
+// pesos: 25000 → «$25.000».
+func pesos(n int) string {
+	s := fmt.Sprintf("%d", n)
+	out := ""
+	for i, r := range s {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			out += "."
+		}
+		out += string(r)
+	}
+	return "$" + out
 }
 
 // clearDemo borra en duro los negocios (y sus ofertas/promociones) del usuario
 // demo, para que el comando sea re-ejecutable sin duplicar.
 func clearDemo(db *gorm.DB, uid uuid.UUID) {
+	db.Exec(`DELETE FROM offer_claims WHERE entity_id IN (SELECT id FROM entities WHERE owner_id = ?)`, uid)
+	db.Exec(`DELETE FROM offer_items WHERE offer_id IN (SELECT o.id FROM offers o JOIN entities e ON e.id = o.entity_id WHERE e.owner_id = ?)`, uid)
 	db.Exec(`DELETE FROM offers WHERE entity_id IN (SELECT id FROM entities WHERE owner_id = ?)`, uid)
 	db.Exec(`DELETE FROM promotions WHERE entity_id IN (SELECT id FROM entities WHERE owner_id = ?)`, uid)
 	db.Exec(`DELETE FROM business_hours WHERE entity_id IN (SELECT id FROM entities WHERE owner_id = ?)`, uid)
