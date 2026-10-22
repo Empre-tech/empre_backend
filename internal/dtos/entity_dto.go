@@ -24,7 +24,9 @@ type EntityMapDTO struct {
 	CategoryName string    `json:"category_name"`
 	// CategoryIcon is an Ionicons name (e.g. "restaurant-outline") the app uses
 	// to pick the marker icon for this business on the map.
-	CategoryIcon string             `json:"category_icon"`
+	CategoryIcon string `json:"category_icon"`
+	// CategoryColor is the brand hex used to tint the map portal/glyph.
+	CategoryColor string `json:"category_color,omitempty"`
 	ProfileURL   string             `json:"profile_url"`
 	Latitude     float64            `json:"latitude"`
 	Longitude    float64            `json:"longitude"`
@@ -43,6 +45,7 @@ type EntityDetailDTO struct {
 	ID                 uuid.UUID                 `json:"id"`
 	Name               string                    `json:"name"`
 	Description        string                    `json:"description"`
+	Tagline            string                    `json:"tagline"`
 	Category           CategoryResponse          `json:"category"`
 	Address            string                    `json:"address"`
 	City               string                    `json:"city"`

@@ -10,28 +10,52 @@ import (
 )
 
 type ReviewService struct {
-	Repo *repository.ReviewRepository
+	Repo      *repository.ReviewRepository
+	ClaimRepo *repository.ClaimRepository
 }
 
-func NewReviewService(repo *repository.ReviewRepository) *ReviewService {
-	return &ReviewService{Repo: repo}
+func NewReviewService(repo *repository.ReviewRepository, claimRepo *repository.ClaimRepository) *ReviewService {
+	return &ReviewService{Repo: repo, ClaimRepo: claimRepo}
 }
 
-func (s *ReviewService) Upsert(entityID, userID uuid.UUID, rating int, comment string) (*models.Review, error) {
+// Upsert guarda la reseña del usuario. Con `claimID`, la reseña queda ligada a
+// un canje y se muestra como «Canje verificado»; el canje debe ser del mismo
+// usuario y del mismo negocio, estar canjeado y haber sido confirmado por el
+// cliente (el mismo criterio con el que se cuenta la popularidad).
+func (s *ReviewService) Upsert(entityID, userID uuid.UUID, rating int, comment string, claimID *uuid.UUID) (*models.Review, error) {
 	if rating < 1 || rating > 5 {
 		return nil, errors.New("la calificación debe estar entre 1 y 5")
 	}
-	return s.Repo.Upsert(entityID, userID, rating, comment)
+	if claimID != nil {
+		claim, err := s.ClaimRepo.FindByID(*claimID)
+		if err != nil || claim.UserID != userID || claim.EntityID != entityID {
+			return nil, errors.New("ese canje no existe o no es tuyo")
+		}
+		if claim.Status != models.ClaimRedeemed || !claim.VerifiedByClient {
+			return nil, errors.New("el canje todavía no está confirmado")
+		}
+	}
+	return s.Repo.Upsert(entityID, userID, rating, comment, claimID)
+}
+
+// Breakdown: reseñas por calificación (índice 0 = 1 estrella) y cuántas son verificadas.
+func (s *ReviewService) Breakdown(entityID uuid.UUID) ([5]int64, int64, error) {
+	return s.Repo.Breakdown(entityID)
 }
 
 func (s *ReviewService) FindByEntity(entityID uuid.UUID, page, pageSize int) ([]models.Review, int64, error) {
+	return s.FindByEntityFiltered(entityID, page, pageSize, repository.ReviewFilter{})
+}
+
+// FindByEntityFiltered lista las reseñas de un negocio con filtro (nota, verificadas, con comentario).
+func (s *ReviewService) FindByEntityFiltered(entityID uuid.UUID, page, pageSize int, f repository.ReviewFilter) ([]models.Review, int64, error) {
 	if page <= 0 {
 		page = 1
 	}
 	if pageSize <= 0 {
 		pageSize = 20
 	}
-	return s.Repo.FindByEntity(entityID, page, pageSize)
+	return s.Repo.FindByEntityFiltered(entityID, page, pageSize, f)
 }
 
 func (s *ReviewService) FindMine(entityID, userID uuid.UUID) (*models.Review, error) {

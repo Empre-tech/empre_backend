@@ -20,6 +20,7 @@ package main
 import (
 	"context"
 	"log"
+	"time"
 
 	"empre_backend/config"
 	"empre_backend/internal/database"
@@ -41,6 +42,14 @@ import (
 func main() {
 	// Load Config
 	cfg := config.LoadConfig()
+	// Un secreto débil firma tokens que cualquiera podría falsificar: en producción no se arranca con él.
+	secretWarn, secretErr := config.ValidateJWTSecret(cfg.JWTSecret, cfg.IsProduction())
+	if secretErr != nil {
+		log.Fatal("Configuración insegura: ", secretErr)
+	}
+	if secretWarn != "" {
+		log.Println("Aviso de seguridad: ", secretWarn)
+	}
 
 	// Connect to Database
 	database.ConnectDB(cfg)
@@ -73,6 +82,19 @@ func main() {
 		&models.AgendaSettings{},
 		&models.AppointmentService{},
 		&models.Appointment{},
+		&models.Offer{},
+		&models.OfferClaim{},
+		&models.BusinessStatus{},
+		&models.Signal{},
+		&models.Promotion{},
+		&models.CategoryRelation{},
+		&models.BusinessCategory{},
+		&models.Place{},
+		&models.Zone{},
+		&models.Event{},
+		&models.ServiceItem{},
+		&models.OfferItem{},
+		&models.PromotionItem{},
 	)
 	if err != nil {
 		log.Fatal("Migration failed: ", err)
@@ -86,6 +108,33 @@ func main() {
 	// Seed default categories (and their subcategories) on a fresh database
 	database.SeedCategories(database.DB)
 	database.SeedSubcategories(database.DB)
+
+	// Migraciones de datos (idempotentes): extensiones de búsqueda tolerante,
+	// jerarquía de categorías, business_categories, places y sinónimos.
+	if err := database.EnableSearchExtensions(database.DB); err != nil {
+		log.Fatal("No se pudieron habilitar las extensiones de búsqueda: ", err)
+	}
+	if err := database.MigrateHierarchy(database.DB); err != nil {
+		log.Fatal("No se pudo migrar la jerarquía de categorías: ", err)
+	}
+	if err := database.MigratePlaces(database.DB); err != nil {
+		log.Fatal("No se pudo migrar los places: ", err)
+	}
+	if err := services.SeedZones(database.DB); err != nil {
+		log.Fatal("No se pudieron sembrar las zonas: ", err)
+	}
+	if err := services.MigrateEntityZones(database.DB); err != nil {
+		log.Fatal("No se pudo asignar la zona a los negocios: ", err)
+	}
+	if err := database.SeedFamilies(database.DB); err != nil {
+		log.Fatal("No se pudieron asignar las familias: ", err)
+	}
+	if err := database.SeedSynonyms(database.DB); err != nil {
+		log.Fatal("No se pudieron sembrar los sinónimos: ", err)
+	}
+	if err := database.EnsureClaimIndexes(database.DB); err != nil {
+		log.Fatal("No se pudo crear el índice de reclamos abiertos: ", err)
+	}
 
 	// Initialize Router
 	r := gin.Default()
@@ -105,6 +154,11 @@ func main() {
 	favoriteRepo := repository.NewFavoriteRepository(database.DB)
 	pushTokenRepo := repository.NewPushTokenRepository(database.DB)
 	subscriptionRepo := repository.NewSubscriptionRepository(database.DB)
+	offerRepo := repository.NewOfferRepository(database.DB)
+	claimRepo := repository.NewClaimRepository(database.DB)
+	signalRepo := repository.NewSignalRepository(database.DB)
+	promotionRepo := repository.NewPromotionRepository(database.DB)
+	searchRepo := repository.NewSearchRepository(database.DB)
 
 	// Initialize Services
 	storageService := services.NewStorageService(cfg)
@@ -122,9 +176,11 @@ func main() {
 	authService := services.NewAuthService(userRepo, passwordResetRepo, refreshTokenRepo, mailerService, cfg)
 	userService := services.NewUserService(userRepo, mediaService)
 	entityService := services.NewEntityService(entityRepo, mediaService)
+	zoneService := services.NewZoneService(database.DB)
+	entityService.Zones = zoneService
 	categoryService := services.NewCategoryService(categoryRepo)
 	chatService := services.NewChatService(chatRepo)
-	reviewService := services.NewReviewService(reviewRepo)
+	reviewService := services.NewReviewService(reviewRepo, claimRepo)
 	favoriteService := services.NewFavoriteService(favoriteRepo)
 	pushService := services.NewPushService(pushTokenRepo)
 	subscriptionService := services.NewSubscriptionService(subscriptionRepo, chatService, pushService, entityService, cfg.WompiPublicKey, cfg.WompiIntegritySecret, cfg.WompiEventsSecret, cfg.WompiRedirectURL)
@@ -141,21 +197,51 @@ func main() {
 		log.Println("AI Assistant: disabled (no AI_API_KEY)")
 	}
 
+	offerService := services.NewOfferService(offerRepo, entityRepo)
+	signalService := services.NewSignalService(signalRepo)
+	claimService := services.NewClaimService(claimRepo, offerRepo, entityRepo, userRepo, signalService)
+	rankingService := services.NewRankingService(entityService, reviewService, offerRepo, signalService)
+	promotionService := services.NewPromotionService(promotionRepo, entityRepo)
+	offerListService := services.NewOfferListService(offerRepo, promotionRepo)
+	searchService := services.NewSearchService(searchRepo, offerRepo)
+
 	// Initialize Handlers
 	authHandler := handlers.NewAuthHandler(authService)
 	userHandler := handlers.NewUserHandler(userService, mediaService)
 	mediaHandler := handlers.NewMediaHandler(mediaService)
-	entityHandler := handlers.NewEntityHandler(entityService, mediaService, database.DB, reviewService, favoriteService, pushService)
+	entityHandler := handlers.NewEntityHandler(entityService, mediaService, database.DB, reviewService, favoriteService, pushService, signalService)
 	categoryHandler := handlers.NewCategoryHandler(categoryService)
 	reviewHandler := handlers.NewReviewHandler(reviewService, userService, entityService, pushService)
-	favoriteHandler := handlers.NewFavoriteHandler(favoriteService, entityService, reviewService, pushService)
+	favoriteHandler := handlers.NewFavoriteHandler(favoriteService, entityService, reviewService, pushService, signalService)
 	pushHandler := handlers.NewPushHandler(pushService)
 	aiHandler := handlers.NewAIHandler(aiService, categoryService)
 	paymentHandler := handlers.NewPaymentHandler(subscriptionService, entityService)
 	agendaHandler := handlers.NewAgendaHandler(agendaService)
+	offerHandler := handlers.NewOfferHandler(offerService)
+	claimHandler := handlers.NewClaimHandler(claimService)
+	discoveryHandler := handlers.NewDiscoveryHandler(rankingService)
+	statusHandler := handlers.NewStatusHandler(database.DB)
+	zoneHandler := handlers.NewZoneHandler(zoneService)
+	cellHandler := handlers.NewCellHandler(services.NewCellService(database.DB))
+	reviewSnippetHandler := handlers.NewReviewSnippetHandler(services.NewReviewSnippetService(database.DB))
+	postFeedHandler := handlers.NewPostFeedHandler(services.NewPostFeedService(database.DB, mediaService))
+	eventService := services.NewEventService(database.DB)
+	eventHandler := handlers.NewEventHandler(eventService)
+	catalogHandler := handlers.NewCatalogHandler(services.NewCatalogService(database.DB))
+	// Retención: los eventos de uso de más de 180 días se borran al arrancar.
+	if n, err := eventService.PurgeOlderThan(time.Now().AddDate(0, 0, -180)); err != nil {
+		log.Println("No se pudieron purgar eventos viejos: ", err)
+	} else if n > 0 {
+		log.Printf("Eventos de uso purgados: %d", n)
+	}
+	promotionHandler := handlers.NewPromotionHandler(promotionService)
+	offerListHandler := handlers.NewOfferListHandler(offerListService)
+	searchHandler := handlers.NewSearchHandler(searchService)
 
 	wsHub := websocket.NewHub(database.DB, pushService, subscriptionService)
 	go wsHub.Run()
+	// Expira los reclamos vencidos y libera sus cupos (vive lo que el proceso).
+	go claimService.RunExpirySweeper(time.Minute, nil)
 	chatHandler := handlers.NewChatHandler(wsHub, chatService)
 
 	// La agenda empuja cambios por WebSocket y corre su proceso de fondo
@@ -181,6 +267,13 @@ func main() {
 			entities.GET("", entityHandler.FindAll)
 			entities.GET("/:id", middleware.OptionalAuth(cfg), entityHandler.FindByID)
 			entities.GET("/:id/reviews", reviewHandler.FindByEntity)
+			entities.GET("/:id/posts", postFeedHandler.List)
+			entities.GET("/:id/offer", offerHandler.Active)
+			entities.GET("/:id/offers/active", offerHandler.ActiveList)
+			entities.GET("/:id/activity", claimHandler.Activity)
+			entities.GET("/:id/status", statusHandler.Get)
+			entities.GET("/:id/promotions/active", promotionHandler.Active)
+			entities.GET("/:id/catalog", catalogHandler.List)
 
 			// Protected mutations
 			entitiesProtected := entities.Use(middleware.AuthMiddleware(cfg))
@@ -188,12 +281,18 @@ func main() {
 				entitiesProtected.POST("", entityHandler.Create)
 				entitiesProtected.GET("/mine", entityHandler.FindAllByOwner)
 				entitiesProtected.PUT("/:id", entityHandler.Update)
+				// Catálogo de servicios (solo el dueño; la lectura es pública, arriba).
+				entitiesProtected.POST("/:id/catalog", catalogHandler.Create)
+				entitiesProtected.POST("/:id/catalog/confirm", catalogHandler.Confirm)
+				entitiesProtected.PUT("/:id/catalog/:itemId", catalogHandler.Update)
+				entitiesProtected.DELETE("/:id/catalog/:itemId", catalogHandler.Retire)
 				entitiesProtected.DELETE("/:id", entityHandler.Delete)
 				entitiesProtected.POST("/:id/images", entityHandler.UploadImage)
 				entitiesProtected.DELETE("/:id/images/:photoId", entityHandler.DeleteImage)
 				entitiesProtected.PATCH("/:id/images/:photoId", entityHandler.UpdateImageCaption)
 				entitiesProtected.POST("/:id/favorite", favoriteHandler.Add)
 				entitiesProtected.DELETE("/:id/favorite", favoriteHandler.Remove)
+				entitiesProtected.GET("/:id/followers", favoriteHandler.FollowerCount)
 				entitiesProtected.POST("/:id/reviews", reviewHandler.Upsert)
 				entitiesProtected.DELETE("/:id/reviews", reviewHandler.Delete)
 				entitiesProtected.GET("/:id/reviews/mine", reviewHandler.FindMine)
@@ -212,6 +311,12 @@ func main() {
 				entitiesProtected.DELETE("/:id/agenda/services/:serviceId", agendaHandler.DeleteService)
 				entitiesProtected.POST("/:id/agenda/blocks", agendaHandler.CreateBlock)
 				entitiesProtected.DELETE("/:id/agenda/blocks/:blockId", agendaHandler.DeleteBlock)
+				entitiesProtected.POST("/:id/offers", offerHandler.Publish)
+				entitiesProtected.GET("/:id/offers", offerHandler.List)
+				entitiesProtected.GET("/:id/offers/stats", offerHandler.Stats)
+				entitiesProtected.PATCH("/:id/status", statusHandler.Update)
+				entitiesProtected.POST("/:id/promotions", promotionHandler.Publish)
+				entitiesProtected.GET("/:id/promotions", promotionHandler.List)
 			}
 		}
 
@@ -220,6 +325,58 @@ func main() {
 			// Public viewing. Mutations live under /admin (admin only).
 			categories.GET("", categoryHandler.FindAll)
 			categories.GET("/:id", categoryHandler.FindByID)
+		}
+
+		// Descubrimiento: ranking contextual + diversificación (público).
+		api.GET("/discovery", discoveryHandler.Discover)
+		api.GET("/discovery/sections", discoveryHandler.Sections)
+		// Negocios agrupados en casillas para el mapa lejano (público).
+		api.GET("/discovery/cells", cellHandler.List)
+		// La frase de reseña de los destacados (público).
+		api.GET("/discovery/review-snippets", reviewSnippetHandler.List)
+
+		// Zonas con nombre de una ciudad (público).
+		api.GET("/zones", zoneHandler.List)
+
+		// Medición de uso anónima (público, con límite de peticiones).
+		api.POST("/events", middleware.RateLimit(30, time.Minute), eventHandler.Ingest)
+
+		// Pestaña Ofertas: relámpagos y promociones activos (público).
+		api.GET("/offers", offerListHandler.List)
+
+		// Búsqueda por niveles + chips dinámicos (público).
+		api.GET("/search", searchHandler.Search)
+		api.GET("/categories/chips", searchHandler.Chips)
+
+		// Ofertas: acciones del negocio (quick actions, republish) y reclamo
+		// del usuario. La publicación/listado vive bajo /entities/:id/offers.
+		offers := api.Group("/offers")
+		offers.Use(middleware.AuthMiddleware(cfg))
+		{
+			offers.PATCH("/:id", offerHandler.QuickAction)
+			offers.POST("/:id/republish", offerHandler.Republish)
+			offers.POST("/:id/claim", middleware.RateLimit(5, time.Minute), claimHandler.Claim)
+		}
+
+		// Promociones: edición/estado (la publicación/listado vive bajo
+		// /entities/:id/promotions).
+		promotions := api.Group("/promotions")
+		promotions.Use(middleware.AuthMiddleware(cfg))
+		{
+			promotions.PATCH("/:id", promotionHandler.Update)
+		}
+
+		// Reclamos y canje (autenticados). El canje lleva un límite más alto
+		// porque el negocio escanea varios códigos seguidos.
+		claims := api.Group("/claims")
+		claims.Use(middleware.AuthMiddleware(cfg))
+		{
+			claims.GET("/mine", claimHandler.Mine)
+			claims.GET("/:id", claimHandler.Get)
+			claims.DELETE("/:id", claimHandler.Cancel)
+			claims.POST("/:id/redeem", middleware.RateLimit(20, time.Minute), claimHandler.Redeem)
+			claims.POST("/:id/confirm", claimHandler.Confirm)
+			claims.POST("/redeem-code", middleware.RateLimit(20, time.Minute), claimHandler.RedeemCode)
 		}
 
 		// WebSocket & Chat History
@@ -250,7 +407,8 @@ func main() {
 		imagesProtected := api.Group("/images")
 		imagesProtected.Use(middleware.AuthMiddleware(cfg))
 		{
-			imagesProtected.POST("/upload", mediaHandler.Upload)
+			// Subida suelta (devuelve el id del medio): con tope de peso y límite de peticiones por usuario.
+			imagesProtected.POST("/upload", middleware.RateLimit(20, time.Minute), mediaHandler.Upload)
 		}
 
 		// Users (Protected)
@@ -260,6 +418,8 @@ func main() {
 			usersProtected.GET("/me", userHandler.FindMe)
 			usersProtected.POST("/profile/image", userHandler.UploadProfileImage)
 			usersProtected.GET("/me/favorites", favoriteHandler.FindMine)
+			usersProtected.GET("/me/novedades", favoriteHandler.Novedades)
+			usersProtected.POST("/me/novedades/seen", favoriteHandler.MarkNovedadesSeen)
 			usersProtected.POST("/push-token", pushHandler.Register)
 			usersProtected.DELETE("/push-token", pushHandler.Remove)
 		}
@@ -277,6 +437,7 @@ func main() {
 		adminGroup.Use(middleware.AuthMiddleware(cfg), middleware.RequireAdmin())
 		{
 			adminGroup.GET("/entities", entityHandler.FindAllByStatus)
+			adminGroup.GET("/events/summary", eventHandler.Summary)
 			adminGroup.PATCH("/entities/:id/verify", entityHandler.VerifyEntity)
 
 			adminGroup.POST("/categories", categoryHandler.Create)

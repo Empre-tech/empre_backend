@@ -222,13 +222,13 @@ func (s *AgendaService) ListServices(entityID uuid.UUID, onlyActive bool) ([]mod
 	return out, q.Order("created_at ASC").Find(&out).Error
 }
 
-type ServiceInput struct {
+type AgendaServiceInput struct {
 	Name        string `json:"name"`
 	DurationMin int    `json:"duration_min"`
 	Active      *bool  `json:"active"`
 }
 
-func (in ServiceInput) validate() error {
+func (in AgendaServiceInput) validate() error {
 	if strings.TrimSpace(in.Name) == "" {
 		return &InvalidError{"el servicio necesita nombre"}
 	}
@@ -238,7 +238,7 @@ func (in ServiceInput) validate() error {
 	return nil
 }
 
-func (s *AgendaService) CreateService(ownerID, entityID uuid.UUID, in ServiceInput) (models.AppointmentService, error) {
+func (s *AgendaService) CreateService(ownerID, entityID uuid.UUID, in AgendaServiceInput) (models.AppointmentService, error) {
 	if _, err := s.requireOwner(ownerID, entityID); err != nil {
 		return models.AppointmentService{}, err
 	}
@@ -249,7 +249,7 @@ func (s *AgendaService) CreateService(ownerID, entityID uuid.UUID, in ServiceInp
 	return svc, s.db.Create(&svc).Error
 }
 
-func (s *AgendaService) UpdateService(ownerID, entityID, serviceID uuid.UUID, in ServiceInput) (models.AppointmentService, error) {
+func (s *AgendaService) UpdateService(ownerID, entityID, serviceID uuid.UUID, in AgendaServiceInput) (models.AppointmentService, error) {
 	var svc models.AppointmentService
 	if _, err := s.requireOwner(ownerID, entityID); err != nil {
 		return svc, err

@@ -4,9 +4,12 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"empre_backend/internal/dtos"
+	"empre_backend/internal/models"
 	"empre_backend/internal/services"
+	"empre_backend/pkg/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -17,10 +20,11 @@ type FavoriteHandler struct {
 	EntityService *services.EntityService
 	ReviewService *services.ReviewService
 	PushService   *services.PushService
+	SignalService *services.SignalService
 }
 
-func NewFavoriteHandler(service *services.FavoriteService, entityService *services.EntityService, reviewService *services.ReviewService, pushService *services.PushService) *FavoriteHandler {
-	return &FavoriteHandler{Service: service, EntityService: entityService, ReviewService: reviewService, PushService: pushService}
+func NewFavoriteHandler(service *services.FavoriteService, entityService *services.EntityService, reviewService *services.ReviewService, pushService *services.PushService, signalService *services.SignalService) *FavoriteHandler {
+	return &FavoriteHandler{Service: service, EntityService: entityService, ReviewService: reviewService, PushService: pushService, SignalService: signalService}
 }
 
 // Add marks a business as one of the caller's favorites.
@@ -43,6 +47,10 @@ func (h *FavoriteHandler) Add(c *gin.Context) {
 	if err := h.Service.Add(userID, entityID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+
+	if h.SignalService != nil {
+		h.SignalService.Record(entityID, models.SignalSave)
 	}
 
 	if h.PushService != nil {
@@ -131,4 +139,108 @@ func (h *FavoriteHandler) FindMine(c *gin.Context) {
 		"data": response,
 		"meta": gin.H{"total": total, "page": page, "page_size": pageSize},
 	})
+}
+
+// Novedades lists what the businesses the caller follows published after the
+// caller started following them (last 30 days), newest first.
+// @Router /api/users/me/novedades [get]
+func (h *FavoriteHandler) Novedades(c *gin.Context) {
+	userID := c.MustGet("userID").(uuid.UUID)
+
+	items, err := h.Service.Novedades(userID, time.Now())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Datos de los negocios seguidos para mostrar nombre y foto en cada novedad.
+	entities, _, err := h.Service.FindEntitiesByUser(userID, 1, 1000)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	h.EntityService.PopulateMediaURLs(entities)
+	byID := make(map[uuid.UUID]models.Entity, len(entities))
+	for _, e := range entities {
+		byID[e.ID] = e
+	}
+
+	type novedadDTO struct {
+		Kind             string    `json:"kind"`
+		ID               string    `json:"id"`
+		EntityID         uuid.UUID `json:"entity_id"`
+		EntityName       string    `json:"entity_name"`
+		EntityProfileURL string    `json:"entity_profile_url"`
+		At               time.Time `json:"at"`
+		Title            string    `json:"title"`
+		Unseen           bool      `json:"unseen"`
+	}
+	out := make([]novedadDTO, 0, len(items))
+	unseen := 0
+	for _, n := range items {
+		e, ok := byID[n.EntityID]
+		if !ok {
+			continue
+		}
+		if n.Unseen {
+			unseen++
+		}
+		out = append(out, novedadDTO{Kind: n.Kind, ID: n.ID, EntityID: n.EntityID, EntityName: e.Name, EntityProfileURL: e.ProfileURL, At: n.At, Title: n.Title, Unseen: n.Unseen})
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": out, "unseen_total": unseen})
+}
+
+// MarkNovedadesSeen marks the caller's novedades as seen, for one followed
+// business (entity_id) or for all of them when it is omitted.
+// @Router /api/users/me/novedades/seen [post]
+func (h *FavoriteHandler) MarkNovedadesSeen(c *gin.Context) {
+	userID := c.MustGet("userID").(uuid.UUID)
+
+	var body struct {
+		EntityID string `json:"entity_id"`
+	}
+	_ = c.ShouldBindJSON(&body)
+
+	var entityID *uuid.UUID
+	if body.EntityID != "" {
+		id, err := uuid.Parse(body.EntityID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid entity ID"})
+			return
+		}
+		entityID = &id
+	}
+	if err := h.Service.MarkNovedadesSeen(userID, entityID, utils.NowInCartagena()); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Novedades vistas"})
+}
+
+// FollowerCount tells the owner how many people follow the business (never who).
+// @Router /api/entities/{id}/followers [get]
+func (h *FavoriteHandler) FollowerCount(c *gin.Context) {
+	entityID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid entity ID"})
+		return
+	}
+	userID := c.MustGet("userID").(uuid.UUID)
+
+	entity, err := h.EntityService.FindByID(entityID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Negocio no encontrado"})
+		return
+	}
+	if entity.OwnerID != userID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Solo el dueño puede ver sus seguidores"})
+		return
+	}
+	count, err := h.Service.CountFollowers(entityID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"followers": count})
 }

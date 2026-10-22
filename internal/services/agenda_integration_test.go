@@ -72,7 +72,7 @@ func TestAgendaFlow(t *testing.T) {
 	if _, err := svc.UpdateSettings(owner.ID, ent.ID, SettingsInput{Enabled: true, SlotMinutes: 30, BufferMin: 10, HorizonDays: 14}); err != nil {
 		t.Fatal(err)
 	}
-	tall, err := svc.CreateService(owner.ID, ent.ID, ServiceInput{Name: "Tinte", DurationMin: 60})
+	tall, err := svc.CreateService(owner.ID, ent.ID, AgendaServiceInput{Name: "Tinte", DurationMin: 60})
 	if err != nil {
 		t.Fatal(err)
 	}

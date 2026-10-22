@@ -2,6 +2,7 @@ package services
 
 import (
 	"errors"
+	"log"
 
 	"empre_backend/internal/models"
 	"empre_backend/internal/repository"
@@ -13,6 +14,8 @@ import (
 type EntityService struct {
 	Repo         *repository.EntityRepository
 	MediaService *MediaService
+	// Zones asigna la zona con nombre al guardar; si es nil, no se asigna.
+	Zones *ZoneService
 }
 
 func NewEntityService(repo *repository.EntityRepository, mediaService *MediaService) *EntityService {
@@ -27,11 +30,23 @@ func (s *EntityService) CreateEntity(entity *models.Entity) error {
 	if entity.Name == "" {
 		return errors.New("name is required")
 	}
+	s.assignZone(entity)
 	return s.Repo.Create(entity)
 }
 
 func (s *EntityService) UpdateEntity(entity *models.Entity) error {
+	s.assignZone(entity)
 	return s.Repo.Update(entity)
+}
+
+// assignZone no impide guardar el negocio si falla: la zona es un dato de ayuda.
+func (s *EntityService) assignZone(entity *models.Entity) {
+	if s.Zones == nil {
+		return
+	}
+	if err := s.Zones.Assign(entity); err != nil {
+		log.Printf("no se pudo asignar la zona al negocio %s: %v", entity.ID, err)
+	}
 }
 
 func (s *EntityService) FindByID(id uuid.UUID) (*models.Entity, error) {
@@ -63,6 +78,15 @@ func (s *EntityService) FindAll(lat, long, radius float64, categoryID, subcatego
 		wg.Wait()
 	}
 	return entities, total, err
+}
+
+// FindByBBox returns businesses inside a visible rectangle (plus the total
+// count), with media URLs populated. Used by discovery.
+// FindByBBox es el listado del mapa y de Descubre. No firma enlaces (3.29): el perfil, la portada y las fotos salen con
+// la ruta estable /api/images/{id} (ProfilePath, CoverURL, attachRecentPhotos). Antes se firmaban hasta 2 enlaces por
+// negocio (perfil y banner) en cada petición y, como cambiaban siempre, el teléfono volvía a bajar las miniaturas.
+func (s *EntityService) FindByBBox(minLat, maxLat, minLng, maxLng float64, categoryID, subcategoryID, query string, cap int) ([]models.Entity, int64, error) {
+	return s.Repo.FindByBBox(minLat, maxLat, minLng, maxLng, categoryID, subcategoryID, query, cap)
 }
 
 func (s *EntityService) FindAllByOwner(ownerID uuid.UUID, page, pageSize int) ([]models.Entity, int64, error) {

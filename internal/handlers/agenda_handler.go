@@ -357,7 +357,7 @@ func (h *AgendaHandler) CreateService(c *gin.Context) {
 	if !ok {
 		return
 	}
-	var in services.ServiceInput
+	var in services.AgendaServiceInput
 	if err := c.ShouldBindJSON(&in); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -384,7 +384,7 @@ func (h *AgendaHandler) UpdateService(c *gin.Context) {
 	if !ok {
 		return
 	}
-	var in services.ServiceInput
+	var in services.AgendaServiceInput
 	if err := c.ShouldBindJSON(&in); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

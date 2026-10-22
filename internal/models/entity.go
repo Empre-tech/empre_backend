@@ -25,6 +25,8 @@ type Entity struct {
 	OwnerID     uuid.UUID `gorm:"type:uuid;not null;index" json:"owner_id"`
 	Name        string    `gorm:"not null" json:"name"`
 	Description string    `json:"description"`
+	// Tagline es la frase corta que la tarjeta de «Descubre» muestra bajo el nombre.
+	Tagline string `gorm:"size:80" json:"tagline"`
 	CategoryID  uuid.UUID `gorm:"type:uuid;not null;index" json:"category_id"` // e.g., "Food", "Services"
 	Address     string    `json:"address"`
 	City        string    `json:"city"`
@@ -32,6 +34,14 @@ type Entity struct {
 
 	BannerMediaID  *uuid.UUID `gorm:"type:uuid" json:"banner_media_id,omitempty"`
 	ProfileMediaID *uuid.UUID `gorm:"type:uuid" json:"profile_media_id,omitempty"`
+
+	// PlaceID agrupa negocios del mismo punto físico (pin "En este lugar").
+	PlaceID *uuid.UUID `gorm:"type:uuid;index" json:"place_id,omitempty"`
+	// ZoneID es la zona con nombre donde queda el negocio; se asigna al guardarlo, no por consulta.
+	ZoneID *uuid.UUID `gorm:"type:uuid;index" json:"zone_id,omitempty"`
+	// Tags son etiquetas libres del negocio (producto/servicio); alimentan la
+	// búsqueda junto con categorías y sinónimos.
+	Tags []string `gorm:"type:jsonb;serializer:json" json:"tags,omitempty"`
 
 	BannerURL  string `gorm:"-" json:"banner_url"`
 	ProfileURL string `gorm:"-" json:"profile_url"`
@@ -54,6 +64,8 @@ type Entity struct {
 	Category      Category       `gorm:"foreignKey:CategoryID" json:"category"`
 	// Photos: every photo/video of this business, flat (used by the profile grid).
 	Photos []EntityPhoto `gorm:"foreignKey:EntityID" json:"photos"`
+	// PhotosCount es cuántas fotos (sin videos) tiene en total cuando Photos trae solo una muestra (listado del mapa).
+	PhotosCount int `gorm:"-" json:"-"`
 	// Posts: the same photos grouped by publication, each with its own shared
 	// caption (used by the feed-style single-post view).
 	Posts         []Post         `gorm:"foreignKey:EntityID" json:"posts,omitempty"`
@@ -62,6 +74,7 @@ type Entity struct {
 
 	ProfileMedia *Media `gorm:"foreignKey:ProfileMediaID;references:ID" json:"-"`
 	BannerMedia  *Media `gorm:"foreignKey:BannerMediaID;references:ID" json:"-"`
+	Place        Place  `gorm:"foreignKey:PlaceID" json:"place,omitempty"`
 }
 
 // BeforeSave hook to update Location field from Lat/Long

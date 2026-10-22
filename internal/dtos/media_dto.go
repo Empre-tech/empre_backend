@@ -20,3 +20,18 @@ type PhotoResponse struct {
 	// used to show "Publicado hace X días" in the post viewer.
 	CreatedAt time.Time `json:"created_at"`
 }
+
+// PostItemResponse es un archivo (foto o video) dentro de una publicación.
+type PostItemResponse struct {
+	ID          uuid.UUID `json:"id"`
+	URL         string    `json:"url"`
+	ContentType string    `json:"content_type"`
+}
+
+// PostResponse es una publicación del negocio: su descripción compartida y sus archivos, en orden.
+type PostResponse struct {
+	ID        uuid.UUID          `json:"id"`
+	Caption   string             `json:"caption"`
+	CreatedAt time.Time          `json:"created_at"`
+	Items     []PostItemResponse `json:"items"`
+}

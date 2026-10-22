@@ -3,12 +3,24 @@ package handlers
 import (
 	"empre_backend/internal/services"
 	"empre_backend/pkg/utils"
+	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
+
+// MaxUploadBytes es el peso máximo de una imagen subida suelta (8 MB). La app ya reduce las fotos a unos 1600 px;
+// esto frena a un cliente que mande mucho más.
+const MaxUploadBytes = 8 << 20
+
+// tooLarge dice si un error al leer el formulario es por pasar el tope de MaxBytesReader.
+func tooLarge(err error) bool {
+	var mbe *http.MaxBytesError
+	return errors.As(err, &mbe) || strings.Contains(err.Error(), "request body too large")
+}
 
 type MediaHandler struct {
 	Service *services.MediaService
@@ -74,8 +86,20 @@ func (h *MediaHandler) FindMedia(c *gin.Context) {
 // @Failure 500 {object} map[string]string
 // @Router /api/images/upload [post]
 func (h *MediaHandler) Upload(c *gin.Context) {
+	// Si el cliente ya declara más de lo permitido, se corta antes de leer nada; si no lo declara (o miente), el
+	// lector con tope lo corta al pasarse.
+	if c.Request.ContentLength > MaxUploadBytes {
+		c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "La imagen supera los 8 MB"})
+		return
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, MaxUploadBytes)
+
 	file, err := c.FormFile("file")
 	if err != nil {
+		if tooLarge(err) {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "La imagen supera los 8 MB"})
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": "No file uploaded"})
 		return
 	}

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -35,6 +36,7 @@ type EntityHandler struct {
 	ReviewService   *services.ReviewService
 	FavoriteService *services.FavoriteService
 	PushService     *services.PushService
+	SignalService   *services.SignalService
 }
 
 func NewEntityHandler(
@@ -44,6 +46,7 @@ func NewEntityHandler(
 	reviewService *services.ReviewService,
 	favoriteService *services.FavoriteService,
 	pushService *services.PushService,
+	signalService *services.SignalService,
 ) *EntityHandler {
 	return &EntityHandler{
 		Service:         service,
@@ -52,23 +55,26 @@ func NewEntityHandler(
 		ReviewService:   reviewService,
 		FavoriteService: favoriteService,
 		PushService:     pushService,
+		SignalService:   signalService,
 	}
 }
 
 type CreateEntityRequest struct {
-	Name           string       `json:"name" binding:"required"`
-	Description    string       `json:"description"`
-	Category       string       `json:"category"`
-	SubcategoryIDs []string     `json:"subcategory_ids"`
-	Address        string       `json:"address"`
-	City           string       `json:"city"`
-	ContactInfo    string       `json:"contact_info"`
-	Latitude       float64      `json:"latitude"`
-	Longitude      float64      `json:"longitude"`
-	ProfileMediaID *uuid.UUID   `json:"profile_media_id"`
-	BannerMediaID  *uuid.UUID   `json:"banner_media_id"`
-	Gallery        []string     `json:"gallery"` // List of Media IDs (UUIDs)
-	ServiceMode    string       `json:"service_mode"`
+	Name        string `json:"name" binding:"required"`
+	Description string `json:"description"`
+	// Tagline es opcional; en una edición, si no viene, no se toca.
+	Tagline        *string       `json:"tagline"`
+	Category       string        `json:"category"`
+	SubcategoryIDs []string      `json:"subcategory_ids"`
+	Address        string        `json:"address"`
+	City           string        `json:"city"`
+	ContactInfo    string        `json:"contact_info"`
+	Latitude       float64       `json:"latitude"`
+	Longitude      float64       `json:"longitude"`
+	ProfileMediaID *uuid.UUID    `json:"profile_media_id"`
+	BannerMediaID  *uuid.UUID    `json:"banner_media_id"`
+	Gallery        []string      `json:"gallery"` // List of Media IDs (UUIDs)
+	ServiceMode    string        `json:"service_mode"`
 	Hours          []HourRequest `json:"hours"`
 }
 
@@ -161,6 +167,11 @@ func (h *EntityHandler) Create(c *gin.Context) {
 		return
 	}
 
+	if !validTagline(req.Tagline) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "La frase corta admite hasta 80 caracteres"})
+		return
+	}
+
 	if !models.ServiceMode(req.ServiceMode).Valid() {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid service_mode. Use in_place, delivery or both"})
 		return
@@ -171,6 +182,7 @@ func (h *EntityHandler) Create(c *gin.Context) {
 		OwnerID:        userID.(uuid.UUID),
 		Name:           req.Name,
 		Description:    req.Description,
+		Tagline:        taglineOf(req.Tagline),
 		CategoryID:     categoryID,
 		Address:        req.Address,
 		City:           req.City,
@@ -241,12 +253,14 @@ func (h *EntityHandler) Create(c *gin.Context) {
 	response := dtos.EntityDetailDTO{
 		ID:            fullEntity.ID,
 		Subcategories: subcategoryDTOs(fullEntity.Subcategories),
-		Name:        fullEntity.Name,
-		Description: fullEntity.Description,
+		Name:          fullEntity.Name,
+		Description:   fullEntity.Description,
+		Tagline:       fullEntity.Tagline,
 		Category: dtos.CategoryResponse{
-			ID:   fullEntity.Category.ID,
-			Name: fullEntity.Category.Name,
-			Icon: fullEntity.Category.Icon,
+			ID:    fullEntity.Category.ID,
+			Name:  fullEntity.Category.Name,
+			Icon:  fullEntity.Category.Icon,
+			Color: fullEntity.Category.Color,
 		},
 		Address:            fullEntity.Address,
 		City:               fullEntity.City,
@@ -292,6 +306,11 @@ func (h *EntityHandler) FindByID(c *gin.Context) {
 		return
 	}
 
+	// Telemetría de ranking: registrar la vista del perfil (mejor esfuerzo).
+	if h.SignalService != nil {
+		h.SignalService.Record(entity.ID, models.SignalView)
+	}
+
 	var photos []dtos.PhotoResponse
 	for _, p := range entity.Photos {
 		photos = append(photos, dtos.PhotoResponse{
@@ -317,10 +336,12 @@ func (h *EntityHandler) FindByID(c *gin.Context) {
 		ID:          entity.ID,
 		Name:        entity.Name,
 		Description: entity.Description,
+		Tagline:     entity.Tagline,
 		Category: dtos.CategoryResponse{
-			ID:   entity.Category.ID,
-			Name: entity.Category.Name,
-			Icon: entity.Category.Icon,
+			ID:    entity.Category.ID,
+			Name:  entity.Category.Name,
+			Icon:  entity.Category.Icon,
+			Color: entity.Category.Color,
 		},
 		Subcategories:      subcategoryDTOs(entity.Subcategories),
 		Address:            entity.Address,
@@ -403,20 +424,21 @@ func (h *EntityHandler) FindAll(c *gin.Context) {
 	for _, e := range entities {
 		summary := ratingSummaries[e.ID]
 		dtosList = append(dtosList, dtos.EntityMapDTO{
-			ID:           e.ID,
-			Name:         e.Name,
-			CategoryID:   e.Category.ID,
-			CategoryName: e.Category.Name,
-			CategoryIcon: e.Category.Icon,
-			ProfileURL:   e.ProfileURL,
-			Latitude:     e.Latitude,
-			Longitude:    e.Longitude,
-			IsVerified:   e.IsVerified,
-			AvgRating:    summary.Avg,
-			ReviewCount:  summary.Count,
-			ServiceMode:  e.ServiceMode,
-			IsOpenNow:    utils.IsOpenNow(e.Hours, utils.NowInColombia()),
-			HasHours:     len(e.Hours) > 0,
+			ID:            e.ID,
+			Name:          e.Name,
+			CategoryID:    e.Category.ID,
+			CategoryName:  e.Category.Name,
+			CategoryIcon:  e.Category.Icon,
+			CategoryColor: e.Category.Color,
+			ProfileURL:    e.ProfileURL,
+			Latitude:      e.Latitude,
+			Longitude:     e.Longitude,
+			IsVerified:    e.IsVerified,
+			AvgRating:     summary.Avg,
+			ReviewCount:   summary.Count,
+			ServiceMode:   e.ServiceMode,
+			IsOpenNow:     utils.IsOpenNow(e.Hours, utils.NowInCartagena()),
+			HasHours:      len(e.Hours) > 0,
 		})
 	}
 
@@ -517,9 +539,16 @@ func (h *EntityHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	if !validTagline(req.Tagline) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "La frase corta admite hasta 80 caracteres"})
+		return
+	}
 
 	existing.Name = req.Name
 	existing.Description = req.Description
+	if req.Tagline != nil {
+		existing.Tagline = taglineOf(req.Tagline)
+	}
 	existing.Address = req.Address
 	existing.City = req.City
 	existing.ContactInfo = req.ContactInfo
@@ -1017,10 +1046,12 @@ func (h *EntityHandler) VerifyEntity(c *gin.Context) {
 		ID:          entity.ID,
 		Name:        entity.Name,
 		Description: entity.Description,
+		Tagline:     entity.Tagline,
 		Category: dtos.CategoryResponse{
-			ID:   entity.Category.ID,
-			Name: entity.Category.Name,
-			Icon: entity.Category.Icon,
+			ID:    entity.Category.ID,
+			Name:  entity.Category.Name,
+			Icon:  entity.Category.Icon,
+			Color: entity.Category.Color,
 		},
 		Subcategories:      subcategoryDTOs(entity.Subcategories),
 		Address:            entity.Address,
@@ -1041,4 +1072,18 @@ func (h *EntityHandler) VerifyEntity(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+// TaglineMax es el largo máximo de la frase corta (cabe en una línea de la tarjeta).
+const TaglineMax = 80
+
+func validTagline(t *string) bool {
+	return t == nil || utf8.RuneCountInString(strings.TrimSpace(*t)) <= TaglineMax
+}
+
+func taglineOf(t *string) string {
+	if t == nil {
+		return ""
+	}
+	return strings.TrimSpace(*t)
 }

@@ -17,12 +17,16 @@ func NewReviewRepository(db *gorm.DB) *ReviewRepository {
 
 // Upsert creates the caller's review for an entity, or updates it if one
 // already exists (one review per user per business).
-func (r *ReviewRepository) Upsert(entityID, userID uuid.UUID, rating int, comment string) (*models.Review, error) {
+func (r *ReviewRepository) Upsert(entityID, userID uuid.UUID, rating int, comment string, claimID *uuid.UUID) (*models.Review, error) {
 	var review models.Review
 	err := r.DB.Where("entity_id = ? AND user_id = ?", entityID, userID).First(&review).Error
 	if err == nil {
 		review.Rating = rating
 		review.Comment = comment
+		// Editar el texto no quita la verificación; un canje nuevo sí la actualiza.
+		if claimID != nil {
+			review.ClaimID = claimID
+		}
 		if err := r.DB.Save(&review).Error; err != nil {
 			return nil, err
 		}
@@ -32,18 +36,49 @@ func (r *ReviewRepository) Upsert(entityID, userID uuid.UUID, rating int, commen
 		return nil, err
 	}
 
-	review = models.Review{EntityID: entityID, UserID: userID, Rating: rating, Comment: comment}
+	review = models.Review{EntityID: entityID, UserID: userID, Rating: rating, Comment: comment, ClaimID: claimID}
 	if err := r.DB.Create(&review).Error; err != nil {
 		return nil, err
 	}
 	return &review, nil
 }
 
+// ReviewFilter acota la lista de reseñas de un negocio. El resumen y la distribución de notas no dependen del filtro.
+type ReviewFilter struct {
+	// Stars: solo esa nota (1 a 5); 0 = todas.
+	Stars int
+	// Verified: solo las respaldadas por un canje confirmado.
+	Verified bool
+	// WithComment: solo las que traen un comentario (no vacío ni solo espacios).
+	WithComment bool
+}
+
+// MaxReviewPage es el tope de reseñas por página.
+const MaxReviewPage = 50
+
 func (r *ReviewRepository) FindByEntity(entityID uuid.UUID, page, pageSize int) ([]models.Review, int64, error) {
+	return r.FindByEntityFiltered(entityID, page, pageSize, ReviewFilter{})
+}
+
+// FindByEntityFiltered lista las reseñas de un negocio, las más recientes primero, con el filtro dado; el total
+// es el de las que cumplen el filtro.
+func (r *ReviewRepository) FindByEntityFiltered(entityID uuid.UUID, page, pageSize int, f ReviewFilter) ([]models.Review, int64, error) {
 	var reviews []models.Review
 	var total int64
+	if pageSize > MaxReviewPage {
+		pageSize = MaxReviewPage
+	}
 
 	db := r.DB.Model(&models.Review{}).Where("entity_id = ?", entityID)
+	if f.Stars >= 1 && f.Stars <= 5 {
+		db = db.Where("rating = ?", f.Stars)
+	}
+	if f.Verified {
+		db = db.Where("claim_id IS NOT NULL")
+	}
+	if f.WithComment {
+		db = db.Where("btrim(comment) <> ''")
+	}
 	db.Count(&total)
 
 	offset := (page - 1) * pageSize
@@ -77,6 +112,30 @@ func (r *ReviewRepository) Summary(entityID uuid.UUID) (float64, int64, error) {
 		Where("entity_id = ?", entityID).
 		Scan(&result).Error
 	return result.Avg, result.Count, err
+}
+
+// Breakdown devuelve cuántas reseñas hay de cada calificación (índice 0 = 1
+// estrella … índice 4 = 5 estrellas) y cuántas están verificadas por un canje.
+func (r *ReviewRepository) Breakdown(entityID uuid.UUID) ([5]int64, int64, error) {
+	var distribution [5]int64
+	var rows []struct {
+		Rating int
+		Count  int64
+	}
+	if err := r.DB.Model(&models.Review{}).
+		Select("rating, COUNT(*) as count").
+		Where("entity_id = ?", entityID).
+		Group("rating").Scan(&rows).Error; err != nil {
+		return distribution, 0, err
+	}
+	for _, row := range rows {
+		if row.Rating >= 1 && row.Rating <= 5 {
+			distribution[row.Rating-1] = row.Count
+		}
+	}
+	var verified int64
+	err := r.DB.Model(&models.Review{}).Where("entity_id = ? AND claim_id IS NOT NULL", entityID).Count(&verified).Error
+	return distribution, verified, err
 }
 
 // ReviewSummary is one row of a bulk rating/count aggregation, keyed by EntityID.

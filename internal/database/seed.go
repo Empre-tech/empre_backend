@@ -9,32 +9,34 @@ import (
 )
 
 // defaultCategory pairs a category name with the Ionicons name used for its
-// badge and for the map marker of every business in it.
+// badge and for the map marker of every business in it, plus the brand color
+// used to tint the map portal/glyph (always an Empre hue: blue/orange/teal).
 type defaultCategory struct {
-	Name string
-	Icon string
+	Name  string
+	Icon  string
+	Color string
 }
 
 // defaultCategories are created only when the categories table is empty,
 // so a fresh database is usable right away (the app needs at least one
 // category to register a business).
 var defaultCategories = []defaultCategory{
-	{"Restaurantes", "restaurant-outline"},
-	{"Cafeterías y postres", "cafe-outline"},
-	{"Bares y vida nocturna", "beer-outline"},
-	{"Tiendas y comercio", "storefront-outline"},
-	{"Belleza y peluquería", "cut-outline"},
-	{"Salud y bienestar", "medkit-outline"},
-	{"Servicios del hogar", "hammer-outline"},
-	{"Tecnología", "hardware-chip-outline"},
-	{"Turismo y hospedaje", "bed-outline"},
-	{"Educación", "school-outline"},
-	{"Automotriz", "car-outline"},
-	{"Mascotas", "paw-outline"},
-	{"Eventos y fiestas", "gift-outline"},
-	{"Fotografía y diseño", "camera-outline"},
-	{"Deporte y recreación", "basketball-outline"},
-	{"Otros", "ellipsis-horizontal-circle-outline"},
+	{"Restaurantes", "restaurant-outline", "#F58220"},
+	{"Cafeterías y postres", "cafe-outline", "#F59A4B"},
+	{"Bares y vida nocturna", "beer-outline", "#D96A0C"},
+	{"Tiendas y comercio", "storefront-outline", "#2468C6"},
+	{"Belleza y peluquería", "cut-outline", "#0B8A8F"},
+	{"Salud y bienestar", "medkit-outline", "#0F6E73"},
+	{"Servicios del hogar", "hammer-outline", "#3B78D1"},
+	{"Tecnología", "hardware-chip-outline", "#1A4F9C"},
+	{"Turismo y hospedaje", "bed-outline", "#4A86D8"},
+	{"Educación", "school-outline", "#1E5CA8"},
+	{"Automotriz", "car-outline", "#5A8FD8"},
+	{"Mascotas", "paw-outline", "#2BA3A0"},
+	{"Eventos y fiestas", "gift-outline", "#C97A2E"},
+	{"Fotografía y diseño", "camera-outline", "#12848C"},
+	{"Deporte y recreación", "basketball-outline", "#1FA2A8"},
+	{"Otros", "ellipsis-horizontal-circle-outline", "#66768D"},
 }
 
 // SeedCategories inserts the default categories if none exist yet.
@@ -50,7 +52,7 @@ func SeedCategories(db *gorm.DB) {
 
 	categories := make([]models.Category, 0, len(defaultCategories))
 	for _, c := range defaultCategories {
-		categories = append(categories, models.Category{Name: c.Name, Icon: c.Icon})
+		categories = append(categories, models.Category{Name: c.Name, Icon: c.Icon, Color: c.Color})
 	}
 	if err := db.Create(&categories).Error; err != nil {
 		log.Println("Seed categories: could not create categories: ", err)

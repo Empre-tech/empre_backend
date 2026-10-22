@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"empre_backend/internal/dtos"
+	"empre_backend/internal/repository"
 	"empre_backend/internal/services"
 
 	"github.com/gin-gonic/gin"
@@ -26,6 +28,8 @@ func NewReviewHandler(service *services.ReviewService, userService *services.Use
 type UpsertReviewRequest struct {
 	Rating  int    `json:"rating" binding:"required,min=1,max=5"`
 	Comment string `json:"comment"`
+	// ClaimID (opcional): el canje confirmado que respalda la reseña.
+	ClaimID string `json:"claim_id"`
 }
 
 // Upsert creates or updates the caller's review for a business.
@@ -55,7 +59,17 @@ func (h *ReviewHandler) Upsert(c *gin.Context) {
 		return
 	}
 
-	review, err := h.Service.Upsert(entityID, userID, req.Rating, req.Comment)
+	var claimID *uuid.UUID
+	if req.ClaimID != "" {
+		parsed, err := uuid.Parse(req.ClaimID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "claim_id inválido"})
+			return
+		}
+		claimID = &parsed
+	}
+
+	review, err := h.Service.Upsert(entityID, userID, req.Rating, req.Comment, claimID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -67,6 +81,7 @@ func (h *ReviewHandler) Upsert(c *gin.Context) {
 		Comment:   review.Comment,
 		CreatedAt: review.CreatedAt,
 		UpdatedAt: review.UpdatedAt,
+		Verified:  review.ClaimID != nil,
 	}
 	reviewerName := "Alguien"
 	if user, err := h.UserService.FindByID(userID); err == nil && user != nil {
@@ -91,7 +106,10 @@ func (h *ReviewHandler) Upsert(c *gin.Context) {
 // @Produce json
 // @Param id path string true "Entity ID"
 // @Param page query int false "Page number" default(1)
-// @Param pageSize query int false "Items per page" default(20)
+// @Param pageSize query int false "Items per page (max 50)" default(20)
+// @Param stars query int false "Only this rating (1-5)"
+// @Param verified query bool false "Only reviews backed by a confirmed redemption"
+// @Param with_comment query bool false "Only reviews with a comment"
 // @Success 200 {object} map[string]interface{}
 // @Router /api/entities/{id}/reviews [get]
 func (h *ReviewHandler) FindByEntity(c *gin.Context) {
@@ -103,7 +121,12 @@ func (h *ReviewHandler) FindByEntity(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "20"))
 
-	reviews, total, err := h.Service.FindByEntity(entityID, page, pageSize)
+	if pageSize > repository.MaxReviewPage {
+		pageSize = repository.MaxReviewPage
+	}
+	stars, _ := strconv.Atoi(c.Query("stars"))
+	filter := repository.ReviewFilter{Stars: stars, Verified: truthy(c.Query("verified")), WithComment: truthy(c.Query("with_comment"))}
+	reviews, total, err := h.Service.FindByEntityFiltered(entityID, page, pageSize, filter)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -119,6 +142,7 @@ func (h *ReviewHandler) FindByEntity(c *gin.Context) {
 			Comment:   review.Comment,
 			CreatedAt: review.CreatedAt,
 			UpdatedAt: review.UpdatedAt,
+			Verified:  review.ClaimID != nil,
 			User: dtos.ReviewUser{
 				ID:                user.ID,
 				Name:              user.Name,
@@ -128,10 +152,11 @@ func (h *ReviewHandler) FindByEntity(c *gin.Context) {
 	}
 
 	avg, count, _ := h.Service.Summary(entityID)
+	distribution, verified, _ := h.Service.Breakdown(entityID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"data":    response,
-		"summary": dtos.ReviewSummary{Average: avg, Count: count},
+		"summary": dtos.ReviewSummary{Average: avg, Count: count, Distribution: distribution, VerifiedCount: verified},
 		"meta":    gin.H{"total": total, "page": page, "page_size": pageSize},
 	})
 }
@@ -166,6 +191,7 @@ func (h *ReviewHandler) FindMine(c *gin.Context) {
 		Comment:   review.Comment,
 		CreatedAt: review.CreatedAt,
 		UpdatedAt: review.UpdatedAt,
+		Verified:  review.ClaimID != nil,
 	}
 	if user, err := h.UserService.FindByID(userID); err == nil && user != nil {
 		response.User = dtos.ReviewUser{ID: user.ID, Name: user.Name, ProfilePictureURL: user.ProfilePictureURL}
@@ -196,4 +222,13 @@ func (h *ReviewHandler) Delete(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "Reseña eliminada"})
+}
+
+// truthy lee un parámetro booleano de la consulta: «1», «true» o «si» (sin importar mayúsculas).
+func truthy(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "si", "sí":
+		return true
+	}
+	return false
 }
