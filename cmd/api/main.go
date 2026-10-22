@@ -220,6 +220,7 @@ func main() {
 	discoveryHandler := handlers.NewDiscoveryHandler(rankingService)
 	statusHandler := handlers.NewStatusHandler(database.DB)
 	zoneHandler := handlers.NewZoneHandler(zoneService)
+	zoneActivityHandler := handlers.NewZoneActivityHandler(services.NewZoneActivityService(database.DB))
 	cellHandler := handlers.NewCellHandler(services.NewCellService(database.DB))
 	reviewSnippetHandler := handlers.NewReviewSnippetHandler(services.NewReviewSnippetService(database.DB))
 	postFeedHandler := handlers.NewPostFeedHandler(services.NewPostFeedService(database.DB, mediaService))
@@ -340,6 +341,7 @@ func main() {
 
 		// Zonas con nombre de una ciudad (público).
 		api.GET("/zones", zoneHandler.List)
+		api.GET("/zones/activity", middleware.RateLimit(60, time.Minute), zoneActivityHandler.Activity)
 
 		// Medición de uso anónima (público, con límite de peticiones).
 		api.POST("/events", middleware.RateLimit(30, time.Minute), eventHandler.Ingest)
