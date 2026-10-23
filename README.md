@@ -220,6 +220,38 @@ sin historial, para pedir 2-3 opciones de texto listas para usar.
 - Usa el mismo `AIService`/API key que el asistente conversacional; si `AI_API_KEY` no está configurada, responde 503.
 - Igual que el asistente conversacional, el dueño siempre elige una opción a mano: nada se guarda solo.
 
+## Administración del negocio («Mi negocio»)
+
+Ventas, gastos, fiados, costos y dictado por voz para el dueño. Todas las rutas son `/api/entities/:id/ledger/...`,
+requieren sesión y ser el dueño del negocio.
+
+| Ruta | Qué hace |
+| --- | --- |
+| `POST/GET .../sales`, `POST .../sales/:saleId/void` | Registrar, listar y anular ventas (con o sin renglones del catálogo; método `cash`, `transfer`, `card` o `credit` = fiado). |
+| `POST/GET .../expenses`, `POST .../expenses/:expenseId/void` | Gastos por categoría; `credit` es una compra a crédito a un proveedor. |
+| `POST/GET .../parties`, `GET .../parties/:partyId/payments` | Clientes (fiados) y proveedores, con su saldo. |
+| `POST .../payments` | Abono de un cliente o pago a un proveedor; no puede superar lo que se debe. |
+| `GET .../items`, `PUT .../items/:itemId/cost` | Catálogo con costo (el costo es privado: no sale en ninguna respuesta pública). |
+| `GET .../summary?period=day\|week\|month&date=AAAA-MM-DD` | Ventas, gastos, utilidad, caja, deudas, margen, más vendidos y comparación con el periodo anterior. |
+| `GET .../export?month=AAAA-MM` | CSV del mes para el contador. |
+| `POST .../voice/parse`, `POST .../voice/:draftId/confirm`, `.../discard` | Dictado: texto → tarjetas → confirmar. |
+
+Reglas:
+- Montos en pesos enteros; el día se calcula en hora de Colombia (UTC-5).
+- Cada venta, gasto, tercero y abono lo crea el teléfono con un `client_id` que es también su `id`: reenviar no duplica
+  (responde 200 con lo ya guardado) y permite referirse a algo que aún no se ha enviado.
+- Nada se borra: se anula con motivo y deja de contar.
+- Reglas puras (monto en letras, lectura de montos hablados, coincidencia de nombres) en `internal/ledger`; lógica en
+  `internal/services/ledger_service.go` y `ledger_voice.go`.
+
+Dictado por voz: la app manda solo el texto. La IA (`AIService`, herramienta `registrar`) propone ventas, gastos y
+abonos, y el servidor verifica lo que la IA no debe decidir sola: contrasta el monto con las palabras dictadas, toma
+el precio del catálogo cuando no se dijo, y casa los nombres con productos y clientes. Nada se guarda hasta que el
+dueño confirma la tarjeta (`voice_drafts` guarda el texto, nunca audio). Límite por negocio y mes:
+`LedgerService.VoiceMonthlyLimit` (1.000). Sin `AI_API_KEY` responde 503 (`ai_disabled`); al llegar al límite, 429.
+
+Pruebas: `go test ./internal/ledger/` (puras) y, con `TEST_DATABASE_URL`, `go test ./internal/services/ -run TestLedger`.
+
 ## Suscripción de negocios (pagos con Wompi)
 
 Cada negocio (`Entity`) tiene una fila en `subscriptions` (`inactive` | `active` + `current_period_end`).
