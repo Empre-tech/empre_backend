@@ -94,6 +94,12 @@ func main() {
 		&models.PromotionItem{},
 		&models.AgendaSettings{},
 		&models.Appointment{},
+		&models.Party{},
+		&models.Sale{},
+		&models.SaleLine{},
+		&models.Expense{},
+		&models.DebtPayment{},
+		&models.VoiceDraft{},
 	)
 	if err != nil {
 		log.Fatal("Migration failed: ", err)
@@ -238,6 +244,9 @@ func main() {
 	completenessHandler := handlers.NewCompletenessHandler(services.NewCompletenessService(database.DB))
 	searchHandler := handlers.NewSearchHandler(searchService)
 	agendaHandler := handlers.NewAgendaHandler(agendaService)
+	ledgerService := services.NewLedgerService(database.DB)
+	ledgerService.SetVoiceModel(aiService)
+	ledgerHandler := handlers.NewLedgerHandler(ledgerService)
 	inboxHandler := handlers.NewInboxHandler(services.NewInboxService(database.DB))
 
 	wsHub := websocket.NewHub(database.DB, pushService, subscriptionService)
@@ -320,6 +329,25 @@ func main() {
 				entitiesProtected.DELETE("/:id/agenda/services/:serviceId", agendaHandler.DeleteService)
 				entitiesProtected.POST("/:id/agenda/blocks", agendaHandler.CreateBlock)
 				entitiesProtected.DELETE("/:id/agenda/blocks/:blockId", agendaHandler.DeleteBlock)
+
+				// Administración del negocio (solo el dueño)
+				entitiesProtected.POST("/:id/ledger/sales", ledgerHandler.CreateSale)
+				entitiesProtected.GET("/:id/ledger/sales", ledgerHandler.ListSales)
+				entitiesProtected.POST("/:id/ledger/sales/:saleId/void", ledgerHandler.VoidSale)
+				entitiesProtected.POST("/:id/ledger/expenses", ledgerHandler.CreateExpense)
+				entitiesProtected.GET("/:id/ledger/expenses", ledgerHandler.ListExpenses)
+				entitiesProtected.POST("/:id/ledger/expenses/:expenseId/void", ledgerHandler.VoidExpense)
+				entitiesProtected.POST("/:id/ledger/parties", ledgerHandler.CreateParty)
+				entitiesProtected.GET("/:id/ledger/parties", ledgerHandler.ListParties)
+				entitiesProtected.GET("/:id/ledger/parties/:partyId/payments", ledgerHandler.ListPayments)
+				entitiesProtected.POST("/:id/ledger/payments", ledgerHandler.CreatePayment)
+				entitiesProtected.GET("/:id/ledger/items", ledgerHandler.ListItems)
+				entitiesProtected.PUT("/:id/ledger/items/:itemId/cost", ledgerHandler.SetItemCost)
+				entitiesProtected.GET("/:id/ledger/summary", ledgerHandler.Summary)
+				entitiesProtected.GET("/:id/ledger/export", ledgerHandler.Export)
+				entitiesProtected.POST("/:id/ledger/voice/parse", ledgerHandler.VoiceParse)
+				entitiesProtected.POST("/:id/ledger/voice/:draftId/confirm", ledgerHandler.VoiceConfirm)
+				entitiesProtected.POST("/:id/ledger/voice/:draftId/discard", ledgerHandler.VoiceDiscard)
 			}
 		}
 

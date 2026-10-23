@@ -44,6 +44,9 @@ type ServiceItem struct {
 
 	Status   ServiceItemStatus `gorm:"type:varchar(20);not null;default:'active';index" json:"status"`
 	Position int               `gorm:"default:0" json:"position"`
+	// Cost es lo que le cuesta al negocio (pesos). SOLO lo ve el dueño, por el módulo de administración: no sale en
+	// ninguna respuesta pública del catálogo (json:"-").
+	Cost *int `gorm:"check:chk_service_items_cost,cost IS NULL OR (cost >= 0 AND cost <= 10000000)" json:"-"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
