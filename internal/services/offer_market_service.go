@@ -43,7 +43,27 @@ type MarketResult struct {
 	Here       *models.Zone // zona donde está la persona
 	Zones      []MarketZone
 	Featured   *MarketCandidate // «Mayor ahorro de hoy» (3.40); nil si ninguna termina hoy con ahorro
+	// 3.48: el barrio.
+	Spotlight []SpotlightSlide // pasarela: tres reglas a la vista
+	Bento     []MarketCandidate
+	Routes    []Route
+	Neighbors []Neighbor
+	Voices    []MarketVoice
 }
+
+// MarketVoice es una frase de «Lo recomiendan tus vecinos»: una reseña verificada (de un canje) con su oferta de hoy.
+type MarketVoice struct {
+	Quote  string
+	Author string // solo el primer nombre
+	When   time.Time
+	Cand   MarketCandidate
+}
+
+const (
+	VoicesMax      = 6
+	VoiceMinRating = 4
+	VoiceMinLen    = 12 // una frase, no «bien»
+)
 
 type OfferMarketService struct {
 	db      *gorm.DB
@@ -151,7 +171,7 @@ type marketBase struct {
 func (s *OfferMarketService) load(viewer *uuid.UUID, lat, long float64, hasLoc bool, cityHint, categoryRaw string, withSignals bool, now time.Time) (marketBase, error) {
 	var b marketBase
 	var offers []models.Offer
-	q := s.db.Preload("Entity.Category").Preload("Items").
+	q := s.db.Preload("Entity.Category").Preload("Entity.Hours").Preload("Items").
 		Where("ends_at > ? AND starts_at <= ? AND used_slots < total_slots", now, now)
 	if ids, asked := repository.ParseCategoryIDs(categoryRaw); asked {
 		if len(ids) == 0 {
@@ -208,7 +228,8 @@ func (s *OfferMarketService) load(viewer *uuid.UUID, lat, long float64, hasLoc b
 		if hasLoc {
 			d = utils.DistanceMeters(lat, long, o.Entity.Latitude, o.Entity.Longitude)
 		}
-		b.cands = append(b.cands, MarketCandidate{Offer: o, DistanceM: d, Trend: trend[o.ID], Rating: ratings[o.EntityID].Avg, Reason: reasons[o.ID]})
+		b.cands = append(b.cands, MarketCandidate{Offer: o, DistanceM: d, Trend: trend[o.ID], Rating: ratings[o.EntityID].Avg, Reason: reasons[o.ID],
+			Open: utils.IsOpenNow(o.Entity.Hours, now.In(marketTZ))})
 	}
 	return b, nil
 }
@@ -261,10 +282,32 @@ func (s *OfferMarketService) Market(viewer *uuid.UUID, lat, long float64, hasLoc
 	}
 	res.Term = chosen
 
-	// La destacada sale primero y no se repite en las secciones (sí en la lista completa).
+	// Lo que es de todas las ofertas del barrio (círculos, rutas y voces) va antes de quitar las de arriba.
+	res.Neighbors = BuildNeighbors(cands, hasLoc, now, NeighborsMax)
+	res.Routes = BuildRoutes(cands, RoutesMax, hasLoc)
+	if res.Voices, err = s.voices(cands); err != nil {
+		return res, err
+	}
+
+	// La destacada sale primero y no se repite en las secciones (sí en la lista completa). Con ella, la pasarela y el
+	// mosaico tampoco se repiten abajo (3.48).
 	if f := PickFeatured(cands, now); f != nil {
 		res.Featured = f
-		cands = WithoutOffer(cands, f.Offer.ID)
+	}
+	res.Spotlight = PickSpotlight(cands, now)
+	shown := map[uuid.UUID]bool{}
+	if res.Featured != nil {
+		shown[res.Featured.Offer.ID] = true
+	}
+	for _, sl := range res.Spotlight {
+		shown[sl.Cand.Offer.ID] = true
+	}
+	res.Bento = PickBento(cands, shown, BentoMax, hasLoc)
+	for _, c := range res.Bento {
+		shown[c.Offer.ID] = true
+	}
+	for id := range shown {
+		cands = WithoutOffer(cands, id)
 	}
 	res.Sections = BuildMarket(cands, MarketOptions{HasLocation: hasLoc, Term: chosen, Personal: viewer != nil})
 	return res, nil
@@ -286,4 +329,94 @@ func (s *OfferMarketService) MarketAll(lat, long float64, hasLoc bool, cityHint,
 	}
 	page, next := PageAll(b.cands, AllOptions{HasLocation: hasLoc, Zone: zone, Query: query, Sort: sortKey}, offset, MarketPageSize)
 	return MarketAllResult{City: b.city, Items: page, Next: next}, nil
+}
+
+// voices: reseñas verificadas (de un canje), con frase y buena nota, de negocios con oferta vigente aquí. Una por
+// negocio, la más reciente primero. Cada una lleva la mejor oferta de hoy de ese negocio.
+func (s *OfferMarketService) voices(cands []MarketCandidate) ([]MarketVoice, error) {
+	best := map[uuid.UUID]MarketCandidate{}
+	ids := []uuid.UUID{}
+	for _, c := range cands {
+		cur, ok := best[c.Offer.EntityID]
+		if !ok {
+			ids = append(ids, c.Offer.EntityID)
+		}
+		if !ok || SavingPesos(c) > SavingPesos(cur) {
+			best[c.Offer.EntityID] = c
+		}
+	}
+	out := []MarketVoice{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	var rows []models.Review
+	err := s.db.Preload("User").
+		Where("entity_id IN ? AND claim_id IS NOT NULL AND rating >= ? AND char_length(trim(comment)) >= ?", ids, VoiceMinRating, VoiceMinLen).
+		Order("created_at DESC").Limit(40).Find(&rows).Error
+	if err != nil {
+		return out, err
+	}
+	seen := map[uuid.UUID]bool{}
+	for _, r := range rows {
+		if len(out) == VoicesMax {
+			break
+		}
+		if seen[r.EntityID] {
+			continue
+		}
+		seen[r.EntityID] = true
+		author := ""
+		if f := strings.Fields(r.User.Name); len(f) > 0 {
+			author = f[0]
+		}
+		out = append(out, MarketVoice{Quote: strings.TrimSpace(r.Comment), Author: author, When: r.CreatedAt, Cand: best[r.EntityID]})
+	}
+	return out, nil
+}
+
+// MonthSavings es «Este mes ahorraste»: lo que la persona ahorró en sus canjes del mes (día de Colombia) y en qué
+// negocios, el más reciente primero. Es su propio historial, no un conteo público.
+type MonthSavings struct {
+	Total      int
+	Businesses []models.Entity
+}
+
+func (s *OfferMarketService) MonthSavings(user uuid.UUID, now time.Time) (MonthSavings, error) {
+	var out MonthSavings
+	y, m, _ := now.In(marketTZ).Date()
+	start := time.Date(y, m, 1, 0, 0, 0, 0, marketTZ)
+	type row struct {
+		EntityID uuid.UUID
+		Saved    int
+	}
+	var rows []row
+	err := s.db.Raw(`
+		SELECT c.entity_id, sum(o.reference_price - o.special_price) AS saved
+		FROM offer_claims c JOIN offers o ON o.id = c.offer_id
+		WHERE c.user_id = ? AND c.status = ? AND c.redeemed_at >= ?
+		  AND o.reference_price IS NOT NULL AND o.special_price IS NOT NULL AND o.reference_price > o.special_price
+		GROUP BY c.entity_id
+		ORDER BY max(c.redeemed_at) DESC`, user, models.ClaimRedeemed, start).Scan(&rows).Error
+	if err != nil || len(rows) == 0 {
+		return out, err
+	}
+	ids := make([]uuid.UUID, 0, len(rows))
+	for _, r := range rows {
+		out.Total += r.Saved
+		ids = append(ids, r.EntityID)
+	}
+	var ents []models.Entity
+	if err := s.db.Preload("Category").Where("id IN ?", ids).Find(&ents).Error; err != nil {
+		return out, err
+	}
+	byID := map[uuid.UUID]models.Entity{}
+	for _, e := range ents {
+		byID[e.ID] = e
+	}
+	for _, id := range ids {
+		if e, ok := byID[id]; ok {
+			out.Businesses = append(out.Businesses, e)
+		}
+	}
+	return out, nil
 }

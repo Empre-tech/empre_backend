@@ -387,6 +387,8 @@ func main() {
 		offers := api.Group("/offers")
 		offers.Use(middleware.AuthMiddleware(cfg))
 		{
+			// «Este mes ahorraste» (3.48): solo con sesión.
+			offers.GET("/savings", offerMarketHandler.MonthSavings)
 			offers.PATCH("/:id", offerHandler.QuickAction)
 			offers.POST("/:id/republish", offerHandler.Republish)
 			offers.POST("/:id/claim", middleware.RateLimit(5, time.Minute), claimHandler.Claim)

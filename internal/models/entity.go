@@ -27,6 +27,8 @@ type Entity struct {
 	Description string    `json:"description"`
 	// Tagline es la frase corta que la tarjeta de «Descubre» muestra bajo el nombre.
 	Tagline string `gorm:"size:80" json:"tagline"`
+	// AttendantName es quien atiende («Ana»), para que el cliente sepa con quién va a hablar (3.48). Opcional.
+	AttendantName string `gorm:"size:40" json:"attendant_name"`
 	CategoryID  uuid.UUID `gorm:"type:uuid;not null;index" json:"category_id"` // e.g., "Food", "Services"
 	Address     string    `json:"address"`
 	City        string    `json:"city"`

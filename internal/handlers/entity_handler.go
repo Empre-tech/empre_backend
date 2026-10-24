@@ -63,7 +63,9 @@ type CreateEntityRequest struct {
 	Name        string `json:"name" binding:"required"`
 	Description string `json:"description"`
 	// Tagline es opcional; en una edición, si no viene, no se toca.
-	Tagline        *string       `json:"tagline"`
+	Tagline *string `json:"tagline"`
+	// AttendantName: quién atiende (hasta 40 caracteres); en una edición, si no viene, no se toca.
+	AttendantName  *string       `json:"attendant_name"`
 	Category       string        `json:"category"`
 	SubcategoryIDs []string      `json:"subcategory_ids"`
 	Address        string        `json:"address"`
@@ -171,6 +173,10 @@ func (h *EntityHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "La frase corta admite hasta 80 caracteres"})
 		return
 	}
+	if req.AttendantName != nil && utf8.RuneCountInString(strings.TrimSpace(*req.AttendantName)) > AttendantNameMax {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "El nombre de quien atiende admite hasta 40 caracteres"})
+		return
+	}
 
 	if !models.ServiceMode(req.ServiceMode).Valid() {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid service_mode. Use in_place, delivery or both"})
@@ -183,6 +189,7 @@ func (h *EntityHandler) Create(c *gin.Context) {
 		Name:           req.Name,
 		Description:    req.Description,
 		Tagline:        taglineOf(req.Tagline),
+		AttendantName:  taglineOf(req.AttendantName),
 		CategoryID:     categoryID,
 		Address:        req.Address,
 		City:           req.City,
@@ -256,6 +263,7 @@ func (h *EntityHandler) Create(c *gin.Context) {
 		Name:          fullEntity.Name,
 		Description:   fullEntity.Description,
 		Tagline:       fullEntity.Tagline,
+		AttendantName: fullEntity.AttendantName,
 		Category: dtos.CategoryResponse{
 			ID:    fullEntity.Category.ID,
 			Name:  fullEntity.Category.Name,
@@ -333,10 +341,11 @@ func (h *EntityHandler) FindByID(c *gin.Context) {
 	}
 
 	response := dtos.EntityDetailDTO{
-		ID:          entity.ID,
-		Name:        entity.Name,
-		Description: entity.Description,
-		Tagline:     entity.Tagline,
+		ID:            entity.ID,
+		Name:          entity.Name,
+		Description:   entity.Description,
+		Tagline:       entity.Tagline,
+		AttendantName: entity.AttendantName,
 		Category: dtos.CategoryResponse{
 			ID:    entity.Category.ID,
 			Name:  entity.Category.Name,
@@ -543,11 +552,18 @@ func (h *EntityHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "La frase corta admite hasta 80 caracteres"})
 		return
 	}
+	if req.AttendantName != nil && utf8.RuneCountInString(strings.TrimSpace(*req.AttendantName)) > AttendantNameMax {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "El nombre de quien atiende admite hasta 40 caracteres"})
+		return
+	}
 
 	existing.Name = req.Name
 	existing.Description = req.Description
 	if req.Tagline != nil {
 		existing.Tagline = taglineOf(req.Tagline)
+	}
+	if req.AttendantName != nil {
+		existing.AttendantName = taglineOf(req.AttendantName)
 	}
 	existing.Address = req.Address
 	existing.City = req.City
@@ -1043,10 +1059,11 @@ func (h *EntityHandler) VerifyEntity(c *gin.Context) {
 	}
 
 	response := dtos.EntityDetailDTO{
-		ID:          entity.ID,
-		Name:        entity.Name,
-		Description: entity.Description,
-		Tagline:     entity.Tagline,
+		ID:            entity.ID,
+		Name:          entity.Name,
+		Description:   entity.Description,
+		Tagline:       entity.Tagline,
+		AttendantName: entity.AttendantName,
 		Category: dtos.CategoryResponse{
 			ID:    entity.Category.ID,
 			Name:  entity.Category.Name,
@@ -1073,6 +1090,9 @@ func (h *EntityHandler) VerifyEntity(c *gin.Context) {
 
 	c.JSON(http.StatusOK, response)
 }
+
+// AttendantNameMax es el largo máximo del nombre de quien atiende (3.48).
+const AttendantNameMax = 40
 
 // TaglineMax es el largo máximo de la frase corta (cabe en una línea de la tarjeta).
 const TaglineMax = 80

@@ -2,7 +2,9 @@ package services
 
 import (
 	"errors"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"empre_backend/internal/models"
 	"empre_backend/internal/repository"
@@ -42,6 +44,7 @@ type PublishOfferInput struct {
 	Price        string
 	NormalPrice  string
 	Conditions   string
+	OwnerNote    string
 	EndsAt       time.Time
 	TotalSlots   int
 	RadiusMeters int
@@ -51,6 +54,9 @@ type PublishOfferInput struct {
 	ServiceItemIDs []uuid.UUID
 	SpecialPrice   *int
 }
+
+// OwnerNoteMax es el largo máximo de la nota de quien atiende (cabe en dos líneas de la tarjeta, 3.48).
+const OwnerNoteMax = 90
 
 // MaxOfferItems es el tope de servicios que incluye una oferta.
 const MaxOfferItems = 5
@@ -98,6 +104,9 @@ func (s *OfferService) publish(entityID uuid.UUID, in PublishOfferInput) (*model
 		repeat = models.RepeatOnce
 	}
 
+	if utf8.RuneCountInString(strings.TrimSpace(in.OwnerNote)) > OwnerNoteMax {
+		return nil, errors.New("la nota admite hasta 90 caracteres")
+	}
 	items, reference, err := s.freezeItems(entityID, in.ServiceItemIDs)
 	if err != nil {
 		return nil, err
@@ -122,6 +131,7 @@ func (s *OfferService) publish(entityID uuid.UUID, in PublishOfferInput) (*model
 		Price:          in.Price,
 		NormalPrice:    in.NormalPrice,
 		Conditions:     in.Conditions,
+		OwnerNote:      strings.TrimSpace(in.OwnerNote),
 		StartsAt:       now,
 		EndsAt:         in.EndsAt,
 		TotalSlots:     in.TotalSlots,
@@ -201,6 +211,9 @@ func (s *OfferService) Republish(oldOfferID, ownerID uuid.UUID, in PublishOfferI
 	}
 	if in.Conditions == "" {
 		in.Conditions = old.Conditions
+	}
+	if strings.TrimSpace(in.OwnerNote) == "" {
+		in.OwnerNote = old.OwnerNote
 	}
 	if in.Type == "" {
 		in.Type = old.Type

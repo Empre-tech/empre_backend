@@ -17,6 +17,7 @@ type OfferResponse struct {
 	Price        string    `json:"price"`
 	NormalPrice  string    `json:"normal_price,omitempty"`
 	Conditions   string    `json:"conditions,omitempty"`
+	OwnerNote    string    `json:"owner_note,omitempty"`
 	StartsAt     time.Time `json:"starts_at"`
 	EndsAt       time.Time `json:"ends_at"`
 	TotalSlots   int       `json:"total_slots"`
@@ -68,6 +69,7 @@ func OfferResponseFrom(o *models.Offer) OfferResponse {
 		Price:        o.Price,
 		NormalPrice:  o.NormalPrice,
 		Conditions:   o.Conditions,
+		OwnerNote:    o.OwnerNote,
 		StartsAt:     o.StartsAt,
 		EndsAt:       o.EndsAt,
 		TotalSlots:   o.TotalSlots,

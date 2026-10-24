@@ -40,6 +40,7 @@ type MarketCandidate struct {
 	Trend     float64 // reclamos y vistas recientes (ponderados)
 	Rating    float64
 	Reason    string // por qué es para ti («Sigues a …»); vacío = no es personal
+	Open      bool   // abierto ahora según su horario (3.48)
 }
 
 type MarketSections struct {

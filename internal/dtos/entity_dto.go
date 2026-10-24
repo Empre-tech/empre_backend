@@ -46,6 +46,7 @@ type EntityDetailDTO struct {
 	Name               string                    `json:"name"`
 	Description        string                    `json:"description"`
 	Tagline            string                    `json:"tagline"`
+	AttendantName      string                    `json:"attendant_name,omitempty"`
 	Category           CategoryResponse          `json:"category"`
 	Address            string                    `json:"address"`
 	City               string                    `json:"city"`
