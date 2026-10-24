@@ -132,3 +132,22 @@ func TestBuildNeighbors(t *testing.T) {
 		t.Fatalf("anillo: %.2f", l)
 	}
 }
+
+func TestExploreGroupOf(t *testing.T) {
+	// Los mismos grupos que empre_app/src/lib/categoryGroups.ts.
+	for name, want := range map[string]string{"Restaurantes": "comer", "Cafeterías y postres": "comer", "Belleza y peluquería": "salud",
+		"Educación": "servicios", "Servicios del hogar": "servicios", "Eventos y fiestas": "planes", "Tecnología": "compras", "Una nueva": "servicios"} {
+		if got := ExploreGroupOf(name); got != want {
+			t.Errorf("%s: %s, quería %s", name, got, want)
+		}
+	}
+	// El mosaico no repite grupo aunque sean categorías distintas (el caso del emulador: almuerzo y capuchino).
+	now := time.Now()
+	lunch := barrioCand("Almuerzo", uuid.New(), uuid.New(), 0, 0, 14000, 28000, time.Hour, time.Hour, now)
+	coffee := barrioCand("Capuchino", uuid.New(), uuid.New(), 0, 0, 8000, 16000, time.Hour, time.Hour, now)
+	class := barrioCand("Clase", uuid.New(), uuid.New(), 0, 0, 25000, 50000, time.Hour, time.Hour, now)
+	lunch.Offer.Entity.Category.Name, coffee.Offer.Entity.Category.Name, class.Offer.Entity.Category.Name = "Restaurantes", "Cafeterías y postres", "Educación"
+	if got := PickBento([]MarketCandidate{lunch, coffee, class}, map[uuid.UUID]bool{}, BentoMax, false); len(got) != 2 {
+		t.Fatalf("un solo «Comer y beber» y una clase: %d piezas", len(got))
+	}
+}

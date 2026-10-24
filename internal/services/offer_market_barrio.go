@@ -12,6 +12,7 @@ import (
 // Ofertas · el barrio (3.48, mockup ofertas_donde_buscar.html versión 4). Parte pura, como offer_market.go: con las
 // candidatas ya de la ciudad arma la pasarela (tres reglas a la vista), el mosaico (un vecino de cada tipo), las
 // rutas (tres vecinos distintos cerca entre sí) y «Tus vecinos hoy» (un negocio por círculo). Nada pagado ni conteos.
+// «Tipo de negocio» es el grupo de Explorar (kindOf, explore_groups.go): así la variedad es la que ve la persona.
 
 const (
 	SpotlightNewWindow = 7 * 24 * time.Hour // «Nueva esta semana»
@@ -48,17 +49,17 @@ func SavingPesos(c MarketCandidate) int {
 func PickSpotlight(cands []MarketCandidate, now time.Time) []SpotlightSlide {
 	out := []SpotlightSlide{}
 	usedOffer := map[uuid.UUID]bool{}
-	usedCat := map[uuid.UUID]bool{}
+	usedKind := map[string]bool{}
 	add := func(rule string, c *MarketCandidate) {
 		if c == nil {
 			return
 		}
 		usedOffer[c.Offer.ID] = true
-		usedCat[c.Offer.Entity.CategoryID] = true
+		usedKind[kindOf(*c)] = true
 		out = append(out, SpotlightSlide{Rule: rule, Cand: *c})
 	}
 	free := func(c *MarketCandidate) bool {
-		return !usedOffer[c.Offer.ID] && !usedCat[c.Offer.Entity.CategoryID] && SavingPesos(*c) > 0
+		return !usedOffer[c.Offer.ID] && !usedKind[kindOf(*c)] && SavingPesos(*c) > 0
 	}
 
 	add(SpotlightSaveToday, PickFeatured(cands, now))
@@ -114,16 +115,16 @@ func PickBento(cands []MarketCandidate, skip map[uuid.UUID]bool, n int, hasLoc b
 		return list[i].Offer.EndsAt.Before(list[j].Offer.EndsAt)
 	})
 	out := []MarketCandidate{}
-	cats := map[uuid.UUID]bool{}
+	kinds := map[string]bool{}
 	ents := map[uuid.UUID]bool{}
 	for _, c := range list {
 		if len(out) == n {
 			break
 		}
-		if cats[c.Offer.Entity.CategoryID] || ents[c.Offer.EntityID] {
+		if kinds[kindOf(c)] || ents[c.Offer.EntityID] {
 			continue
 		}
-		cats[c.Offer.Entity.CategoryID] = true
+		kinds[kindOf(c)] = true
 		ents[c.Offer.EntityID] = true
 		out = append(out, c)
 	}
@@ -169,16 +170,16 @@ func BuildRoutes(cands []MarketCandidate, max int, hasLoc bool) []Route {
 			continue
 		}
 		stops := []MarketCandidate{a}
-		cats := map[uuid.UUID]bool{a.Offer.Entity.CategoryID: true}
+		kinds := map[string]bool{kindOf(a): true}
 		ents := map[uuid.UUID]bool{a.Offer.EntityID: true}
 		for _, b := range list {
 			if len(stops) == RouteStops {
 				break
 			}
-			if used[b.Offer.ID] || cats[b.Offer.Entity.CategoryID] || ents[b.Offer.EntityID] || entityDistance(a, b) > RouteRadiusM {
+			if used[b.Offer.ID] || kinds[kindOf(b)] || ents[b.Offer.EntityID] || entityDistance(a, b) > RouteRadiusM {
 				continue
 			}
-			cats[b.Offer.Entity.CategoryID] = true
+			kinds[kindOf(b)] = true
 			ents[b.Offer.EntityID] = true
 			stops = append(stops, b)
 		}
