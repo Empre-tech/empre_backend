@@ -263,6 +263,20 @@ func (h *LedgerHandler) ListItems(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"items": out})
 }
 
+// UsualExpenses: los gastos que se repiten en los últimos 30 días (Empre Finance, 3.51).
+func (h *LedgerHandler) UsualExpenses(c *gin.Context) {
+	user, entity, ok := h.ids(c)
+	if !ok {
+		return
+	}
+	out, err := h.svc.ListUsualExpenses(user, entity, time.Now(), 4)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"items": out})
+}
+
 func (h *LedgerHandler) SetItemCost(c *gin.Context) {
 	user, entity, ok := h.ids(c)
 	if !ok {

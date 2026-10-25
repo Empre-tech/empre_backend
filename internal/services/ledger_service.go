@@ -816,6 +816,9 @@ type LedgerSummary struct {
 
 	PrevSalesTotal    int `json:"prev_sales_total"`
 	PrevExpensesTotal int `json:"prev_expenses_total"`
+
+	// Lo de cada día del periodo (semana y mes; en "day" va vacío). Empre Finance dibuja sus barras con esto (3.51).
+	Days []DayTotals `json:"days,omitempty"`
 }
 
 // PeriodRange devuelve [from, to) en hora de Colombia para "day", "week" (lunes a domingo) o "month" que contiene ref.
@@ -949,6 +952,9 @@ func (s *LedgerService) Summary(ownerID, entityID uuid.UUID, period string, ref 
 		}
 	}
 	sum.Profit = sum.SalesTotal - sum.ExpensesTotal
+	if sum.Period != "day" {
+		sum.Days = DailyTotals(sales, exps, from, to)
+	}
 
 	var pays []models.DebtPayment
 	if err := s.db.Where("entity_id = ? AND occurred_at >= ? AND occurred_at < ?", entityID, from, to).Find(&pays).Error; err != nil {
