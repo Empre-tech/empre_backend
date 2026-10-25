@@ -129,6 +129,21 @@ func TestBuildPlansRespectsHoursAndThemes(t *testing.T) {
 		}
 	}
 
+	// El respaldo busca un orden en que cada parada esté abierta a su turno: el gimnasio cierra a las 9 pm, así que
+	// va primero (a las 7:30), aunque así se camine un poco más. Es el caso del emulador del 24 oct.
+	hotel := planCand("Hotel", "Turismo y hospedaje", 11.2080, -74.2270, &z, "00:00", "23:59", 210000, 280000, late)
+	gym := planCand("Gimnasio", "Deporte y recreación", 11.2050, -74.2250, &z, "05:00", "21:00", 30000, 60000, late)
+	club := planCand("Club", "Bares y vida nocturna", 11.2030, -74.2290, &z, "17:00", "02:00", 22000, 44000, late)
+	got = BuildPlans([]MarketCandidate{hotel, gym, club}, PlanOptions{HasLocation: true, Now: late})
+	if len(got) != 1 || got[0].Theme == ThemeDay {
+		t.Fatalf("respaldo con horas: %+v", got)
+	}
+	for _, st := range got[0].Stops {
+		if st.At == nil || !openAt(st.Cand, *st.At) {
+			t.Fatalf("cada parada abierta a su hora: %s", stopsOf(got[0]))
+		}
+	}
+
 	// Fuera de su ventana un tema no se arma: a las 9 pm no hay «Tarde de consentirse».
 	night := time.Date(2026, 10, 24, 21, 0, 0, 0, marketTZ)
 	n := planCand("Uñas", "Belleza y peluquería", 11.2400, -74.2100, &z, "00:00", "23:59", 35000, 50000, night)

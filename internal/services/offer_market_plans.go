@@ -309,21 +309,13 @@ func BuildPlans(cands []MarketCandidate, opt PlanOptions) []PlanRoute {
 				}
 			}
 			for _, r := range BuildRoutes(openNow, 1, opt.HasLocation) {
-				// Hora sugerida para las que tienen horario y siguen abiertas a su turno (empieza ahora, +1 h, +30 min).
-				stops := make([]PlanStop, 0, len(r.Stops))
-				at := start
-				for i, c := range r.Stops {
-					_, when := stopAt(c, PlanLevelWalk, at)
-					stops = append(stops, PlanStop{Cand: c, At: when})
-					if i == 0 {
-						at = at.Add(planFirstGap)
-					} else {
-						at = at.Add(planNextGap)
-					}
+				// Un orden en que cada parada esté abierta a su turno (ahora, +1 h, +30 min); de los que sirven, el de
+				// menos recorrido. Si ninguno sirve, la ruta no sale.
+				if stops := timedOrder(r.Stops, start); stops != nil {
+					pr := finishRoute(ThemeZone, PlanLevelWalk, stops)
+					take(&pr)
+					out = append(out, pr)
 				}
-				pr := finishRoute(ThemeZone, PlanLevelWalk, stops)
-				take(&pr)
-				out = append(out, pr)
 			}
 		}
 	}
@@ -337,6 +329,46 @@ func BuildPlans(cands []MarketCandidate, opt PlanOptions) []PlanRoute {
 		out = out[:opt.Max]
 	}
 	return out
+}
+
+// timedOrder prueba los órdenes posibles de las paradas (son 3: 6 órdenes) y devuelve, de los que dejan cada una
+// abierta a su turno, el de menos recorrido, con la hora de cada parada. nil si ninguno sirve.
+func timedOrder(cands []MarketCandidate, start time.Time) []PlanStop {
+	var best []PlanStop
+	bestWalk := 0.0
+	var try func(rest []MarketCandidate, done []MarketCandidate)
+	try = func(rest []MarketCandidate, done []MarketCandidate) {
+		if len(rest) == 0 {
+			stops := make([]PlanStop, 0, len(done))
+			at := start
+			walk := 0.0
+			for i, c := range done {
+				ok, when := stopAt(c, PlanLevelWalk, at)
+				if !ok {
+					return
+				}
+				stops = append(stops, PlanStop{Cand: c, At: when})
+				if i > 0 {
+					walk += entityDistance(done[i-1], c)
+				}
+				if i == 0 {
+					at = at.Add(planFirstGap)
+				} else {
+					at = at.Add(planNextGap)
+				}
+			}
+			if best == nil || walk < bestWalk {
+				best, bestWalk = stops, walk
+			}
+			return
+		}
+		for i := range rest {
+			next := append(append([]MarketCandidate(nil), rest[:i]...), rest[i+1:]...)
+			try(next, append(append([]MarketCandidate(nil), done...), rest[i]))
+		}
+	}
+	try(cands, nil)
+	return best
 }
 
 // NextStops es «Completa tu plan» (3.49): hasta 2 vecinos para después de reclamar `from`, de otro tipo y otro
