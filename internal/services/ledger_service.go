@@ -14,6 +14,7 @@ import (
 	"empre_backend/internal/models"
 
 	"github.com/google/uuid"
+	"golang.org/x/sync/errgroup"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -203,28 +204,31 @@ func (s *LedgerService) balances(entityID uuid.UUID) (map[uuid.UUID]int, error) 
 		PartyID uuid.UUID
 		Sum     int
 	}
-	var credit []row
-	if err := s.db.Model(&models.Sale{}).Select("party_id, COALESCE(SUM(total),0) AS sum").
-		Where("entity_id = ? AND status = ? AND method = ? AND party_id IS NOT NULL", entityID, models.LedgerActive, models.PayCredit).
-		Group("party_id").Scan(&credit).Error; err != nil {
+	var credit, buys, pays []row
+	// Tres sumas independientes: en paralelo (3.53), una ida y vuelta en vez de tres.
+	g := new(errgroup.Group)
+	g.Go(func() error {
+		return s.db.Model(&models.Sale{}).Select("party_id, COALESCE(SUM(total),0) AS sum").
+			Where("entity_id = ? AND status = ? AND method = ? AND party_id IS NOT NULL", entityID, models.LedgerActive, models.PayCredit).
+			Group("party_id").Scan(&credit).Error
+	})
+	g.Go(func() error {
+		return s.db.Model(&models.Expense{}).Select("party_id, COALESCE(SUM(amount),0) AS sum").
+			Where("entity_id = ? AND status = ? AND method = ? AND party_id IS NOT NULL", entityID, models.LedgerActive, models.PayCredit).
+			Group("party_id").Scan(&buys).Error
+	})
+	g.Go(func() error {
+		return s.db.Model(&models.DebtPayment{}).Select("party_id, COALESCE(SUM(amount),0) AS sum").
+			Where("entity_id = ?", entityID).Group("party_id").Scan(&pays).Error
+	})
+	if err := g.Wait(); err != nil {
 		return nil, err
 	}
 	for _, r := range credit {
 		out[r.PartyID] += r.Sum
 	}
-	var buys []row
-	if err := s.db.Model(&models.Expense{}).Select("party_id, COALESCE(SUM(amount),0) AS sum").
-		Where("entity_id = ? AND status = ? AND method = ? AND party_id IS NOT NULL", entityID, models.LedgerActive, models.PayCredit).
-		Group("party_id").Scan(&buys).Error; err != nil {
-		return nil, err
-	}
 	for _, r := range buys {
 		out[r.PartyID] += r.Sum
-	}
-	var pays []row
-	if err := s.db.Model(&models.DebtPayment{}).Select("party_id, COALESCE(SUM(amount),0) AS sum").
-		Where("entity_id = ?", entityID).Group("party_id").Scan(&pays).Error; err != nil {
-		return nil, err
 	}
 	for _, r := range pays {
 		out[r.PartyID] -= r.Sum
@@ -863,11 +867,51 @@ func (s *LedgerService) Summary(ownerID, entityID uuid.UUID, period string, ref 
 		sum.Period = "day"
 	}
 
-	var sales []models.Sale
-	if err := s.db.Preload("Lines").Where("entity_id = ? AND status = ? AND occurred_at >= ? AND occurred_at < ?",
-		entityID, models.LedgerActive, from, to).Find(&sales).Error; err != nil {
+	// Con la base remota cada consulta es una ida y vuelta (~100 ms) y la ejecución es casi nada: las consultas que no
+	// dependen entre sí van en paralelo (3.53), hasta 4 a la vez para no acaparar el pool. Antes eran ~11 seguidas.
+	var (
+		sales      []models.Sale
+		exps       []models.Expense
+		pays       []models.DebtPayment
+		parties    []models.Party
+		bal        map[uuid.UUID]int
+		prevSales  int
+		prevExpens int
+	)
+	pf, pt := prevRange(sum.Period, from, to)
+	g := new(errgroup.Group)
+	g.SetLimit(4)
+	g.Go(func() error {
+		return s.db.Preload("Lines").Where("entity_id = ? AND status = ? AND occurred_at >= ? AND occurred_at < ?",
+			entityID, models.LedgerActive, from, to).Find(&sales).Error
+	})
+	g.Go(func() error {
+		return s.db.Where("entity_id = ? AND status = ? AND occurred_at >= ? AND occurred_at < ?",
+			entityID, models.LedgerActive, from, to).Find(&exps).Error
+	})
+	g.Go(func() error {
+		return s.db.Where("entity_id = ? AND occurred_at >= ? AND occurred_at < ?", entityID, from, to).Find(&pays).Error
+	})
+	g.Go(func() error {
+		return s.db.Where("entity_id = ?", entityID).Find(&parties).Error
+	})
+	g.Go(func() (err error) {
+		bal, err = s.balances(entityID)
+		return err
+	})
+	g.Go(func() error {
+		return s.db.Model(&models.Sale{}).Where("entity_id = ? AND status = ? AND occurred_at >= ? AND occurred_at < ?",
+			entityID, models.LedgerActive, pf, pt).Select("COALESCE(SUM(total),0)").Scan(&prevSales).Error
+	})
+	g.Go(func() error {
+		return s.db.Model(&models.Expense{}).Where("entity_id = ? AND status = ? AND occurred_at >= ? AND occurred_at < ?",
+			entityID, models.LedgerActive, pf, pt).Select("COALESCE(SUM(amount),0)").Scan(&prevExpens).Error
+	})
+	if err := g.Wait(); err != nil {
 		return sum, err
 	}
+	sum.PrevSalesTotal, sum.PrevExpensesTotal = prevSales, prevExpens
+
 	type agg struct {
 		qty float64
 		rev int
@@ -939,11 +983,6 @@ func (s *LedgerService) Summary(ownerID, entityID uuid.UUID, period string, ref 
 		sum.TopItems = sum.TopItems[:5]
 	}
 
-	var exps []models.Expense
-	if err := s.db.Where("entity_id = ? AND status = ? AND occurred_at >= ? AND occurred_at < ?",
-		entityID, models.LedgerActive, from, to).Find(&exps).Error; err != nil {
-		return sum, err
-	}
 	for _, e := range exps {
 		sum.ExpensesTotal += e.Amount
 		sum.ExpensesByCat[e.Category] += e.Amount
@@ -956,10 +995,6 @@ func (s *LedgerService) Summary(ownerID, entityID uuid.UUID, period string, ref 
 		sum.Days = DailyTotals(sales, exps, from, to)
 	}
 
-	var pays []models.DebtPayment
-	if err := s.db.Where("entity_id = ? AND occurred_at >= ? AND occurred_at < ?", entityID, from, to).Find(&pays).Error; err != nil {
-		return sum, err
-	}
 	for _, p := range pays {
 		if p.Direction == models.DebtReceivable {
 			sum.DebtsCollected += p.Amount
@@ -970,14 +1005,6 @@ func (s *LedgerService) Summary(ownerID, entityID uuid.UUID, period string, ref 
 		}
 	}
 
-	var parties []models.Party
-	if err := s.db.Where("entity_id = ?", entityID).Find(&parties).Error; err != nil {
-		return sum, err
-	}
-	bal, err := s.balances(entityID)
-	if err != nil {
-		return sum, err
-	}
 	for _, p := range parties {
 		b := bal[p.ID]
 		if b <= 0 {
@@ -990,15 +1017,6 @@ func (s *LedgerService) Summary(ownerID, entityID uuid.UUID, period string, ref 
 		}
 	}
 
-	pf, pt := prevRange(sum.Period, from, to)
-	if err := s.db.Model(&models.Sale{}).Where("entity_id = ? AND status = ? AND occurred_at >= ? AND occurred_at < ?",
-		entityID, models.LedgerActive, pf, pt).Select("COALESCE(SUM(total),0)").Scan(&sum.PrevSalesTotal).Error; err != nil {
-		return sum, err
-	}
-	if err := s.db.Model(&models.Expense{}).Where("entity_id = ? AND status = ? AND occurred_at >= ? AND occurred_at < ?",
-		entityID, models.LedgerActive, pf, pt).Select("COALESCE(SUM(amount),0)").Scan(&sum.PrevExpensesTotal).Error; err != nil {
-		return sum, err
-	}
 	return sum, nil
 }
 

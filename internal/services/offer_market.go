@@ -3,6 +3,7 @@ package services
 import (
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -240,9 +241,17 @@ func PageAll(cands []MarketCandidate, opt AllOptions, offset, size int) (page []
 }
 
 // FoldText: minúsculas, sin tildes ni signos, espacios simples. Para comparar términos con ofertas.
+// foldChains reutiliza la cadena que quita tildes (3.53): crear una nueva en cada llamada reservaba sus búferes cada
+// vez y era el 90 % de la memoria del armado de Ofertas. Una cadena no se comparte entre goroutines a la vez.
+var foldChains = sync.Pool{New: func() any {
+	return transform.Chain(norm.NFD, runes.Remove(runes.In(unicode.Mn)), norm.NFC)
+}}
+
 func FoldText(s string) string {
-	t := transform.Chain(norm.NFD, runes.Remove(runes.In(unicode.Mn)), norm.NFC)
+	t := foldChains.Get().(transform.Transformer)
+	t.Reset()
 	out, _, err := transform.String(t, strings.ToLower(s))
+	foldChains.Put(t)
 	if err != nil {
 		out = strings.ToLower(s)
 	}

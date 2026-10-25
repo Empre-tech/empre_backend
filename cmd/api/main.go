@@ -19,7 +19,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
+	"net/http"
+	_ "net/http/pprof" // registra /debug/pprof; solo se expone con ENABLE_PPROF=1 (ver healthHandler.Pprof)
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"empre_backend/config"
@@ -27,6 +33,7 @@ import (
 	"empre_backend/internal/handlers"
 	"empre_backend/internal/middleware"
 	"empre_backend/internal/models"
+	"empre_backend/internal/observability"
 	"empre_backend/internal/repository"
 	"empre_backend/internal/services"
 	"empre_backend/internal/websocket"
@@ -142,7 +149,15 @@ func main() {
 	}
 
 	// Initialize Router
-	r := gin.Default()
+	// Observabilidad (3.53): cada petición con su id, medida (latencia y código por ruta) y registrada en JSON; un
+	// pánico es un 500 con su id. Reemplaza al logger de texto de gin.Default().
+	r := gin.New()
+	sqlDB, err := database.DB.DB()
+	if err != nil {
+		log.Fatal("No se pudo leer el pool de la base: ", err)
+	}
+	observability.Default.SetDB(sqlDB)
+	r.Use(observability.Middleware(observability.Default), observability.Recovery(observability.Default))
 
 	// Enable CORS
 	r.Use(middleware.CORSMiddleware())
@@ -231,6 +246,7 @@ func main() {
 	postFeedHandler := handlers.NewPostFeedHandler(services.NewPostFeedService(database.DB, mediaService))
 	eventService := services.NewEventService(database.DB)
 	eventHandler := handlers.NewEventHandler(eventService)
+	healthHandler := handlers.NewHealthHandler(sqlDB, observability.Default, eventService)
 	catalogHandler := handlers.NewCatalogHandler(services.NewCatalogService(database.DB))
 	// Retención: los eventos de uso de más de 180 días se borran al arrancar.
 	if n, err := eventService.PurgeOlderThan(time.Now().AddDate(0, 0, -180)); err != nil {
@@ -477,6 +493,7 @@ func main() {
 		{
 			adminGroup.GET("/entities", entityHandler.FindAllByStatus)
 			adminGroup.GET("/events/summary", eventHandler.Summary)
+			adminGroup.GET("/health", healthHandler.AdminHealth)
 			adminGroup.PATCH("/entities/:id/verify", entityHandler.VerifyEntity)
 
 			adminGroup.POST("/categories", categoryHandler.Create)
@@ -499,16 +516,41 @@ func main() {
 		api.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler, ginSwagger.DefaultModelsExpandDepth(2), ginSwagger.PersistAuthorization(true)))
 	}
 
-	// Health Check
-	r.GET("/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{
-			"status": "ok",
-		})
-	})
+	// Salud y métricas (3.53): /health (vive), /ready (la base responde), /metrics (Prometheus, protegido).
+	r.GET("/health", healthHandler.Health)
+	r.GET("/ready", healthHandler.Ready)
+	r.GET("/metrics", healthHandler.Metrics)
+	if os.Getenv("ENABLE_PPROF") == "1" {
+		r.GET("/debug/pprof/*any", healthHandler.Pprof)
+	}
 
-	// Start Server
-	log.Printf("Server starting on port %s", cfg.Port)
-	if err := r.Run(":" + cfg.Port); err != nil {
-		log.Fatal("Server start failed: ", err)
+	// Servidor con límites (3.53): un cliente lento no retiene conexiones para siempre (ReadHeaderTimeout) y las
+	// inactivas se cierran. Sin ReadTimeout/WriteTimeout globales: cortarían el chat (WebSocket) y las subidas.
+	srv := &http.Server{
+		Addr:              ":" + cfg.Port,
+		Handler:           r,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+	}
+	go func() {
+		log.Printf("Server starting on port %s", cfg.Port)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatal("Server start failed: ", err)
+		}
+	}()
+
+	// Apagado ordenado: al recibir Ctrl+C o SIGTERM (un despliegue), deja terminar lo que está en curso hasta 15 s.
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	<-stop
+	log.Println("Apagando: terminando las peticiones en curso…")
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Println("El apagado no terminó a tiempo: ", err)
+	}
+	if sqlDB, err := database.DB.DB(); err == nil {
+		_ = sqlDB.Close()
 	}
 }

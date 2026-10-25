@@ -11,6 +11,7 @@ import (
 	"empre_backend/pkg/utils"
 
 	"github.com/google/uuid"
+	"golang.org/x/sync/errgroup"
 	"gorm.io/gorm"
 )
 
@@ -180,11 +181,16 @@ func (s *OfferMarketService) load(viewer *uuid.UUID, lat, long float64, hasLoc b
 		}
 		q = q.Where("entity_id IN (SELECT id FROM entities WHERE category_id IN ? AND deleted_at IS NULL)", ids)
 	}
-	if err := q.Order("ends_at ASC").Find(&offers).Error; err != nil {
-		return b, err
-	}
-	zones, err := NewZoneService(s.db).List("")
-	if err != nil {
+	// Las ofertas (con sus precargas) y las zonas no dependen entre sí: a la vez (3.53). Con la base remota cada
+	// consulta es una ida y vuelta de ~100 ms y el armado de Ofertas hacía unas 20 seguidas.
+	var zones []models.Zone
+	g := new(errgroup.Group)
+	g.Go(func() error { return q.Order("ends_at ASC").Find(&offers).Error })
+	g.Go(func() (err error) {
+		zones, err = NewZoneService(s.db).List("")
+		return err
+	})
+	if err := g.Wait(); err != nil {
 		return b, err
 	}
 	b.zones = zones
@@ -205,22 +211,32 @@ func (s *OfferMarketService) load(viewer *uuid.UUID, lat, long float64, hasLoc b
 	ratings := map[uuid.UUID]repository.ReviewSummary{}
 	reasons := map[uuid.UUID]string{}
 	if withSignals {
-		if trend, err = s.trendScores(now); err != nil {
-			return b, err
-		}
 		entityIDs := make([]uuid.UUID, 0, len(inCity))
 		for _, o := range inCity {
 			entityIDs = append(entityIDs, o.EntityID)
 		}
+		// Tendencia, calificaciones y razones personales: independientes, a la vez.
+		sg := new(errgroup.Group)
+		sg.Go(func() (err error) {
+			trend, err = s.trendScores(now)
+			return err
+		})
 		if s.reviews != nil && len(entityIDs) > 0 {
-			if r, err := s.reviews.Summaries(entityIDs); err == nil {
-				ratings = r
-			}
+			sg.Go(func() error {
+				if r, err := s.reviews.Summaries(entityIDs); err == nil {
+					ratings = r
+				}
+				return nil // sin calificaciones la vitrina sale igual
+			})
 		}
 		if viewer != nil {
-			if reasons, err = s.personalReasons(*viewer, inCity); err != nil {
-				return b, err
-			}
+			sg.Go(func() (err error) {
+				reasons, err = s.personalReasons(*viewer, inCity)
+				return err
+			})
+		}
+		if err := sg.Wait(); err != nil {
+			return b, err
 		}
 	}
 	b.cands = make([]MarketCandidate, 0, len(inCity))
@@ -247,11 +263,29 @@ func (s *OfferMarketService) Market(viewer *uuid.UUID, lat, long float64, hasLoc
 	res.Zones = BuildZones(b.zones, b.cands, b.city, b.here, lat, long, hasLoc)
 	cands := b.cands
 
-	// Términos: los más buscados, primero los que hoy tienen alguna oferta en la ciudad.
-	raw, err := s.TopSearchTerms(now)
-	if err != nil {
+	// Términos, servicios con buenas reseñas y voces no dependen entre sí: a la vez (3.53).
+	var (
+		raw      []string
+		services []MarketCandidate
+	)
+	g := new(errgroup.Group)
+	g.Go(func() (err error) {
+		raw, err = s.TopSearchTerms(now)
+		return err
+	})
+	g.Go(func() (err error) {
+		services, err = s.reviewedServices(b, lat, long, hasLoc, now)
+		return err
+	})
+	g.Go(func() (err error) {
+		res.Voices, err = s.voices(cands)
+		return err
+	})
+	if err := g.Wait(); err != nil {
 		return res, err
 	}
+
+	// Términos: los más buscados, primero los que hoy tienen alguna oferta en la ciudad.
 	type scored struct {
 		t   string
 		hit bool
@@ -285,17 +319,10 @@ func (s *OfferMarketService) Market(viewer *uuid.UUID, lat, long float64, hasLoc
 
 	// Lo que es de todas las ofertas del barrio (círculos, rutas y voces) va antes de quitar las de arriba.
 	res.Neighbors = BuildNeighbors(cands, hasLoc, now, NeighborsMax)
-	services, err := s.reviewedServices(b, lat, long, hasLoc, now)
-	if err != nil {
-		return res, err
-	}
 	res.Routes = BuildPlans(cands, PlanOptions{HasLocation: hasLoc, Now: now, Max: RoutesMax, Services: services})
 	res.ZoneNames = map[uuid.UUID]string{}
 	for _, z := range b.zones {
 		res.ZoneNames[z.ID] = z.Name
-	}
-	if res.Voices, err = s.voices(cands); err != nil {
-		return res, err
 	}
 
 	// La destacada sale primero y no se repite en las secciones (sí en la lista completa). Con ella, la pasarela y el
@@ -489,12 +516,18 @@ func (s *OfferMarketService) reviewedServices(b marketBase, lat, long float64, h
 	if len(ids) == 0 {
 		return out, nil
 	}
-	var ents []models.Entity
-	if err := s.db.Preload("Category").Preload("Hours").Where("id IN ?", ids).Find(&ents).Error; err != nil {
-		return out, err
-	}
-	var items []models.ServiceItem
-	if err := s.db.Where("entity_id IN ? AND status = ? AND price IS NOT NULL", ids, models.ServiceActive).Order("position ASC").Find(&items).Error; err != nil {
+	var (
+		ents    []models.Entity
+		items   []models.ServiceItem
+		agendas []models.AgendaSettings
+	)
+	g := new(errgroup.Group)
+	g.Go(func() error { return s.db.Preload("Category").Preload("Hours").Where("id IN ?", ids).Find(&ents).Error })
+	g.Go(func() error {
+		return s.db.Where("entity_id IN ? AND status = ? AND price IS NOT NULL", ids, models.ServiceActive).Order("position ASC").Find(&items).Error
+	})
+	g.Go(func() error { return s.db.Where("entity_id IN ? AND enabled = ?", ids, true).Find(&agendas).Error })
+	if err := g.Wait(); err != nil {
 		return out, err
 	}
 	first := map[uuid.UUID]models.ServiceItem{}
@@ -502,10 +535,6 @@ func (s *OfferMarketService) reviewedServices(b marketBase, lat, long float64, h
 		if _, ok := first[it.EntityID]; !ok {
 			first[it.EntityID] = it
 		}
-	}
-	var agendas []models.AgendaSettings
-	if err := s.db.Where("entity_id IN ? AND enabled = ?", ids, true).Find(&agendas).Error; err != nil {
-		return out, err
 	}
 	agenda := map[uuid.UUID]bool{}
 	for _, a := range agendas {

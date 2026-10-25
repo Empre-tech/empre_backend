@@ -3,12 +3,15 @@ package database
 import (
 	"fmt"
 	"log"
+	"os"
+	"strconv"
 	"time"
 
 	"empre_backend/config"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 var DB *gorm.DB
@@ -20,6 +23,14 @@ func ConnectDB(cfg *config.Config) {
 	var err error
 	DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{
 		PrepareStmt: true, // Cache prepared statements for better performance
+		// SQL lento (3.53): umbral configurable con DB_SLOW_MS (200 ms por omisión), sin colores ANSI en los logs y
+		// sin avisar de «no encontrado» (es un resultado normal, no un problema).
+		Logger: logger.New(log.New(os.Stdout, "", log.LstdFlags), logger.Config{
+			SlowThreshold:             slowThreshold(),
+			LogLevel:                  logger.Warn,
+			IgnoreRecordNotFoundError: true,
+			Colorful:                  false,
+		}),
 	})
 	if err != nil {
 		log.Fatal("Failed to connect to database: ", err)
@@ -39,6 +50,13 @@ func ConnectDB(cfg *config.Config) {
 	// DB.Exec("CREATE EXTENSION IF NOT EXISTS postgis;")
 
 	log.Println("Database connection established")
+}
+
+func slowThreshold() time.Duration {
+	if ms, err := strconv.Atoi(os.Getenv("DB_SLOW_MS")); err == nil && ms > 0 {
+		return time.Duration(ms) * time.Millisecond
+	}
+	return 200 * time.Millisecond
 }
 
 // PrepareForPostMigration handles a one-time schema transition: the Post
