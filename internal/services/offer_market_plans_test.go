@@ -168,3 +168,69 @@ func TestNextStops(t *testing.T) {
 		t.Fatalf("completa tu plan: %v", got)
 	}
 }
+
+// serviceCand: un servicio del catálogo de un negocio sin oferta (3.50), como lo arma reviewedServices.
+func serviceCand(name, cat string, lat, long float64, zone *uuid.UUID, open, close string, price, dur int, rating float64, now time.Time) MarketCandidate {
+	c := planCand(name, cat, lat, long, zone, open, close, 0, 0, now)
+	c.Offer.SpecialPrice, c.Offer.ReferencePrice = nil, nil
+	p, d := price, dur
+	item := models.ServiceItem{ID: c.Offer.ID, Name: name, Price: &p, DurationMin: &d, Bookable: true}
+	c.Service, c.Bookable, c.Rating = &item, true, rating
+	return c
+}
+
+func TestPlansWithServices(t *testing.T) {
+	now := time.Date(2026, 10, 24, 14, 40, 0, 0, marketTZ) // 2:40 pm → la ruta empieza a las 3:00
+	z := uuid.New()
+	nails := planCand("Uñas", "Belleza y peluquería", 11.2400, -74.2100, &z, "09:00", "19:00", 35000, 50000, now)
+	hat := planCand("Sombrero", "Tiendas y comercio", 11.2427, -74.2100, &z, "09:00", "18:00", 60000, 80000, now)
+	// No hay oferta de café: entra el servicio de Café Ribera (★ 4,9), de 30 min.
+	coffee := serviceCand("Dos cafés de origen", "Cafeterías y postres", 11.2418, -74.2100, &z, "07:00", "20:00", 9000, 30, 4.9, now)
+	got := BuildPlans([]MarketCandidate{nails, hat}, PlanOptions{HasLocation: true, Now: now, Services: []MarketCandidate{coffee}})
+	if len(got) != 1 || got[0].Theme != ThemePamper {
+		t.Fatalf("tarde de consentirse con servicio: %+v", got)
+	}
+	r := got[0]
+	if s := stopsOf(r); s != "Uñas@15:00,Dos cafés de origen@16:00,Sombrero@16:35," {
+		// 3:00 uñas; +1 h (sin duración conocida) → 4:00 café; café dura 30 min + 5 min a pie → 4:35 sombrero.
+		t.Fatalf("paradas y horas: %s", s)
+	}
+	if r.Stops[1].Cand.Service == nil || r.Saving != 15000+20000 {
+		t.Fatalf("el servicio no suma ahorro: %d", r.Saving)
+	}
+	total := 0
+	for _, st := range r.Stops {
+		total += StopPrice(st.Cand)
+	}
+	if total != 35000+9000+60000 {
+		t.Fatalf("lo que cuesta el plan: %d", total)
+	}
+
+	// Un servicio nunca es la primera parada: sin ofertas no hay ruta con tema.
+	got = BuildPlans(nil, PlanOptions{HasLocation: true, Now: now, Services: []MarketCandidate{coffee}})
+	for _, r := range got {
+		if r.Stops[0].Cand.Service != nil {
+			t.Fatalf("la primera parada es un servicio: %s", stopsOf(r))
+		}
+	}
+
+	// Si hay una oferta que llena la parada, gana a cualquier servicio.
+	coffeeOffer := planCand("Café en oferta", "Cafeterías y postres", 11.2418, -74.2100, &z, "07:00", "20:00", 8000, 10000, now)
+	got = BuildPlans([]MarketCandidate{nails, coffeeOffer, hat}, PlanOptions{HasLocation: true, Now: now, Services: []MarketCandidate{coffee}})
+	if len(got) != 1 || got[0].Stops[1].Cand.Service != nil {
+		t.Fatalf("la oferta gana al servicio: %s", stopsOf(got[0]))
+	}
+}
+
+func TestBetterFirstPrefersRatingWhenSimilar(t *testing.T) {
+	now := time.Now()
+	a := planCand("Buena", "Restaurantes", 0, 0, nil, "", "", 10000, 20000, now)          // ahorra 10.000
+	b := planCand("Mejor valorada", "Restaurantes", 0, 0, nil, "", "", 10500, 20000, now) // 9.500: misma franja
+	c := planCand("Mucho ahorro", "Restaurantes", 0, 0, nil, "", "", 1000, 40000, now)    // 39.000: otra franja
+	a.Rating, b.Rating, c.Rating = 4.1, 4.9, 3.5
+	list := []MarketCandidate{a, b, c}
+	betterFirst(list, false)
+	if list[0].Offer.Title != "Mucho ahorro" || list[1].Offer.Title != "Mejor valorada" {
+		t.Fatalf("orden: %s, %s, %s", list[0].Offer.Title, list[1].Offer.Title, list[2].Offer.Title)
+	}
+}

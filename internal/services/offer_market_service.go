@@ -285,7 +285,11 @@ func (s *OfferMarketService) Market(viewer *uuid.UUID, lat, long float64, hasLoc
 
 	// Lo que es de todas las ofertas del barrio (círculos, rutas y voces) va antes de quitar las de arriba.
 	res.Neighbors = BuildNeighbors(cands, hasLoc, now, NeighborsMax)
-	res.Routes = BuildPlans(cands, PlanOptions{HasLocation: hasLoc, Now: now, Max: RoutesMax})
+	services, err := s.reviewedServices(b, lat, long, hasLoc, now)
+	if err != nil {
+		return res, err
+	}
+	res.Routes = BuildPlans(cands, PlanOptions{HasLocation: hasLoc, Now: now, Max: RoutesMax, Services: services})
 	res.ZoneNames = map[uuid.UUID]string{}
 	for _, z := range b.zones {
 		res.ZoneNames[z.ID] = z.Name
@@ -443,4 +447,90 @@ func (s *OfferMarketService) Next(offerID uuid.UUID, now time.Time) ([]MarketCan
 		}
 	}
 	return []MarketCandidate{}, nil
+}
+
+const (
+	ServiceStopMinRating  = 4.5
+	ServiceStopMinReviews = 3
+)
+
+// reviewedServices: los negocios de la ciudad SIN oferta vigente que tienen 4,5 o más en reseñas verificadas (de un
+// canje), con al menos 3, y un servicio con precio en su catálogo (3.50). Cada uno entra como candidata de servicio
+// (el primero de su catálogo con precio), con su valoración y si se puede pedir con hora en la agenda.
+func (s *OfferMarketService) reviewedServices(b marketBase, lat, long float64, hasLoc bool, now time.Time) ([]MarketCandidate, error) {
+	out := []MarketCandidate{}
+	if strings.TrimSpace(b.city) == "" {
+		return out, nil
+	}
+	withOffer := map[uuid.UUID]bool{}
+	for _, c := range b.cands {
+		withOffer[c.Offer.EntityID] = true
+	}
+	type row struct {
+		EntityID uuid.UUID
+		Avg      float64
+		N        int
+	}
+	var rows []row
+	if err := s.db.Raw(`
+		SELECT entity_id, avg(rating) AS avg, count(*) AS n FROM reviews
+		WHERE claim_id IS NOT NULL AND deleted_at IS NULL
+		GROUP BY entity_id HAVING count(*) >= ? AND avg(rating) >= ?`, ServiceStopMinReviews, ServiceStopMinRating).Scan(&rows).Error; err != nil {
+		return out, err
+	}
+	rating := map[uuid.UUID]float64{}
+	ids := []uuid.UUID{}
+	for _, r := range rows {
+		if !withOffer[r.EntityID] {
+			rating[r.EntityID] = r.Avg
+			ids = append(ids, r.EntityID)
+		}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	var ents []models.Entity
+	if err := s.db.Preload("Category").Preload("Hours").Where("id IN ?", ids).Find(&ents).Error; err != nil {
+		return out, err
+	}
+	var items []models.ServiceItem
+	if err := s.db.Where("entity_id IN ? AND status = ? AND price IS NOT NULL", ids, models.ServiceActive).Order("position ASC").Find(&items).Error; err != nil {
+		return out, err
+	}
+	first := map[uuid.UUID]models.ServiceItem{}
+	for _, it := range items {
+		if _, ok := first[it.EntityID]; !ok {
+			first[it.EntityID] = it
+		}
+	}
+	var agendas []models.AgendaSettings
+	if err := s.db.Where("entity_id IN ? AND enabled = ?", ids, true).Find(&agendas).Error; err != nil {
+		return out, err
+	}
+	agenda := map[uuid.UUID]bool{}
+	for _, a := range agendas {
+		agenda[a.EntityID] = true
+	}
+	for _, e := range ents {
+		it, ok := first[e.ID]
+		if !ok || !SameCity(e.City, b.city) {
+			continue
+		}
+		item := it
+		d := -1.0
+		if hasLoc {
+			d = utils.DistanceMeters(lat, long, e.Latitude, e.Longitude)
+		}
+		out = append(out, MarketCandidate{
+			// El servicio vive en la forma de una oferta (negocio, nombre y vigencia) para que el planificador lo trate
+			// igual: distancia, horario y tipo. No lleva precio especial: nunca muestra ahorro.
+			Offer:     models.Offer{ID: item.ID, EntityID: e.ID, Entity: e, Title: item.Name, StartsAt: now, EndsAt: now.Add(36 * time.Hour)},
+			DistanceM: d,
+			Rating:    rating[e.ID],
+			Open:      utils.IsOpenNow(e.Hours, now.In(marketTZ)),
+			Service:   &item,
+			Bookable:  agenda[e.ID] && item.Bookable && item.DurationMin != nil,
+		})
+	}
+	return out, nil
 }

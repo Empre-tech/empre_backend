@@ -7,6 +7,7 @@ import (
 
 	"empre_backend/internal/dtos"
 	"empre_backend/internal/services"
+	"empre_backend/pkg/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -34,6 +35,15 @@ type MarketItem struct {
 	// Latitude/Longitude del negocio: el mapa de «Ver la ruta» (3.49).
 	Latitude  float64 `json:"latitude"`
 	Longitude float64 `json:"longitude"`
+	// 3.50: «offer» o «service» (servicio del catálogo con precio de siempre, de un negocio con buenas reseñas).
+	Kind         string `json:"kind"`
+	ServiceID    string `json:"service_id,omitempty"`
+	ServicePrice *int   `json:"service_price,omitempty"`
+	PriceFrom    bool   `json:"price_from,omitempty"`
+	DurationMin  *int   `json:"duration_min,omitempty"`
+	Bookable     bool   `json:"bookable,omitempty"`
+	// OpenUntil: a qué hora cierra hoy («20:00»; «24h»; vacío sin horario), para reacomodar la ruta en la app.
+	OpenUntil string `json:"open_until,omitempty"`
 }
 
 // MarketSlide es una diapositiva de la pasarela: la regla a la vista y su oferta.
@@ -52,6 +62,10 @@ type MarketRoute struct {
 	Times      []*time.Time `json:"times"`
 	Saving     int          `json:"saving"`
 	WalkMeters float64      `json:"walk_meters"`
+	// 3.50: lo que cuesta el plan (precio especial de las ofertas más precio de siempre de los servicios) y la
+	// distancia de ti a la primera parada (nula sin ubicación).
+	TotalPrice      int      `json:"total_price"`
+	DistanceFromYou *float64 `json:"distance_from_you"`
 }
 
 // MarketNeighbor es un círculo de «Tus vecinos hoy»; TimeLeft (0 a 1) es lo que le queda a su oferta.
@@ -160,8 +174,14 @@ func marketItems(list []services.MarketCandidate) []MarketItem {
 			CategoryColor: e.Category.Color, CategoryIcon: e.Category.Icon, Photo: photo, DistanceMeters: d,
 			Reason: c.Reason, Trending: c.Trend >= services.MarketTrendMin,
 			AttendantName: e.AttendantName, Rating: c.Rating, OpenNow: c.Open, ProfilePhoto: services.ProfilePath(e),
-			Latitude: e.Latitude, Longitude: e.Longitude,
+			Latitude: e.Latitude, Longitude: e.Longitude, Kind: "offer", OpenUntil: utils.ClosesAt(e.Hours, utils.NowInColombia()),
 		})
+		if c.Service != nil {
+			it := &out[len(out)-1]
+			it.Kind, it.ServiceID = "service", c.Service.ID.String()
+			it.ServicePrice, it.PriceFrom, it.DurationMin, it.Bookable = c.Service.Price, c.Service.PriceFrom, c.Service.DurationMin, c.Bookable
+			it.Price, it.NormalPrice, it.SpecialPrice, it.ReferencePrice, it.Saving = "", "", nil, nil, nil
+		}
 	}
 	return out
 }
@@ -236,7 +256,7 @@ func (h *OfferMarketHandler) Market(c *gin.Context) {
 		ForYou:      marketForYou{TopRated: s.TopRated, Items: marketItems(s.ForYou)},
 		Spotlight:   marketSlides(res.Spotlight),
 		Bento:       marketItems(res.Bento),
-		Routes:      marketRoutes(res.Routes, res.ZoneNames),
+		Routes:      marketRoutes(res.Routes, res.ZoneNames, lat, long, hasLoc),
 		Neighbors:   marketNeighbors(res.Neighbors),
 		Voices:      marketVoices(res.Voices),
 	})
@@ -250,7 +270,7 @@ func marketSlides(list []services.SpotlightSlide) []MarketSlide {
 	return out
 }
 
-func marketRoutes(list []services.PlanRoute, zones map[uuid.UUID]string) []MarketRoute {
+func marketRoutes(list []services.PlanRoute, zones map[uuid.UUID]string, lat, long float64, hasLoc bool) []MarketRoute {
 	out := make([]MarketRoute, 0, len(list))
 	for _, r := range list {
 		cands := make([]services.MarketCandidate, 0, len(r.Stops))
@@ -263,7 +283,17 @@ func marketRoutes(list []services.PlanRoute, zones map[uuid.UUID]string) []Marke
 		if r.ZoneID != nil {
 			zone = zones[*r.ZoneID]
 		}
-		out = append(out, MarketRoute{Theme: r.Theme, Level: r.Level, Zone: zone, Stops: marketItems(cands), Times: times, Saving: r.Saving, WalkMeters: r.WalkM})
+		total := 0
+		for _, c := range cands {
+			total += services.StopPrice(c)
+		}
+		var fromYou *float64
+		if hasLoc && len(cands) > 0 {
+			v := utils.DistanceMeters(lat, long, cands[0].Offer.Entity.Latitude, cands[0].Offer.Entity.Longitude)
+			fromYou = &v
+		}
+		out = append(out, MarketRoute{Theme: r.Theme, Level: r.Level, Zone: zone, Stops: marketItems(cands), Times: times, Saving: r.Saving, WalkMeters: r.WalkM,
+			TotalPrice: total, DistanceFromYou: fromYou})
 	}
 	return out
 }

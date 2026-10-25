@@ -1,6 +1,7 @@
 package services
 
 import (
+	"math"
 	"sort"
 	"time"
 
@@ -81,6 +82,50 @@ type PlanOptions struct {
 	HasLocation bool
 	Now         time.Time
 	Max         int
+	// Services: servicios de negocios sin oferta con buenas reseñas (3.50). Llenan una parada que ninguna oferta
+	// llena; nunca la primera, así toda ruta lleva al menos una oferta.
+	Services []MarketCandidate
+}
+
+// walkGap: lo que se tarda caminando de un negocio al otro (80 m por minuto), redondeado a 5 min.
+func walkGap(a, b MarketCandidate) time.Duration {
+	min := int(entityDistance(a, b)/80) + 1
+	return time.Duration((min+4)/5*5) * time.Minute
+}
+
+// nextAt: la hora de la parada siguiente. Si la anterior tiene duración conocida (un servicio con agenda), es esa
+// duración más el tramo a pie; si no, los saltos fijos de siempre (1 h tras la primera, 30 min después).
+func nextAt(prev MarketCandidate, prevAt time.Time, first bool, b MarketCandidate) time.Time {
+	if prev.Service != nil && prev.Service.DurationMin != nil {
+		return prevAt.Add(time.Duration(*prev.Service.DurationMin)*time.Minute + walkGap(prev, b))
+	}
+	if first {
+		return prevAt.Add(planFirstGap)
+	}
+	return prevAt.Add(planNextGap)
+}
+
+// betterFirst ordena por ahorro y, entre dos parecidas (de la misma franja de ahorro), por valoración (3.50).
+func betterFirst(list []MarketCandidate, hasLoc bool) {
+	band := func(c MarketCandidate) int {
+		s := SavingPesos(c)
+		if s <= 0 {
+			return 0
+		}
+		return int(math.Log(float64(s)) / math.Log(1.25)) // franjas del 25 %
+	}
+	sort.SliceStable(list, func(i, j int) bool {
+		if bi, bj := barrioFirst(list[i], hasLoc), barrioFirst(list[j], hasLoc); bi != bj {
+			return bi
+		}
+		if bi, bj := band(list[i]), band(list[j]); bi != bj {
+			return bi > bj
+		}
+		if list[i].Rating != list[j].Rating {
+			return list[i].Rating > list[j].Rating
+		}
+		return SavingPesos(list[i]) > SavingPesos(list[j])
+	})
 }
 
 func slotOK(s planSlot, c MarketCandidate) bool {
@@ -145,7 +190,7 @@ func nearFor(level string, a, b MarketCandidate) bool {
 // buildThemed intenta un tema en un nivel: ancla con el mayor ahorro que llena la primera parada y, para las demás,
 // la de más ahorro que cumple su parada, la distancia del nivel, otro negocio (y otro tipo, salvo «Antojo dulce") y
 // estar abierta a su hora. Devuelve la mejor ruta de las anclas probadas.
-func buildThemed(th planTheme, level string, list []MarketCandidate, used map[uuid.UUID]bool, start time.Time) *PlanRoute {
+func buildThemed(th planTheme, level string, list, services []MarketCandidate, used map[uuid.UUID]bool, start time.Time) *PlanRoute {
 	var best *PlanRoute
 	anchors := 0
 	for _, a := range list {
@@ -163,25 +208,34 @@ func buildThemed(th planTheme, level string, list []MarketCandidate, used map[uu
 		stops := []PlanStop{{Cand: a, At: whenA}}
 		kinds := map[string]bool{kindOf(a): true}
 		ents := map[uuid.UUID]bool{a.Offer.EntityID: true}
-		at := start.Add(planFirstGap)
+		prev, prevAt := a, start
 		ok := true
 		for si := 1; si < len(th.Slots); si++ {
 			var pick *MarketCandidate
 			var when *time.Time
-			for i := range list {
-				b := &list[i]
-				if used[b.Offer.ID] || ents[b.Offer.EntityID] || !slotOK(th.Slots[si], *b) || !nearFor(level, a, *b) {
-					continue
+			var pickAt time.Time
+			// Primero las ofertas (van por ahorro: la primera que cumple es la mejor); si ninguna llena la parada, un
+			// servicio de un negocio con buenas reseñas.
+			for _, pool := range [][]MarketCandidate{list, services} {
+				for i := range pool {
+					b := &pool[i]
+					if used[b.Offer.ID] || ents[b.Offer.EntityID] || !slotOK(th.Slots[si], *b) || !nearFor(level, a, *b) {
+						continue
+					}
+					if !th.SameKindOK && kinds[kindOf(*b)] {
+						continue
+					}
+					at := nextAt(prev, prevAt, si == 1, *b)
+					okB, w := stopAt(*b, level, at)
+					if !okB {
+						continue
+					}
+					pick, when, pickAt = b, w, at
+					break
 				}
-				if !th.SameKindOK && kinds[kindOf(*b)] {
-					continue
+				if pick != nil {
+					break
 				}
-				okB, w := stopAt(*b, level, at)
-				if !okB {
-					continue
-				}
-				pick, when = b, w
-				break // la lista va por ahorro: la primera que cumple es la mejor
 			}
 			if pick == nil {
 				if th.Optional && si == len(th.Slots)-1 {
@@ -193,7 +247,7 @@ func buildThemed(th planTheme, level string, list []MarketCandidate, used map[uu
 			stops = append(stops, PlanStop{Cand: *pick, At: when})
 			kinds[kindOf(*pick)] = true
 			ents[pick.Offer.EntityID] = true
-			at = at.Add(planNextGap)
+			prev, prevAt = *pick, pickAt
 		}
 		if !ok || len(stops) < 2 {
 			continue
@@ -271,12 +325,9 @@ func BuildPlans(cands []MarketCandidate, opt PlanOptions) []PlanRoute {
 			list = append(list, c)
 		}
 	}
-	sort.SliceStable(list, func(i, j int) bool {
-		if bi, bj := barrioFirst(list[i], opt.HasLocation), barrioFirst(list[j], opt.HasLocation); bi != bj {
-			return bi
-		}
-		return SavingPesos(list[i]) > SavingPesos(list[j])
-	})
+	betterFirst(list, opt.HasLocation)
+	services := append([]MarketCandidate(nil), opt.Services...)
+	betterFirst(services, opt.HasLocation)
 	used := map[uuid.UUID]bool{}
 	take := func(r *PlanRoute) {
 		for _, s := range r.Stops {
@@ -291,7 +342,7 @@ func BuildPlans(cands []MarketCandidate, opt PlanOptions) []PlanRoute {
 				continue
 			}
 			for _, level := range []string{PlanLevelWalk, PlanLevelZone} {
-				if r := buildThemed(th, level, list, used, start); r != nil {
+				if r := buildThemed(th, level, list, services, used, start); r != nil {
 					take(r)
 					out = append(out, *r)
 					break
@@ -408,4 +459,25 @@ func NextStops(from MarketCandidate, cands []MarketCandidate, now time.Time, max
 		return r
 	}
 	return pick(PlanLevelZone)
+}
+
+// StopPrice es lo que se paga en una parada (3.50): el precio especial de la oferta (o el precio escrito, en ofertas de
+// antes) o el precio de siempre del servicio. 0 si no se sabe.
+func StopPrice(c MarketCandidate) int {
+	if c.Service != nil {
+		if c.Service.Price != nil {
+			return *c.Service.Price
+		}
+		return 0
+	}
+	if c.Offer.SpecialPrice != nil {
+		return *c.Offer.SpecialPrice
+	}
+	n := 0
+	for _, r := range c.Offer.Price {
+		if r >= '0' && r <= '9' {
+			n = n*10 + int(r-'0')
+		}
+	}
+	return n
 }

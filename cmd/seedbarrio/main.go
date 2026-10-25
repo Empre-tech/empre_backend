@@ -21,6 +21,7 @@ import (
 	"empre_backend/config"
 	"empre_backend/internal/database"
 	"empre_backend/internal/models"
+	"empre_backend/internal/services"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -114,6 +115,9 @@ func main() {
 		if n, ok := notes[e.Name]; ok {
 			db.Model(&models.Offer{}).Where("entity_id = ? AND coalesce(owner_note, '') = ''", e.ID).Update("owner_note", n)
 		}
+		if e.Name == "Café Ribera" {
+			continue // es el negocio sin oferta de 3.50: su oferta vieja debe seguir terminada
+		}
 		// Ofertas vencidas → vigentes otra vez, con finales escalonados (una en menos de una hora) y libres.
 		ends := []time.Duration{50 * time.Minute, 3 * time.Hour, 7 * time.Hour, 26 * time.Hour, 4 * 24 * time.Hour}[i%5]
 		res := db.Model(&models.Offer{}).Where("entity_id = ? AND ends_at <= ?", e.ID, now).
@@ -151,13 +155,72 @@ func main() {
 		}
 		made++
 	}
+	cafe := seedReviewedCafe(db, now)
 	fmt.Printf("Listo: %d ofertas demo vigentes otra vez, notas y quién atiende en %d negocios, %d canjes con reseña verificada.\n", reopened, len(ents), made)
+	fmt.Println(cafe)
+}
+
+// seedReviewedCafe (3.50): «Café Ribera», un negocio del Centro SIN oferta vigente, con tres reseñas verificadas (de
+// una oferta que ya terminó), un servicio de 30 min con precio y la agenda encendida. Así una ruta puede llevarlo como
+// parada de servicio («precio de siempre», entra por sus reseñas) y se puede pedir hora. Lo crea una sola vez.
+func seedReviewedCafe(db *gorm.DB, now time.Time) string {
+	var owner models.User
+	if err := db.Where("email = ?", "demo04@empre.app").First(&owner).Error; err != nil {
+		return "Café Ribera: falta demo04 (corre cmd/seeddemo)"
+	}
+	var e models.Entity
+	if err := db.Where("owner_id = ? AND name = ?", owner.ID, "Café Ribera").First(&e).Error; err == nil {
+		return "Café Ribera ya existe"
+	}
+	var cat models.Category
+	if err := db.Where("name = ?", "Cafeterías y postres").First(&cat).Error; err != nil {
+		return "Café Ribera: falta la categoría"
+	}
+	e = models.Entity{
+		ID: uuid.New(), OwnerID: owner.ID, Name: "Café Ribera", Description: "Café de la Sierra Nevada, tostado en el local.",
+		CategoryID: cat.ID, City: "Santa Marta", Address: "Cra 2 #18", ContactInfo: "+57 300 000 0000",
+		Latitude: 11.24150, Longitude: -74.21060, VerificationStatus: models.StatusVerified, IsVerified: true,
+		ServiceMode: models.ServiceModeInPlace, AttendantName: "Ana",
+	}
+	if err := services.NewZoneService(db).Assign(&e); err != nil {
+		log.Fatal(err)
+	}
+	if err := db.Create(&e).Error; err != nil {
+		log.Fatal(err)
+	}
+	for d := 0; d < 7; d++ {
+		db.Create(&models.BusinessHour{ID: uuid.New(), EntityID: e.ID, Weekday: d, OpenTime: "07:00", CloseTime: "20:00"})
+	}
+	price, dur := 9000, 30
+	db.Create(&models.ServiceItem{ID: uuid.New(), EntityID: e.ID, Name: "Dos cafés de origen", Price: &price, DurationMin: &dur, Bookable: true, Status: models.ServiceActive})
+	db.Create(&models.AgendaSettings{ID: uuid.New(), EntityID: e.ID, Enabled: true, SlotMinutes: 15, MinNoticeMin: 15, HorizonDays: 14})
+	// Una oferta que ya terminó, con tres canjes y sus reseñas verificadas.
+	sp, rp := 7000, 9000
+	old := models.Offer{ID: uuid.New(), EntityID: e.ID, Type: models.OfferDay, Title: "Café de bienvenida", Price: "$7.000", NormalPrice: "$9.000",
+		SpecialPrice: &sp, ReferencePrice: &rp, StartsAt: now.AddDate(0, 0, -12), EndsAt: now.AddDate(0, 0, -10), TotalSlots: 20, RadiusMeters: 500, RepeatPolicy: models.RepeatOnce}
+	if err := db.Create(&old).Error; err != nil {
+		log.Fatal(err)
+	}
+	for i, v := range []struct {
+		n       int
+		rating  int
+		comment string
+	}{{7, 5, "El mejor café del Centro. Ana se acuerda de cómo lo tomas."}, {8, 5, "Tostado ahí mismo, se nota en cada taza."}, {9, 4, "Rico y tranquilo para trabajar un rato."}} {
+		var u models.User
+		if err := db.Where("email = ?", fmt.Sprintf("demo%02d@empre.app", v.n)).First(&u).Error; err != nil {
+			continue
+		}
+		if err := redeemAndReview(db, u, e, old, v.rating, v.comment, now.AddDate(0, 0, -11+i)); err != nil {
+			log.Fatal(err)
+		}
+	}
+	return "Café Ribera: negocio sin oferta, con 3 reseñas verificadas, un servicio de 30 min y agenda"
 }
 
 // redeemAndReview crea un canje de este mes (CANJEADO, confirmado por el cliente) y la reseña que respalda.
 func redeemAndReview(db *gorm.DB, user models.User, e models.Entity, o models.Offer, rating int, comment string, at time.Time) error {
 	// El canje cae en este mes (para «Este mes ahorraste») aunque la reseña diga «hace unos días».
-	if y, m, _ := at.Date(); y != time.Now().Year() || m != time.Now().Month() {
+	if y, m, _ := at.Date(); (y != time.Now().Year() || m != time.Now().Month()) && o.EndsAt.After(time.Now()) {
 		at = time.Now().Add(-time.Hour)
 	}
 	tok := make([]byte, 16)

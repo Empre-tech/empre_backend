@@ -41,6 +41,10 @@ type MarketCandidate struct {
 	Rating    float64
 	Reason    string // por qué es para ti («Sigues a …»); vacío = no es personal
 	Open      bool   // abierto ahora según su horario (3.48)
+	// Service: si no es nil, la candidata es un servicio del catálogo de un negocio sin oferta que entra a una ruta
+	// por sus reseñas (3.50). Offer lleva entonces el negocio y el nombre del servicio, sin precio especial ni ahorro.
+	Service  *models.ServiceItem
+	Bookable bool // el negocio usa la agenda y el servicio se puede pedir con hora
 }
 
 type MarketSections struct {
