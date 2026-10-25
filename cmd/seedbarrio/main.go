@@ -1,6 +1,6 @@
 // Command seedbarrio prepara los negocios demo de Santa Marta para revisar la pestaña Ofertas del barrio (3.48)
 // sin borrar nada: vuelve a poner vigentes las ofertas demo que ya terminaron, les escribe la nota de quien atiende,
-// pone el nombre de quien atiende en cada negocio y crea unos pocos canjes de este mes con su reseña verificada
+// pone el nombre de quien atiende y un horario por tipo (si no tiene) en cada negocio, y crea unos pocos canjes de este mes con su reseña verificada
 // (para «Lo recomiendan tus vecinos» y «Este mes ahorraste» de demo01). Antes hay que haber corrido cmd/seeddemo.
 //
 // Desde la carpeta empre_backend:
@@ -50,6 +50,18 @@ var notes = map[string]string{
 	"Spa Mamatoco":               "Aceites de coco de aquí de la costa. Sales nuevo.",
 }
 
+// Horario de cada tipo de negocio demo (3.49: las rutas solo proponen paradas abiertas a su hora). Abre todos los días.
+var hoursByCategory = map[string][2]string{
+	"Restaurantes":          {"11:00", "22:00"},
+	"Cafeterías y postres":  {"07:00", "20:00"},
+	"Bares y vida nocturna": {"17:00", "02:00"},
+	"Deporte y recreación":  {"05:00", "21:00"},
+	"Salud y bienestar":     {"08:00", "20:00"},
+	"Belleza y peluquería":  {"09:00", "19:00"},
+	"Turismo y hospedaje":   {"00:00", "23:59"},
+	"Eventos y fiestas":     {"09:00", "18:00"},
+}
+
 // Reseñas verificadas: quién canjeó (usuario demo), en qué negocio y qué dijo.
 var voices = []struct {
 	reviewer int // demoNN
@@ -76,7 +88,7 @@ func main() {
 
 	var ents []models.Entity
 	if err := db.Joins("JOIN users u ON u.id = entities.owner_id").Where("u.email LIKE 'demo%@empre.app'").
-		Preload("Owner").Find(&ents).Error; err != nil {
+		Preload("Owner").Preload("Category").Preload("Hours").Find(&ents).Error; err != nil {
 		log.Fatal(err)
 	}
 	if len(ents) == 0 {
@@ -86,6 +98,15 @@ func main() {
 	reopened := 0
 	for i, e := range ents {
 		byName[e.Name] = e
+		if len(e.Hours) == 0 {
+			h, ok := hoursByCategory[e.Category.Name]
+			if !ok {
+				h = [2]string{"08:00", "19:00"}
+			}
+			for d := 0; d < 7; d++ {
+				db.Create(&models.BusinessHour{ID: uuid.New(), EntityID: e.ID, Weekday: d, OpenTime: h[0], CloseTime: h[1]})
+			}
+		}
 		first := strings.Fields(e.Owner.Name)
 		if len(first) > 0 && e.AttendantName == "" { // vacío o NULL (columna nueva)
 			db.Model(&models.Entity{}).Where("id = ?", e.ID).Update("attendant_name", first[0])

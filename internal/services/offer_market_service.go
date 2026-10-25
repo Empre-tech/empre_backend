@@ -46,7 +46,8 @@ type MarketResult struct {
 	// 3.48: el barrio.
 	Spotlight []SpotlightSlide // pasarela: tres reglas a la vista
 	Bento     []MarketCandidate
-	Routes    []Route
+	Routes    []PlanRoute
+	ZoneNames map[uuid.UUID]string // para «Ruta por {zona}»
 	Neighbors []Neighbor
 	Voices    []MarketVoice
 }
@@ -284,7 +285,11 @@ func (s *OfferMarketService) Market(viewer *uuid.UUID, lat, long float64, hasLoc
 
 	// Lo que es de todas las ofertas del barrio (círculos, rutas y voces) va antes de quitar las de arriba.
 	res.Neighbors = BuildNeighbors(cands, hasLoc, now, NeighborsMax)
-	res.Routes = BuildRoutes(cands, RoutesMax, hasLoc)
+	res.Routes = BuildPlans(cands, PlanOptions{HasLocation: hasLoc, Now: now, Max: RoutesMax})
+	res.ZoneNames = map[uuid.UUID]string{}
+	for _, z := range b.zones {
+		res.ZoneNames[z.ID] = z.Name
+	}
 	if res.Voices, err = s.voices(cands); err != nil {
 		return res, err
 	}
@@ -419,4 +424,23 @@ func (s *OfferMarketService) MonthSavings(user uuid.UUID, now time.Time) (MonthS
 		}
 	}
 	return out, nil
+}
+
+// Next es «Completa tu plan» (3.49): hasta 2 vecinos para después de reclamar esa oferta, contados desde su negocio
+// (de otro tipo, abiertos dentro de una hora, a pie o en su misma zona). Vacío si la oferta ya no está vigente.
+func (s *OfferMarketService) Next(offerID uuid.UUID, now time.Time) ([]MarketCandidate, error) {
+	var o models.Offer
+	if err := s.db.Preload("Entity").Where("id = ?", offerID).First(&o).Error; err != nil {
+		return nil, err
+	}
+	b, err := s.load(nil, o.Entity.Latitude, o.Entity.Longitude, true, "", "", true, now)
+	if err != nil {
+		return nil, err
+	}
+	for _, c := range b.cands {
+		if c.Offer.ID == offerID {
+			return NextStops(c, b.cands, now, 2), nil
+		}
+	}
+	return []MarketCandidate{}, nil
 }

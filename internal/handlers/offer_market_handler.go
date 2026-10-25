@@ -31,6 +31,9 @@ type MarketItem struct {
 	OpenNow       bool    `json:"open_now"`
 	// ProfilePhoto: la foto de perfil (la cara del círculo de «Tus vecinos hoy»); vacía = la inicial.
 	ProfilePhoto string `json:"profile_photo,omitempty"`
+	// Latitude/Longitude del negocio: el mapa de «Ver la ruta» (3.49).
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
 }
 
 // MarketSlide es una diapositiva de la pasarela: la regla a la vista y su oferta.
@@ -39,9 +42,14 @@ type MarketSlide struct {
 	Item MarketItem `json:"item"`
 }
 
-// MarketRoute es una ruta del barrio: tres vecinos de tipos distintos, en orden de paso, con el ahorro sumado.
+// MarketRoute es una ruta del barrio (3.49): su tema, su nivel (walk | zone | day), las paradas en orden con la hora
+// sugerida de cada una (nula si el negocio no tiene horario) y el ahorro sumado. Zone: la zona de la primera parada.
 type MarketRoute struct {
+	Theme      string       `json:"theme"`
+	Level      string       `json:"level"`
+	Zone       string       `json:"zone,omitempty"`
 	Stops      []MarketItem `json:"stops"`
+	Times      []*time.Time `json:"times"`
 	Saving     int          `json:"saving"`
 	WalkMeters float64      `json:"walk_meters"`
 }
@@ -152,6 +160,7 @@ func marketItems(list []services.MarketCandidate) []MarketItem {
 			CategoryColor: e.Category.Color, CategoryIcon: e.Category.Icon, Photo: photo, DistanceMeters: d,
 			Reason: c.Reason, Trending: c.Trend >= services.MarketTrendMin,
 			AttendantName: e.AttendantName, Rating: c.Rating, OpenNow: c.Open, ProfilePhoto: services.ProfilePath(e),
+			Latitude: e.Latitude, Longitude: e.Longitude,
 		})
 	}
 	return out
@@ -227,7 +236,7 @@ func (h *OfferMarketHandler) Market(c *gin.Context) {
 		ForYou:      marketForYou{TopRated: s.TopRated, Items: marketItems(s.ForYou)},
 		Spotlight:   marketSlides(res.Spotlight),
 		Bento:       marketItems(res.Bento),
-		Routes:      marketRoutes(res.Routes),
+		Routes:      marketRoutes(res.Routes, res.ZoneNames),
 		Neighbors:   marketNeighbors(res.Neighbors),
 		Voices:      marketVoices(res.Voices),
 	})
@@ -241,12 +250,43 @@ func marketSlides(list []services.SpotlightSlide) []MarketSlide {
 	return out
 }
 
-func marketRoutes(list []services.Route) []MarketRoute {
+func marketRoutes(list []services.PlanRoute, zones map[uuid.UUID]string) []MarketRoute {
 	out := make([]MarketRoute, 0, len(list))
 	for _, r := range list {
-		out = append(out, MarketRoute{Stops: marketItems(r.Stops), Saving: r.Saving, WalkMeters: r.WalkM})
+		cands := make([]services.MarketCandidate, 0, len(r.Stops))
+		times := make([]*time.Time, 0, len(r.Stops))
+		for _, s := range r.Stops {
+			cands = append(cands, s.Cand)
+			times = append(times, s.At)
+		}
+		zone := ""
+		if r.ZoneID != nil {
+			zone = zones[*r.ZoneID]
+		}
+		out = append(out, MarketRoute{Theme: r.Theme, Level: r.Level, Zone: zone, Stops: marketItems(cands), Times: times, Saving: r.Saving, WalkMeters: r.WalkM})
 	}
 	return out
+}
+
+// Next godoc
+// @Summary  «Completa tu plan»: hasta 2 vecinos para después de reclamar esta oferta (3.49)
+// @Tags     offers
+// @Produce  json
+// @Param    id path string true "Id de la oferta"
+// @Success  200 {object} map[string][]MarketItem
+// @Router   /offers/{id}/next [get]
+func (h *OfferMarketHandler) Next(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "oferta inválida"})
+		return
+	}
+	list, err := h.service.Next(id, time.Now())
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"items": []MarketItem{}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"items": marketItems(list)})
 }
 
 func marketNeighbors(list []services.Neighbor) []MarketNeighbor {

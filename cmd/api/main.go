@@ -389,6 +389,8 @@ func main() {
 		{
 			// «Este mes ahorraste» (3.48): solo con sesión.
 			offers.GET("/savings", offerMarketHandler.MonthSavings)
+			// «Completa tu plan» (3.49): después de reclamar.
+			offers.GET("/:id/next", offerMarketHandler.Next)
 			offers.PATCH("/:id", offerHandler.QuickAction)
 			offers.POST("/:id/republish", offerHandler.Republish)
 			offers.POST("/:id/claim", middleware.RateLimit(5, time.Minute), claimHandler.Claim)
