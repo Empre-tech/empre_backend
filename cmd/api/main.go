@@ -157,7 +157,11 @@ func main() {
 		log.Fatal("No se pudo leer el pool de la base: ", err)
 	}
 	observability.Default.SetDB(sqlDB)
-	r.Use(observability.Middleware(observability.Default), observability.Recovery(observability.Default))
+	if err := observability.InstrumentGorm(database.DB); err != nil {
+		log.Fatal("No se pudo medir la base: ", err)
+	}
+	// Timing va al final: envuelve la respuesta para poner Server-Timing cuando se pide (prueba de latencia, 3.54).
+	r.Use(observability.Middleware(observability.Default), observability.Recovery(observability.Default), observability.Timing())
 
 	// Enable CORS
 	r.Use(middleware.CORSMiddleware())
@@ -533,6 +537,14 @@ func main() {
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    1 << 20,
 	}
+	// Pool precalentado (3.54): las conexiones se abren ahora y no en la primera pantalla de alguien.
+	warmCtx, warmCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	warmStart := time.Now()
+	_, idle := config.NormalizePool(cfg.DBMaxOpenConns, cfg.DBMaxIdleConns)
+	warmed := database.WarmPool(warmCtx, sqlDB, config.WarmCount(cfg.DBWarmConns, idle))
+	warmCancel()
+	log.Printf("Pool de la base: %d conexiones listas en %d ms", warmed, time.Since(warmStart).Milliseconds())
+
 	go func() {
 		log.Printf("Server starting on port %s", cfg.Port)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {

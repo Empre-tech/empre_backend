@@ -131,6 +131,10 @@ type PoolSnapshot struct {
 	WaitCount    int64   `json:"wait_count"`
 	WaitMs       float64 `json:"wait_ms"`
 	UsagePercent float64 `json:"usage_percent"`
+	// Conexiones cerradas por pasar el máximo de inactivas o por vejez: cada una se vuelve a abrir después (TLS y
+	// autenticación con la base remota, varias idas y vueltas).
+	IdleClosed     int64 `json:"idle_closed"`
+	LifetimeClosed int64 `json:"lifetime_closed"`
 }
 
 func (r *Registry) Pool() *PoolSnapshot {
@@ -138,7 +142,8 @@ func (r *Registry) Pool() *PoolSnapshot {
 		return nil
 	}
 	s := r.db.Stats()
-	p := &PoolSnapshot{Open: s.OpenConnections, InUse: s.InUse, Idle: s.Idle, Max: s.MaxOpenConnections, WaitCount: s.WaitCount, WaitMs: float64(s.WaitDuration.Milliseconds())}
+	p := &PoolSnapshot{Open: s.OpenConnections, InUse: s.InUse, Idle: s.Idle, Max: s.MaxOpenConnections, WaitCount: s.WaitCount, WaitMs: float64(s.WaitDuration.Milliseconds()),
+		IdleClosed: s.MaxIdleClosed + s.MaxIdleTimeClosed, LifetimeClosed: s.MaxLifetimeClosed}
 	if s.MaxOpenConnections > 0 {
 		p.UsagePercent = math.Round(float64(s.InUse) * 100 / float64(s.MaxOpenConnections))
 	}
@@ -185,6 +190,7 @@ func (r *Registry) WritePrometheus(w io.Writer) {
 		fmt.Fprintf(w, "empre_db_connections{state=\"in_use\"} %d\nempre_db_connections{state=\"idle\"} %d\nempre_db_connections{state=\"max\"} %d\n", p.InUse, p.Idle, p.Max)
 		fmt.Fprintln(w, "# TYPE empre_db_wait_total counter")
 		fmt.Fprintf(w, "empre_db_wait_total %d\nempre_db_wait_ms_total %g\n", p.WaitCount, p.WaitMs)
+		fmt.Fprintf(w, "empre_db_closed_total{reason=\"idle\"} %d\nempre_db_closed_total{reason=\"lifetime\"} %d\n", p.IdleClosed, p.LifetimeClosed)
 	}
 	var names []string
 	r.counters.Range(func(k, _ any) bool { names = append(names, k.(string)); return true })
@@ -197,6 +203,10 @@ func (r *Registry) WritePrometheus(w io.Writer) {
 			fmt.Fprintf(w, "empre_events_total{name=\"%s\"} %d\n", esc(n), v.(*atomic.Int64).Load())
 		}
 	}
+	q, ms := DBTotals()
+	fmt.Fprintln(w, "# HELP empre_db_queries_total Consultas a la base (y su tiempo total) desde que arrancó el proceso.")
+	fmt.Fprintln(w, "# TYPE empre_db_queries_total counter")
+	fmt.Fprintf(w, "empre_db_queries_total %d\nempre_db_query_ms_total %g\n", q, ms)
 	fmt.Fprintln(w, "# TYPE empre_uptime_seconds gauge")
 	fmt.Fprintf(w, "empre_uptime_seconds %d\n", int(time.Since(r.started).Seconds()))
 }

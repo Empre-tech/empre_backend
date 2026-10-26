@@ -105,3 +105,30 @@ func TestPrometheusOutputAndQuantile(t *testing.T) {
 		t.Fatalf("p95 should fall in the 25 ms bucket, got %v", p95)
 	}
 }
+
+func TestServerTimingOnlyWhenAsked(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(Timing())
+	r.GET("/x", func(c *gin.Context) {
+		// Dos consultas simuladas de 30 ms.
+		dbQueries.Add(2)
+		dbNanos.Add(int64(60 * time.Millisecond))
+		c.JSON(200, gin.H{"ok": true})
+	})
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("GET", "/x", nil))
+	if w.Header().Get("Server-Timing") != "" {
+		t.Fatal("without X-Timing there must be no Server-Timing")
+	}
+
+	w = httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/x", nil)
+	req.Header.Set(HeaderTiming, "1")
+	r.ServeHTTP(w, req)
+	st := w.Header().Get("Server-Timing")
+	if !strings.Contains(st, `db;dur=60.0;desc="2"`) || !strings.HasPrefix(st, "app;dur=") {
+		t.Fatalf("unexpected Server-Timing: %q", st)
+	}
+}
