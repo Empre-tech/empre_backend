@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"empre_backend/internal/dtos"
+	"empre_backend/internal/ledger"
 	"empre_backend/internal/models"
 	"empre_backend/internal/services"
 	"empre_backend/pkg/utils"
@@ -76,6 +77,8 @@ type CreateEntityRequest struct {
 	Gallery        []string      `json:"gallery"` // List of Media IDs (UUIDs)
 	ServiceMode    string        `json:"service_mode"`
 	Hours          []HourRequest `json:"hours"`
+	// BusinessProfile: «¿Qué vendes principalmente?». Vacío = el que sugiere la categoría (o no tocarlo al editar).
+	BusinessProfile string `json:"business_profile"`
 }
 
 // HourRequest is one weekday's schedule in a create/update request.
@@ -176,22 +179,27 @@ func (h *EntityHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid service_mode. Use in_place, delivery or both"})
 		return
 	}
+	if req.BusinessProfile != "" && !ledger.ValidKind(req.BusinessProfile) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid", "message": "Tipo de negocio no válido"})
+		return
+	}
 
 	entity := models.Entity{
-		ID:             uuid.New(),
-		OwnerID:        userID.(uuid.UUID),
-		Name:           req.Name,
-		Description:    req.Description,
-		Tagline:        taglineOf(req.Tagline),
-		CategoryID:     categoryID,
-		Address:        req.Address,
-		City:           req.City,
-		ContactInfo:    req.ContactInfo,
-		Latitude:       req.Latitude,
-		Longitude:      req.Longitude,
-		ProfileMediaID: req.ProfileMediaID,
-		BannerMediaID:  req.BannerMediaID,
-		ServiceMode:    models.ServiceMode(req.ServiceMode),
+		BusinessProfile: req.BusinessProfile,
+		ID:              uuid.New(),
+		OwnerID:         userID.(uuid.UUID),
+		Name:            req.Name,
+		Description:     req.Description,
+		Tagline:         taglineOf(req.Tagline),
+		CategoryID:      categoryID,
+		Address:         req.Address,
+		City:            req.City,
+		ContactInfo:     req.ContactInfo,
+		Latitude:        req.Latitude,
+		Longitude:       req.Longitude,
+		ProfileMediaID:  req.ProfileMediaID,
+		BannerMediaID:   req.BannerMediaID,
+		ServiceMode:     models.ServiceMode(req.ServiceMode),
 	}
 
 	// Handle Gallery: at creation time each photo becomes its own
@@ -257,11 +265,13 @@ func (h *EntityHandler) Create(c *gin.Context) {
 		Description:   fullEntity.Description,
 		Tagline:       fullEntity.Tagline,
 		Category: dtos.CategoryResponse{
-			ID:    fullEntity.Category.ID,
-			Name:  fullEntity.Category.Name,
-			Icon:  fullEntity.Category.Icon,
-			Color: fullEntity.Category.Color,
+			ID:      fullEntity.Category.ID,
+			Name:    fullEntity.Category.Name,
+			Icon:    fullEntity.Category.Icon,
+			Color:   fullEntity.Category.Color,
+			Profile: fullEntity.Category.Profile,
 		},
+		BusinessProfile:    fullEntity.BusinessProfile,
 		Address:            fullEntity.Address,
 		City:               fullEntity.City,
 		ContactInfo:        fullEntity.ContactInfo,
@@ -338,11 +348,13 @@ func (h *EntityHandler) FindByID(c *gin.Context) {
 		Description: entity.Description,
 		Tagline:     entity.Tagline,
 		Category: dtos.CategoryResponse{
-			ID:    entity.Category.ID,
-			Name:  entity.Category.Name,
-			Icon:  entity.Category.Icon,
-			Color: entity.Category.Color,
+			ID:      entity.Category.ID,
+			Name:    entity.Category.Name,
+			Icon:    entity.Category.Icon,
+			Color:   entity.Category.Color,
+			Profile: entity.Category.Profile,
 		},
+		BusinessProfile:    entity.BusinessProfile,
 		Subcategories:      subcategoryDTOs(entity.Subcategories),
 		Address:            entity.Address,
 		City:               entity.City,
@@ -561,9 +573,20 @@ func (h *EntityHandler) Update(c *gin.Context) {
 		existing.BannerMediaID = req.BannerMediaID
 	}
 
+	prevCategory := existing.CategoryID
 	if req.Category != "" {
 		catID, _ := uuid.Parse(req.Category)
 		existing.CategoryID = catID
+	}
+	if req.BusinessProfile != "" {
+		if !ledger.ValidKind(req.BusinessProfile) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid", "message": "Tipo de negocio no válido"})
+			return
+		}
+		existing.BusinessProfile = req.BusinessProfile
+	} else {
+		// Cambió de categoría y el dueño nunca eligió otro tipo: sigue el que sugiere la nueva categoría.
+		h.Service.FollowCategoryProfile(existing, prevCategory)
 	}
 
 	if req.ServiceMode != "" {
@@ -1048,11 +1071,13 @@ func (h *EntityHandler) VerifyEntity(c *gin.Context) {
 		Description: entity.Description,
 		Tagline:     entity.Tagline,
 		Category: dtos.CategoryResponse{
-			ID:    entity.Category.ID,
-			Name:  entity.Category.Name,
-			Icon:  entity.Category.Icon,
-			Color: entity.Category.Color,
+			ID:      entity.Category.ID,
+			Name:    entity.Category.Name,
+			Icon:    entity.Category.Icon,
+			Color:   entity.Category.Color,
+			Profile: entity.Category.Profile,
 		},
+		BusinessProfile:    entity.BusinessProfile,
 		Subcategories:      subcategoryDTOs(entity.Subcategories),
 		Address:            entity.Address,
 		City:               entity.City,

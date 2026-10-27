@@ -213,7 +213,7 @@ type fakeModel struct {
 }
 
 func (f *fakeModel) Enabled() bool { return f.on }
-func (f *fakeModel) Chat(system string, msgs []AIMessage, tools []AITool) (*AIReply, error) {
+func (f *fakeModel) ChatTool(system string, msgs []AIMessage, tool AITool) (*AIReply, error) {
 	f.calls++
 	return &AIReply{ToolCalls: []AIToolCall{{Name: voiceToolName, Input: json.RawMessage(f.reply)}}}, nil
 }

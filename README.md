@@ -194,7 +194,7 @@ Y devuelve:
   con una sola API key, a través de su endpoint compatible con la Anthropic Messages API (`/v1/messages`),
   incluyendo *tool use* para sacar datos estructurados de una charla libre.
 - Variables de entorno: `AI_API_KEY` (sin ella, el endpoint responde 503 y el resto de la app sigue normal),
-  `AI_BASE_URL` (default `https://opencode.ai/zen/v1`), `AI_MODEL` (default `claude-haiku-4-5`).
+  `AI_BASE_URL` (default `https://opencode.ai/zen/v1`), `AI_MODEL` (default `claude-haiku-5-5`; el dictado fuerza la herramienta, así no gasta en razonamiento).
 - El modelo recibe el catálogo real de categorías/subcategorías en el system prompt y solo puede usar esos IDs;
   el backend además revalida cada `category_id`/`subcategory_id` que el modelo proponga contra la base de datos
   antes de devolverlo — un ID inventado se descarta en silencio en vez de llegar al frontend.
@@ -313,3 +313,16 @@ Pendiente/decisiones futuras:
   tokenizadas pero requiere un flujo de tokenización PCI que no se implementó en este MVP.
 - No hay cron que avise antes de que venza; se podría enviar un push unos días antes usando
   `PushService` + `Repo.FindTokensByUser` sobre el dueño.
+
+## Inventario (Mi negocio, fase 2)
+
+Tablas nuevas (AutoMigrate): `stock_items`, `stock_movements` (solo se agregan) y `expense_lines`; `service_items.sold_out` es lo único que ve el público. Rutas bajo `/api/entities/:id/ledger/`: `inventory`, `inventory/setup`, `inventory/:ref/settings`, `inventory/:ref/level`, `inventory/adjust`, `supplies`, `insights`. Vender descuenta (solo productos con cantidad exacta ya contados), comprar con `lines` suma y actualiza el costo, anular revierte. Las reglas por tipo de negocio están en `internal/ledger/stock.go`; el servicio en `internal/services/ledger_stock.go`.
+
+## Catálogo, inventario e insumos (plan de 8 fases)
+
+- **Tipo de negocio**: `categories.profile` (lo sugiere la categoría) y `entities.business_profile` (el del negocio, editable). Valores: shop, food, service, valuable, other. Al arrancar, `database.BackfillProfiles` llena los vacíos y deja en el log las categorías que no reconoce (quedan en «other» para revisarlas).
+- **Servicio o producto por ítem**: `service_items.kind` + `kind_checked`. `database.BackfillItemKinds` clasifica los ítems viejos. Cambiar de tipo: `PUT /:id/catalog/:itemId/kind` (archiva o reactiva su inventario); confirmar la revisión: `POST /:id/catalog/kinds/confirm`.
+- **Insumos en cualquier ítem**: `stock_items.also_supply` (producto que también se usa) y `product_supplies` con `qty_per_unit` opcional (recetas). `PUT /:id/ledger/inventory/:ref/ingredients` acepta `{items:[{ref,qty}]}`. Vender descuenta por receta (movimiento `use`) y anular lo devuelve.
+- **Variantes**: `service_items.parent_id` + `variant_label` (nombre «Producto · Variante»). El producto agrupa: no se vende ni se cuenta; precio y costo vacíos se heredan; se ve agotado solo si lo están todas.
+- **Cuentas abiertas**: `open_tabs` + `open_tab_lines` (ids generados por la app). Rutas `/:id/ledger/tabs` (GET, POST), `tabs/:tabId/lines` (POST), `tabs/:tabId/lines/:lineId` (DELETE), `tabs/:tabId/pay`, `tabs/:tabId/cancel`. Cobrar crea una venta normal (fiado = method credit + party_id); la propina va aparte. La voz entiende `tab_add` y `tab_pay` (`voice/parse` acepta `tab_id`).
+- **Dictado**: `AI_MODEL=claude-haiku-5-5`; el dictado fuerza la herramienta (`tool_choice`), sin razonamiento.

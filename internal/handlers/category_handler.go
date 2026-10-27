@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"empre_backend/internal/dtos"
+	"empre_backend/internal/ledger"
 	"empre_backend/internal/models"
 	"empre_backend/internal/services"
 	"net/http"
@@ -15,12 +16,16 @@ type CreateCategoryRequest struct {
 	Name  string `json:"name" binding:"required"`
 	Icon  string `json:"icon" binding:"required"`
 	Color string `json:"color"`
+	// Profile: el tipo de negocio que sugiere (shop, food, service, valuable, other). Vacío = se deduce del nombre.
+	Profile string `json:"profile"`
 }
 
 type UpdateCategoryRequest struct {
 	Name  string `json:"name" binding:"required"`
 	Icon  string `json:"icon" binding:"required"`
 	Color string `json:"color"`
+	// Profile vacío = no se cambia.
+	Profile string `json:"profile"`
 }
 
 type CategoryHandler struct {
@@ -51,10 +56,21 @@ func (h *CategoryHandler) Create(c *gin.Context) {
 		return
 	}
 
+	if req.Profile != "" && !ledger.ValidKind(req.Profile) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid", "message": "Tipo de negocio no válido: shop, food, service, valuable u other"})
+		return
+	}
+	profile := req.Profile
+	if profile == "" {
+		if profile = ledger.KindForName(req.Name); profile == "" {
+			profile = ledger.KindOther
+		}
+	}
 	category := models.Category{
-		Name:  req.Name,
-		Icon:  req.Icon,
-		Color: req.Color,
+		Name:    req.Name,
+		Icon:    req.Icon,
+		Color:   req.Color,
+		Profile: profile,
 	}
 
 	if err := h.categoryService.Create(&category); err != nil {
@@ -88,6 +104,7 @@ func (h *CategoryHandler) FindAll(c *gin.Context) {
 	var response []dtos.CategoryResponse
 	for _, cat := range categories {
 		response = append(response, dtos.CategoryResponse{
+			Profile:       cat.Profile,
 			ID:            cat.ID,
 			Name:          cat.Name,
 			Icon:          cat.Icon,
@@ -142,6 +159,7 @@ func (h *CategoryHandler) FindByID(c *gin.Context) {
 	}
 
 	response := dtos.CategoryResponse{
+		Profile:       category.Profile,
 		ID:            category.ID,
 		Name:          category.Name,
 		Icon:          category.Icon,
@@ -184,9 +202,16 @@ func (h *CategoryHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Category not found"})
 		return
 	}
+	if req.Profile != "" && !ledger.ValidKind(req.Profile) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid", "message": "Tipo de negocio no válido: shop, food, service, valuable u other"})
+		return
+	}
 	category.Name = req.Name
 	category.Icon = req.Icon
 	category.Color = req.Color
+	if req.Profile != "" {
+		category.Profile = req.Profile
+	}
 
 	if err := h.categoryService.Update(category); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

@@ -339,6 +339,18 @@ func (s *LedgerService) createSale(entityID uuid.UUID, in SaleInput, tx *gorm.DB
 				}
 				return models.Sale{}, false, err
 			}
+			if many, err := hasVariants(db, it.ID); err != nil {
+				return models.Sale{}, false, err
+			} else if many {
+				return models.Sale{}, false, &InvalidError{"«" + it.Name + "» tiene variantes: elige cuál se vendió"}
+			}
+			if it.ParentID != nil && (it.Price == nil || it.Cost == nil) {
+				var parent models.ServiceItem
+				if err := db.Select("id", "price", "cost").First(&parent, "id = ?", *it.ParentID).Error; err == nil {
+					byID := map[uuid.UUID]models.ServiceItem{parent.ID: parent}
+					it.Price, it.Cost = effectivePrice(it, byID), effectiveCost(it, byID)
+				}
+			}
 			line.ItemID = &it.ID
 			if line.Name == "" {
 				line.Name = it.Name
@@ -420,7 +432,10 @@ func (s *LedgerService) createSale(entityID uuid.UUID, in SaleInput, tx *gorm.DB
 			lines[i].SaleID = sale.ID
 		}
 		if len(lines) > 0 {
-			return t.Create(&lines).Error
+			if err := t.Create(&lines).Error; err != nil {
+				return err
+			}
+			return s.stockSale(t, entityID, sale.ID, at, lines)
 		}
 		return nil
 	}
@@ -460,11 +475,17 @@ func (s *LedgerService) VoidSale(ownerID, entityID, saleID uuid.UUID, reason str
 	}
 	now := nowCO()
 	sale.Status, sale.VoidedAt, sale.VoidReason = models.LedgerVoided, &now, cleanText(reason, 120)
-	if err := s.db.Model(&models.Sale{}).Where("id = ?", sale.ID).
-		Updates(map[string]any{"status": sale.Status, "voided_at": now, "void_reason": sale.VoidReason}).Error; err != nil {
-		return sale, err
-	}
-	return sale, nil
+	err := s.db.Transaction(func(t *gorm.DB) error {
+		if err := t.Model(&models.Sale{}).Where("id = ?", sale.ID).
+			Updates(map[string]any{"status": sale.Status, "voided_at": now, "void_reason": sale.VoidReason}).Error; err != nil {
+			return err
+		}
+		if err := s.reverseMoves(t, entityID, sale.ID, models.MoveSale, models.MoveSaleVoid, now); err != nil {
+			return err
+		}
+		return s.reverseMoves(t, entityID, sale.ID, models.MoveUse, models.MoveUseVoid, now)
+	})
+	return sale, err
 }
 
 type ListFilter struct {
@@ -513,6 +534,8 @@ type ExpenseInput struct {
 	PartyID    *uuid.UUID `json:"party_id"`
 	Note       string     `json:"note"`
 	Source     string     `json:"source"`
+	// Lines: productos o insumos comprados. Suben las existencias y actualizan el costo.
+	Lines []PurchaseLine `json:"lines"`
 }
 
 func (s *LedgerService) CreateExpense(ownerID, entityID uuid.UUID, in ExpenseInput) (models.Expense, bool, error) {
@@ -529,6 +552,13 @@ func (s *LedgerService) createExpense(entityID uuid.UUID, in ExpenseInput, tx *g
 	}
 	if in.ClientID == uuid.Nil {
 		return models.Expense{}, false, &InvalidError{"falta client_id"}
+	}
+	xlines, lsum, err := s.purchaseLines(db, entityID, in.Lines)
+	if err != nil {
+		return models.Expense{}, false, err
+	}
+	if in.Amount == 0 && lsum > 0 {
+		in.Amount = lsum // «compré 10 de esto a tal costo»: el total sale de los renglones
 	}
 	if err := checkAmount(in.Amount, "el monto"); err != nil {
 		return models.Expense{}, false, err
@@ -570,17 +600,43 @@ func (s *LedgerService) createExpense(entityID uuid.UUID, in ExpenseInput, tx *g
 		ID: in.ClientID, EntityID: entityID, ClientID: in.ClientID, OccurredAt: at, Amount: in.Amount, Category: cat, Method: in.Method,
 		PartyID: in.PartyID, Source: src, Status: models.LedgerActive, Note: cleanText(in.Note, 200),
 	}
-	res := db.Omit("Party").Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "entity_id"}, {Name: "client_id"}}, DoNothing: true}).Create(&e)
-	if res.Error != nil {
-		return models.Expense{}, false, res.Error
+	var made bool
+	body := func(t *gorm.DB) error {
+		res := t.Omit("Party", "Lines").Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "entity_id"}, {Name: "client_id"}}, DoNothing: true}).Create(&e)
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return nil
+		}
+		made = true
+		if len(xlines) == 0 {
+			return nil
+		}
+		for i := range xlines {
+			xlines[i].ExpenseID = e.ID
+		}
+		if err := t.Create(&xlines).Error; err != nil {
+			return err
+		}
+		return s.stockPurchase(t, entityID, e.ID, at, xlines)
 	}
-	if res.RowsAffected == 0 {
+	if tx != nil {
+		err = body(tx)
+	} else {
+		err = s.db.Transaction(body)
+	}
+	if err != nil {
+		return models.Expense{}, false, err
+	}
+	if !made {
 		var old models.Expense
-		if err := db.Where("entity_id = ? AND client_id = ?", entityID, in.ClientID).First(&old).Error; err != nil {
+		if err := db.Preload("Lines").Where("entity_id = ? AND client_id = ?", entityID, in.ClientID).First(&old).Error; err != nil {
 			return models.Expense{}, false, err
 		}
 		return old, false, nil
 	}
+	e.Lines = xlines
 	return e, true, nil
 }
 
@@ -600,18 +656,21 @@ func (s *LedgerService) VoidExpense(ownerID, entityID, expenseID uuid.UUID, reas
 	}
 	now := nowCO()
 	e.Status, e.VoidedAt, e.VoidReason = models.LedgerVoided, &now, cleanText(reason, 120)
-	if err := s.db.Model(&models.Expense{}).Where("id = ?", e.ID).
-		Updates(map[string]any{"status": e.Status, "voided_at": now, "void_reason": e.VoidReason}).Error; err != nil {
-		return e, err
-	}
-	return e, nil
+	err := s.db.Transaction(func(t *gorm.DB) error {
+		if err := t.Model(&models.Expense{}).Where("id = ?", e.ID).
+			Updates(map[string]any{"status": e.Status, "voided_at": now, "void_reason": e.VoidReason}).Error; err != nil {
+			return err
+		}
+		return s.reverseMoves(t, entityID, e.ID, models.MovePurchase, models.MovePurchaseVoid, now)
+	})
+	return e, err
 }
 
 func (s *LedgerService) ListExpenses(ownerID, entityID uuid.UUID, f ListFilter) ([]models.Expense, error) {
 	if err := s.requireOwner(ownerID, entityID); err != nil {
 		return nil, err
 	}
-	q := s.db.Preload("Party").Where("entity_id = ?", entityID)
+	q := s.db.Preload("Party").Preload("Lines").Where("entity_id = ?", entityID)
 	if f.From != nil {
 		q = q.Where("occurred_at >= ?", *f.From)
 	}
@@ -748,9 +807,13 @@ func (s *LedgerService) ListItems(ownerID, entityID uuid.UUID) ([]ItemCost, erro
 	if err := s.db.Where("entity_id = ? AND status = ?", entityID, models.ServiceActive).Order("position, name").Find(&items).Error; err != nil {
 		return nil, err
 	}
+	byID, children := variantInfo(items)
 	out := make([]ItemCost, 0, len(items))
 	for _, it := range items {
-		out = append(out, ItemCost{ID: it.ID, Name: it.Name, Price: it.Price, Cost: it.Cost})
+		if children[it.ID] > 0 {
+			continue // un producto con variantes no se vende: se vende cada variante
+		}
+		out = append(out, ItemCost{ID: it.ID, Name: it.Name, Price: effectivePrice(it, byID), Cost: effectiveCost(it, byID)})
 	}
 	return out, nil
 }

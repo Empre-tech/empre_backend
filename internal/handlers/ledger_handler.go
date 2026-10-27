@@ -310,6 +310,21 @@ func (h *LedgerHandler) Summary(c *gin.Context) {
 	c.JSON(http.StatusOK, out)
 }
 
+// Analytics: el análisis del negocio para un rango libre (from y to en AAAA-MM-DD, ambos incluidos) comparado con
+// compare = prev (los días justo antes, por defecto), month (mismas fechas del mes anterior) o year (del año anterior).
+func (h *LedgerHandler) Analytics(c *gin.Context) {
+	user, entity, ok := h.ids(c)
+	if !ok {
+		return
+	}
+	out, err := h.svc.Analytics(user, entity, c.Query("from"), c.Query("to"), c.DefaultQuery("compare", "prev"))
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
+}
+
 func (h *LedgerHandler) Export(c *gin.Context) {
 	user, entity, ok := h.ids(c)
 	if !ok {
@@ -343,12 +358,14 @@ func (h *LedgerHandler) VoiceParse(c *gin.Context) {
 	}
 	var body struct {
 		Text string `json:"text"`
+		// TabID: se dicta desde dentro de una cuenta abierta; lo pedido va a esa cuenta.
+		TabID *uuid.UUID `json:"tab_id"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid", "message": "datos inválidos"})
 		return
 	}
-	out, err := h.svc.ParseVoice(user, entity, body.Text)
+	out, err := h.svc.ParseVoiceIn(user, entity, body.Text, body.TabID)
 	if err != nil {
 		h.fail(c, err)
 		return
@@ -394,4 +411,326 @@ func (h *LedgerHandler) VoiceDiscard(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// ---- inventario ----
+
+func (h *LedgerHandler) Inventory(c *gin.Context) {
+	user, entity, ok := h.ids(c)
+	if !ok {
+		return
+	}
+	out, err := h.svc.Inventory(user, entity)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+// InventorySetup: un toque para arrancar. choice = recommended | simple | none.
+func (h *LedgerHandler) InventorySetup(c *gin.Context) {
+	user, entity, ok := h.ids(c)
+	if !ok {
+		return
+	}
+	var body struct {
+		Choice string `json:"choice"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid", "message": "datos inválidos"})
+		return
+	}
+	out, err := h.svc.SetupInventory(user, entity, body.Choice)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+func (h *LedgerHandler) InventorySettings(c *gin.Context) {
+	user, entity, ok := h.ids(c)
+	if !ok {
+		return
+	}
+	ref, ok := uuidParam(c, "ref")
+	if !ok {
+		return
+	}
+	var in services.ItemSettings
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid", "message": "datos inválidos"})
+		return
+	}
+	out, err := h.svc.UpdateStockSettings(user, entity, ref, in)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+// InventoryArrived: «ya llegó» (suma lo que llegó y, si se dice cuánto se pagó, registra la compra).
+func (h *LedgerHandler) InventoryArrived(c *gin.Context) {
+	user, entity, ok := h.ids(c)
+	if !ok {
+		return
+	}
+	ref, ok := uuidParam(c, "ref")
+	if !ok {
+		return
+	}
+	var in services.ArrivedInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid", "message": "datos inválidos"})
+		return
+	}
+	out, err := h.svc.Arrived(user, entity, ref, in)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+func (h *LedgerHandler) InventoryLevel(c *gin.Context) {
+	user, entity, ok := h.ids(c)
+	if !ok {
+		return
+	}
+	ref, ok := uuidParam(c, "ref")
+	if !ok {
+		return
+	}
+	var body struct {
+		ClientID uuid.UUID `json:"client_id"`
+		Level    string    `json:"level"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid", "message": "datos inválidos"})
+		return
+	}
+	if err := h.svc.SetLevel(user, entity, ref, body.Level, body.ClientID); err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+func (h *LedgerHandler) InventoryAdjust(c *gin.Context) {
+	user, entity, ok := h.ids(c)
+	if !ok {
+		return
+	}
+	var in services.AdjustInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid", "message": "datos inválidos"})
+		return
+	}
+	out, err := h.svc.Adjust(user, entity, in)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+func (h *LedgerHandler) CreateSupply(c *gin.Context) {
+	user, entity, ok := h.ids(c)
+	if !ok {
+		return
+	}
+	var in services.SupplyInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid", "message": "datos inválidos"})
+		return
+	}
+	out, err := h.svc.CreateSupply(user, entity, in)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+func (h *LedgerHandler) ArchiveSupply(c *gin.Context) {
+	user, entity, ok := h.ids(c)
+	if !ok {
+		return
+	}
+	ref, ok := uuidParam(c, "ref")
+	if !ok {
+		return
+	}
+	if err := h.svc.ArchiveSupply(user, entity, ref); err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+func (h *LedgerHandler) Insights(c *gin.Context) {
+	user, entity, ok := h.ids(c)
+	if !ok {
+		return
+	}
+	out, err := h.svc.Insights(user, entity)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"insights": out})
+}
+
+// InventoryIngredients guarda qué insumos usa un producto o plato.
+func (h *LedgerHandler) InventoryIngredients(c *gin.Context) {
+	user, entity, ok := h.ids(c)
+	if !ok {
+		return
+	}
+	ref, ok := uuidParam(c, "ref")
+	if !ok {
+		return
+	}
+	// «items» lleva cantidades (recetas); «supplies» es la forma simple, solo los insumos.
+	var in struct {
+		Supplies []uuid.UUID                `json:"supplies"`
+		Items    []services.IngredientInput `json:"items"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid", "message": "datos inválidos"})
+		return
+	}
+	items := in.Items
+	for _, r := range in.Supplies {
+		items = append(items, services.IngredientInput{Ref: r})
+	}
+	out, err := h.svc.SetRecipe(user, entity, ref, items)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+// ---------- cuentas abiertas ----------
+
+func (h *LedgerHandler) ListTabs(c *gin.Context) {
+	user, entity, ok := h.ids(c)
+	if !ok {
+		return
+	}
+	out, err := h.svc.ListTabs(user, entity)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"items": out})
+}
+
+func (h *LedgerHandler) OpenTab(c *gin.Context) {
+	user, entity, ok := h.ids(c)
+	if !ok {
+		return
+	}
+	var in services.OpenTabInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid", "message": "datos inválidos"})
+		return
+	}
+	out, err := h.svc.OpenTab(user, entity, in)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+func (h *LedgerHandler) AddToTab(c *gin.Context) {
+	user, entity, ok := h.ids(c)
+	if !ok {
+		return
+	}
+	tab, ok := uuidParam(c, "tabId")
+	if !ok {
+		return
+	}
+	var in struct {
+		Lines []services.TabLineInput `json:"lines"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid", "message": "datos inválidos"})
+		return
+	}
+	out, err := h.svc.AddToTab(user, entity, tab, in.Lines)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+func (h *LedgerHandler) RemoveFromTab(c *gin.Context) {
+	user, entity, ok := h.ids(c)
+	if !ok {
+		return
+	}
+	tab, ok := uuidParam(c, "tabId")
+	if !ok {
+		return
+	}
+	line, ok := uuidParam(c, "lineId")
+	if !ok {
+		return
+	}
+	out, err := h.svc.RemoveFromTab(user, entity, tab, line)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+func (h *LedgerHandler) PayTab(c *gin.Context) {
+	user, entity, ok := h.ids(c)
+	if !ok {
+		return
+	}
+	tab, ok := uuidParam(c, "tabId")
+	if !ok {
+		return
+	}
+	var in services.PayTabInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid", "message": "datos inválidos"})
+		return
+	}
+	out, err := h.svc.PayTab(user, entity, tab, in)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+func (h *LedgerHandler) CancelTab(c *gin.Context) {
+	user, entity, ok := h.ids(c)
+	if !ok {
+		return
+	}
+	tab, ok := uuidParam(c, "tabId")
+	if !ok {
+		return
+	}
+	var in struct {
+		Reason string `json:"reason"`
+	}
+	_ = c.ShouldBindJSON(&in)
+	out, err := h.svc.CancelTab(user, entity, tab, in.Reason)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
 }

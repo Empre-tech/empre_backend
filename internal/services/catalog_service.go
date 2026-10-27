@@ -51,6 +51,12 @@ type ServiceInput struct {
 	// DurationMin 0 quita la duración y, con ella, que se pueda reservar.
 	DurationMin *int  `json:"duration_min"`
 	Bookable    *bool `json:"bookable"`
+	// Kind: service o product. Al crear, vacío = el más probable según el tipo de negocio. Al editar se ignora: el
+	// cambio de tipo tiene su propia operación (SetKind), porque mueve el inventario.
+	Kind string `json:"kind"`
+	// ParentID + VariantLabel crean una variante (sabor, talla) de un producto. El nombre completo lo arma el servidor.
+	ParentID     *uuid.UUID `json:"parent_id"`
+	VariantLabel string     `json:"variant_label"`
 }
 
 // ValidateServiceInput limpia y valida un servicio. El precio es opcional; «desde» sin precio no tiene sentido y se
@@ -150,6 +156,21 @@ func (s *CatalogService) Create(entityID, userID uuid.UUID, in ServiceInput, now
 	if err := s.owned(entityID, userID); err != nil {
 		return nil, err
 	}
+	var parent *models.ServiceItem
+	if in.ParentID != nil {
+		p, label, err := s.variantParent(entityID, *in.ParentID, in.VariantLabel)
+		if err != nil {
+			return nil, err
+		}
+		parent = p
+		in.Name, in.VariantLabel, in.Kind = p.Name+VariantSep+label, label, models.ItemProduct
+		if in.Section == "" {
+			in.Section = p.Section
+		}
+		if in.Description == "" {
+			in.Description = p.Description
+		}
+	}
 	in, err := ValidateServiceInput(in)
 	if err != nil {
 		return nil, err
@@ -161,9 +182,23 @@ func (s *CatalogService) Create(entityID, userID uuid.UUID, in ServiceInput, now
 	if active >= MaxActiveServices {
 		return nil, ErrCatalogLimit
 	}
+	kind := in.Kind
+	if kind == "" {
+		kind = s.defaultItemKind(entityID)
+	}
+	if !models.ValidItemKind(kind) {
+		return nil, invalidService("el tipo debe ser servicio o producto")
+	}
+	if kind == models.ItemProduct && ((in.DurationMin != nil && *in.DurationMin > 0) || (in.Bookable != nil && *in.Bookable)) {
+		return nil, invalidService("un producto no lleva duración ni reserva")
+	}
 	item := models.ServiceItem{
 		EntityID: entityID, Name: in.Name, Description: in.Description, Section: in.Section,
 		Price: in.Price, PriceFrom: in.PriceFrom, Status: models.ServiceActive, Position: int(active),
+		Kind: kind, KindChecked: true,
+	}
+	if parent != nil {
+		item.ParentID, item.VariantLabel = &parent.ID, in.VariantLabel
 	}
 	if in.Price != nil {
 		item.PriceUpdatedAt = &now
@@ -171,10 +206,53 @@ func (s *CatalogService) Create(entityID, userID uuid.UUID, in ServiceInput, now
 	if err := applySchedule(&item, in); err != nil {
 		return nil, err
 	}
-	if err := s.DB.Create(&item).Error; err != nil {
+	err = s.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&item).Error; err != nil {
+			return err
+		}
+		if parent == nil {
+			return nil
+		}
+		// El producto ahora agrupa: deja de contarse (su existencia se archiva, no se borra) y se ve agotado solo si
+		// lo están todas sus variantes.
+		if err := tx.Model(&models.StockItem{}).Where("entity_id = ? AND service_item_id = ?", entityID, parent.ID).Update("archived", true).Error; err != nil {
+			return err
+		}
+		return syncParentSoldOut(tx, parent.ID)
+	})
+	if err != nil {
 		return nil, err
 	}
 	return &item, nil
+}
+
+// variantParent valida el producto al que se le agrega una variante y limpia el nombre de la variante.
+func (s *CatalogService) variantParent(entityID, parentID uuid.UUID, label string) (*models.ServiceItem, string, error) {
+	label = strings.Join(strings.Fields(label), " ")
+	if n := utf8.RuneCountInString(label); n < 1 || n > 40 {
+		return nil, "", invalidService("escribe la variante (por ejemplo, Chocolate o Talla M), de hasta 40 letras")
+	}
+	var p models.ServiceItem
+	if err := s.DB.First(&p, "id = ? AND entity_id = ? AND status = ?", parentID, entityID, models.ServiceActive).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, "", ErrCatalogNotFound
+		}
+		return nil, "", err
+	}
+	if p.ParentID != nil {
+		return nil, "", invalidService("una variante no puede tener variantes")
+	}
+	if p.IsService() {
+		return nil, "", invalidService("solo un producto puede tener variantes")
+	}
+	var n int64
+	if err := s.DB.Model(&models.ServiceItem{}).Where("parent_id = ? AND status = ?", p.ID, models.ServiceActive).Count(&n).Error; err != nil {
+		return nil, "", err
+	}
+	if n >= MaxVariants {
+		return nil, "", invalidService("un producto puede tener hasta 30 variantes")
+	}
+	return &p, label, nil
 }
 
 // Update edita un servicio (solo el dueño). Cambiar el precio (o «desde») actualiza la fecha del precio; cambiar
@@ -194,6 +272,19 @@ func (s *CatalogService) Update(entityID, itemID, userID uuid.UUID, in ServiceIn
 		}
 		return nil, err
 	}
+	if item.ParentID != nil {
+		// Una variante: se edita su parte corta; el nombre completo se arma con el del producto.
+		_, label, err := s.variantParent(entityID, *item.ParentID, firstNonEmpty(in.VariantLabel, item.VariantLabel))
+		if err != nil {
+			return nil, err
+		}
+		var p models.ServiceItem
+		if err := s.DB.Select("id", "name").First(&p, "id = ?", *item.ParentID).Error; err != nil {
+			return nil, err
+		}
+		item.VariantLabel, in.Name = label, p.Name+VariantSep+label
+	}
+	renamed := item.Name != in.Name || item.Section != in.Section
 	priceChanged := (item.Price == nil) != (in.Price == nil) ||
 		(item.Price != nil && in.Price != nil && *item.Price != *in.Price) || item.PriceFrom != in.PriceFrom
 	item.Name, item.Description, item.Section, item.PriceFrom = in.Name, in.Description, in.Section, in.PriceFrom
@@ -205,14 +296,86 @@ func (s *CatalogService) Update(entityID, itemID, userID uuid.UUID, in ServiceIn
 			item.PriceUpdatedAt = nil
 		}
 	}
+	if item.Kind == models.ItemProduct && ((in.DurationMin != nil && *in.DurationMin > 0) || (in.Bookable != nil && *in.Bookable)) {
+		return nil, invalidService("un producto no lleva duración ni reserva")
+	}
 	if err := applySchedule(&item, in); err != nil {
 		return nil, err
 	}
 	// Se guarda todo explícitamente: un precio o una duración nulos deben poder quedar nulos.
-	if err := s.DB.Model(&item).Select("name", "description", "section", "price", "price_from", "price_updated_at", "duration_min", "bookable").Updates(&item).Error; err != nil {
+	if err := s.DB.Model(&item).Select("name", "description", "section", "price", "price_from", "price_updated_at", "duration_min", "bookable", "variant_label").Updates(&item).Error; err != nil {
+		return nil, err
+	}
+	if renamed && item.ParentID == nil {
+		// Sus variantes siguen el nombre y la sección del producto.
+		if err := s.DB.Exec(`UPDATE service_items SET name = ? || variant_label, section = ? WHERE parent_id = ? AND status = 'active'`,
+			item.Name+VariantSep, item.Section, item.ID).Error; err != nil {
+			return nil, err
+		}
+	}
+	return &item, nil
+}
+
+// defaultItemKind: lo más probable que agregue un negocio según su tipo (una peluquería, servicios; una tienda o un
+// restaurante, productos). El dueño lo cambia al agregar.
+func (s *CatalogService) defaultItemKind(entityID uuid.UUID) string {
+	var e models.Entity
+	if err := s.DB.Select("id", "business_profile").First(&e, "id = ?", entityID).Error; err == nil && e.BusinessProfile == "service" {
+		return models.ItemService
+	}
+	return models.ItemProduct
+}
+
+// SetKind cambia un ítem de producto a servicio o al revés (solo el dueño). Nada se borra:
+//   - producto → servicio: su inventario se archiva (deja de contarse) y deja de verse agotado;
+//   - servicio → producto: si tenía inventario archivado, vuelve con su historia; pierde duración y reserva.
+//
+// Las ventas pasadas no cambian.
+func (s *CatalogService) SetKind(entityID, itemID, userID uuid.UUID, kind string) (*models.ServiceItem, error) {
+	if err := s.owned(entityID, userID); err != nil {
+		return nil, err
+	}
+	if !models.ValidItemKind(kind) {
+		return nil, invalidService("el tipo debe ser servicio o producto")
+	}
+	var item models.ServiceItem
+	err := s.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.First(&item, "id = ? AND entity_id = ? AND status = ?", itemID, entityID, models.ServiceActive).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrCatalogNotFound
+			}
+			return err
+		}
+		updates := map[string]any{"kind": kind, "kind_checked": true}
+		if kind == models.ItemService {
+			updates["sold_out"] = false
+			if err := tx.Model(&models.StockItem{}).Where("entity_id = ? AND service_item_id = ?", entityID, itemID).Update("archived", true).Error; err != nil {
+				return err
+			}
+		} else {
+			updates["duration_min"] = nil
+			updates["bookable"] = false
+			if err := tx.Model(&models.StockItem{}).Where("entity_id = ? AND service_item_id = ?", entityID, itemID).Update("archived", false).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Model(&item).Updates(updates).Error; err != nil {
+			return err
+		}
+		return tx.First(&item, "id = ?", itemID).Error
+	})
+	if err != nil {
 		return nil, err
 	}
 	return &item, nil
+}
+
+// ConfirmKinds da por revisado el tipo de todos los ítems del negocio (el aviso «revisa qué es cada cosa» se va).
+func (s *CatalogService) ConfirmKinds(entityID, userID uuid.UUID) error {
+	if err := s.owned(entityID, userID); err != nil {
+		return err
+	}
+	return s.DB.Model(&models.ServiceItem{}).Where("entity_id = ? AND status = ?", entityID, models.ServiceActive).Update("kind_checked", true).Error
 }
 
 // Retire marca un servicio como retirado (solo el dueño): deja de mostrarse pero se conserva el historial.
@@ -220,16 +383,24 @@ func (s *CatalogService) Retire(entityID, itemID, userID uuid.UUID) error {
 	if err := s.owned(entityID, userID); err != nil {
 		return err
 	}
-	res := s.DB.Model(&models.ServiceItem{}).
-		Where("id = ? AND entity_id = ? AND status = ?", itemID, entityID, models.ServiceActive).
-		Update("status", models.ServiceRetired)
-	if res.Error != nil {
-		return res.Error
+	var item models.ServiceItem
+	if err := s.DB.Select("id", "parent_id").First(&item, "id = ? AND entity_id = ? AND status = ?", itemID, entityID, models.ServiceActive).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrCatalogNotFound
+		}
+		return err
 	}
-	if res.RowsAffected == 0 {
-		return ErrCatalogNotFound
-	}
-	return nil
+	return s.DB.Transaction(func(tx *gorm.DB) error {
+		// Quitar un producto quita también sus variantes.
+		if err := tx.Model(&models.ServiceItem{}).Where("(id = ? OR parent_id = ?) AND entity_id = ? AND status = ?", itemID, itemID, entityID, models.ServiceActive).
+			Update("status", models.ServiceRetired).Error; err != nil {
+			return err
+		}
+		if item.ParentID != nil {
+			return syncParentSoldOut(tx, *item.ParentID)
+		}
+		return nil
+	})
 }
 
 // Confirm marca todo el catálogo activo como vigente hoy (un solo toque del dueño). Devuelve cuántos servicios.
@@ -278,4 +449,11 @@ func LoadActiveServices(db *gorm.DB, entityID uuid.UUID, ids []uuid.UUID, max in
 		out = append(out, sv)
 	}
 	return out, nil
+}
+
+func firstNonEmpty(a, b string) string {
+	if strings.TrimSpace(a) != "" {
+		return a
+	}
+	return b
 }
