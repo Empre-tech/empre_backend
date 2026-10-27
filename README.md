@@ -220,6 +220,14 @@ sin historial, para pedir 2-3 opciones de texto listas para usar.
 - Usa el mismo `AIService`/API key que el asistente conversacional; si `AI_API_KEY` no está configurada, responde 503.
 - Igual que el asistente conversacional, el dueño siempre elige una opción a mano: nada se guarda solo.
 
+## Ya llegó, análisis y grupos de insumos
+
+- **Ya llegó**: `POST /api/entities/:id/ledger/inventory/:ref/arrived` (solo el dueño). Body: `client_id`, `qty`, y opcional `paid` y `method` (`cash`, `transfer`, `card`). Suma lo que llegó (si el ítem nunca se había contado, cuenta primero); en semáforo vuelve a «hay». Con `paid` registra un gasto de mercancía y actualiza el costo. Todo va en una transacción y es idempotente por `client_id`: reenviar responde lo ya guardado. Lógica en `internal/services/ledger_arrived.go`.
+- **Análisis**: `GET /api/entities/:id/ledger/analytics?from=AAAA-MM-DD&to=AAAA-MM-DD&compare=prev|month|year` (solo el dueño). Devuelve el periodo actual y el de comparación con sus totales, la serie para gráficos (día, semana o mes según el rango), productos e inventario, y los avisos de pérdidas («Este mes perdiste», con el costo tomado de la existencia) y de insumos que se acaban. Lógica en `internal/services/ledger_analytics.go`.
+- **Grupos de insumos**: `stock_items.supply_group` (en el JSON, `group`). El nombre se limpia con `cleanGroup` antes de guardarlo.
+- **Cuentas abiertas**: construidas, pero **apagadas** (`services.TabsEnabled = false` en `internal/services/ledger_tabs.go`). Para encenderlas hay que cambiar ese valor y `FEATURES.tabs` en la app.
+- Pruebas de integración (con `TEST_DATABASE_URL`): `ledger_analytics_integration_test.go`, `ledger_arrived_integration_test.go` y `supply_group_integration_test.go`.
+
 ## Administración del negocio («Mi negocio»)
 
 Ventas, gastos, fiados, costos y dictado por voz para el dueño. Todas las rutas son `/api/entities/:id/ledger/...`,
@@ -324,5 +332,5 @@ Tablas nuevas (AutoMigrate): `stock_items`, `stock_movements` (solo se agregan) 
 - **Servicio o producto por ítem**: `service_items.kind` + `kind_checked`. `database.BackfillItemKinds` clasifica los ítems viejos. Cambiar de tipo: `PUT /:id/catalog/:itemId/kind` (archiva o reactiva su inventario); confirmar la revisión: `POST /:id/catalog/kinds/confirm`.
 - **Insumos en cualquier ítem**: `stock_items.also_supply` (producto que también se usa) y `product_supplies` con `qty_per_unit` opcional (recetas). `PUT /:id/ledger/inventory/:ref/ingredients` acepta `{items:[{ref,qty}]}`. Vender descuenta por receta (movimiento `use`) y anular lo devuelve.
 - **Variantes**: `service_items.parent_id` + `variant_label` (nombre «Producto · Variante»). El producto agrupa: no se vende ni se cuenta; precio y costo vacíos se heredan; se ve agotado solo si lo están todas.
-- **Cuentas abiertas**: `open_tabs` + `open_tab_lines` (ids generados por la app). Rutas `/:id/ledger/tabs` (GET, POST), `tabs/:tabId/lines` (POST), `tabs/:tabId/lines/:lineId` (DELETE), `tabs/:tabId/pay`, `tabs/:tabId/cancel`. Cobrar crea una venta normal (fiado = method credit + party_id); la propina va aparte. La voz entiende `tab_add` y `tab_pay` (`voice/parse` acepta `tab_id`).
+- **Cuentas abiertas** (apagadas, ver «Ya llegó, análisis y grupos de insumos»): `open_tabs` + `open_tab_lines` (ids generados por la app). Rutas `/:id/ledger/tabs` (GET, POST), `tabs/:tabId/lines` (POST), `tabs/:tabId/lines/:lineId` (DELETE), `tabs/:tabId/pay`, `tabs/:tabId/cancel`. Cobrar crea una venta normal (fiado = method credit + party_id); la propina va aparte. La voz entiende `tab_add` y `tab_pay` (`voice/parse` acepta `tab_id`).
 - **Dictado**: `AI_MODEL=claude-haiku-5-5`; el dictado fuerza la herramienta (`tool_choice`), sin razonamiento.
