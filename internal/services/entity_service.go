@@ -97,13 +97,19 @@ func (s *EntityService) FindAll(lat, long, radius float64, categoryID, subcatego
 
 	entities, total, err := s.Repo.FindAll(lat, long, radius, categoryID, subcategoryID, query, openNow, page, pageSize)
 	if err == nil {
+		// El listado solo muestra la foto de perfil, que ya viene unida a la consulta. populateMediaURLs no sirve aquí:
+		// sin la portada precargada la buscaría negocio por negocio (una consulta más por cada uno).
 		var wg sync.WaitGroup
 		for i := range entities {
+			if entities[i].ProfileMedia == nil {
+				continue
+			}
 			wg.Add(1)
-			go func(index int) {
+			go func(e *models.Entity) {
 				defer wg.Done()
-				s.populateMediaURLs(&entities[index])
-			}(i)
+				s.MediaService.PopulateURL(e.ProfileMedia)
+				e.ProfileURL = e.ProfileMedia.URL
+			}(&entities[i])
 		}
 		wg.Wait()
 	}

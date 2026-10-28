@@ -39,9 +39,9 @@ func (r *EntityRepository) FindAll(lat, long, radius float64, categoryID, subcat
 	var entities []models.Entity
 	var total int64
 
-	db := r.DB.Model(&models.Entity{}).Joins("Category").Joins("ProfileMedia").Joins("BannerMedia").Preload("Photos", func(db *gorm.DB) *gorm.DB {
-		return db.Joins("Media")
-	}).Preload("Subcategories").Preload("Hours")
+	// Solo lo que devuelve el listado (EntityMapDTO): categoría, foto de perfil y horario. La portada, la galería y las
+	// subcategorías no salen en la respuesta y costaban 2–3 consultas más por petición.
+	db := r.DB.Model(&models.Entity{}).Joins("Category").Joins("ProfileMedia").Preload("Hours")
 
 	// Filter by Category
 	db = WhereCategories(db, "category_id", categoryID)
