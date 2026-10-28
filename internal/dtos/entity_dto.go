@@ -26,15 +26,15 @@ type EntityMapDTO struct {
 	// to pick the marker icon for this business on the map.
 	CategoryIcon string `json:"category_icon"`
 	// CategoryColor is the brand hex used to tint the map portal/glyph.
-	CategoryColor string `json:"category_color,omitempty"`
-	ProfileURL   string             `json:"profile_url"`
-	Latitude     float64            `json:"latitude"`
-	Longitude    float64            `json:"longitude"`
-	IsVerified   bool               `json:"is_verified"`
-	AvgRating    float64            `json:"avg_rating"`
-	ReviewCount  int64              `json:"review_count"`
-	ServiceMode  models.ServiceMode `json:"service_mode"`
-	IsOpenNow    bool               `json:"is_open_now"`
+	CategoryColor string             `json:"category_color,omitempty"`
+	ProfileURL    string             `json:"profile_url"`
+	Latitude      float64            `json:"latitude"`
+	Longitude     float64            `json:"longitude"`
+	IsVerified    bool               `json:"is_verified"`
+	AvgRating     float64            `json:"avg_rating"`
+	ReviewCount   int64              `json:"review_count"`
+	ServiceMode   models.ServiceMode `json:"service_mode"`
+	IsOpenNow     bool               `json:"is_open_now"`
 	// HasHours indica si el negocio configuró algún horario; sin esto el
 	// frontend no puede distinguir "cerrado ahora" de "sin horario configurado".
 	HasHours bool `json:"has_hours"`
@@ -69,8 +69,10 @@ type EntityDetailDTO struct {
 	Subcategories []SubcategoryResponse `json:"subcategories,omitempty"`
 
 	ServiceMode models.ServiceMode `json:"service_mode"`
-	Hours       []HourResponse     `json:"hours,omitempty"`
-	IsOpenNow   bool               `json:"is_open_now"`
+	// BusinessProfile: el tipo de negocio (shop, food, service, valuable, other). Decide textos y sugerencias.
+	BusinessProfile string         `json:"business_profile"`
+	Hours           []HourResponse `json:"hours,omitempty"`
+	IsOpenNow       bool           `json:"is_open_now"`
 
 	// Simplified Gallery
 	Photos []PhotoResponse `json:"photos,omitempty"`

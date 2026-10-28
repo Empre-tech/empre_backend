@@ -92,7 +92,7 @@ func LoadConfig() *Config {
 		// deshabilitado (el resto de la app funciona igual).
 		AIAPIKey:  getEnv("AI_API_KEY", ""),
 		AIBaseURL: getEnv("AI_BASE_URL", "https://opencode.ai/zen/v1"),
-		AIModel:   getEnv("AI_MODEL", "claude-haiku-4-5"),
+		AIModel:   getEnv("AI_MODEL", "claude-haiku-5-5"),
 
 		WompiPublicKey:       getEnv("WOMPI_PUBLIC_KEY", ""),
 		WompiIntegritySecret: getEnv("WOMPI_INTEGRITY_SECRET", ""),

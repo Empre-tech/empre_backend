@@ -26,7 +26,10 @@ type Category struct {
 	// Family agrupa categorías relacionadas (usado para la paleta/identidad).
 	Family string `json:"family"`
 	// Synonyms alimenta la búsqueda tolerante (plural/singular, sinónimos).
-	Synonyms  []string       `gorm:"type:jsonb;serializer:json" json:"synonyms,omitempty"`
+	Synonyms []string `gorm:"type:jsonb;serializer:json" json:"synonyms,omitempty"`
+	// Profile es el tipo de negocio que esta categoría SUGIERE: shop, food, service, valuable u other. Lo elige quien
+	// administra las categorías; decide los valores por defecto (textos, control de inventario), no los impone.
+	Profile   string         `gorm:"type:varchar(10);not null;default:''" json:"profile"`
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`

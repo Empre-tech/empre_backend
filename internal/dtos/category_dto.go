@@ -19,6 +19,8 @@ type CategoryResponse struct {
 	Icon string `json:"icon"`
 	// Color is the brand hue (hex) for this category, used to tint the map
 	// portal and glyph.
-	Color         string                 `json:"color,omitempty"`
+	Color string `json:"color,omitempty"`
+	// Profile: el tipo de negocio que la categoría sugiere (shop, food, service, valuable, other).
+	Profile       string                `json:"profile,omitempty"`
 	Subcategories []SubcategoryResponse `json:"subcategories,omitempty"`
 }

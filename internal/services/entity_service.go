@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 
+	"empre_backend/internal/ledger"
 	"empre_backend/internal/models"
 	"empre_backend/internal/repository"
 	"sync"
@@ -30,6 +31,9 @@ func (s *EntityService) CreateEntity(entity *models.Entity) error {
 	if entity.Name == "" {
 		return errors.New("name is required")
 	}
+	if !ledger.ValidKind(entity.BusinessProfile) {
+		entity.BusinessProfile = s.CategoryKind(entity.CategoryID)
+	}
 	s.assignZone(entity)
 	return s.Repo.Create(entity)
 }
@@ -37,6 +41,32 @@ func (s *EntityService) CreateEntity(entity *models.Entity) error {
 func (s *EntityService) UpdateEntity(entity *models.Entity) error {
 	s.assignZone(entity)
 	return s.Repo.Update(entity)
+}
+
+// CategoryKind es el tipo de negocio que sugiere una categoría (su campo profile; si está vacío, por su nombre).
+func (s *EntityService) CategoryKind(categoryID uuid.UUID) string {
+	var c models.Category
+	if err := s.Repo.DB.Select("id", "name", "profile").First(&c, "id = ?", categoryID).Error; err != nil {
+		return ledger.KindOther
+	}
+	if ledger.ValidKind(c.Profile) {
+		return c.Profile
+	}
+	if k := ledger.KindForName(c.Name); k != "" {
+		return k
+	}
+	return ledger.KindOther
+}
+
+// FollowCategoryProfile: si el negocio cambió de categoría y su tipo era el que sugería la anterior (el dueño no lo
+// había cambiado a mano), toma el de la nueva. Si el dueño lo había elegido, se respeta.
+func (s *EntityService) FollowCategoryProfile(e *models.Entity, prevCategory uuid.UUID) {
+	if e.CategoryID == prevCategory {
+		return
+	}
+	if !ledger.ValidKind(e.BusinessProfile) || e.BusinessProfile == s.CategoryKind(prevCategory) {
+		e.BusinessProfile = s.CategoryKind(e.CategoryID)
+	}
 }
 
 // assignZone no impide guardar el negocio si falla: la zona es un dato de ayuda.

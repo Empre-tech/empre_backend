@@ -48,8 +48,38 @@ type ServiceItem struct {
 	// ninguna respuesta pública del catálogo (json:"-").
 	Cost *int `gorm:"check:chk_service_items_cost,cost IS NULL OR (cost >= 0 AND cost <= 10000000)" json:"-"`
 
+	// Kind dice qué es: un servicio (no se agota: lleva duración y reserva) o un producto (se cuenta: existencias y
+	// costo). Lo elige el dueño al agregarlo; los ítems de antes los clasificó la migración (KindChecked = false).
+	Kind string `gorm:"type:varchar(10);not null;default:''" json:"kind"`
+	// ParentID: si es una variante (sabor, talla, tamaño), el producto al que pertenece. Su nombre completo es
+	// «<producto> · <variante>» y VariantLabel es la parte corta. Precio y costo vacíos se heredan del producto.
+	ParentID     *uuid.UUID `gorm:"type:uuid;index" json:"parent_id,omitempty"`
+	VariantLabel string     `gorm:"size:40" json:"variant_label,omitempty"`
+	// KindChecked: el dueño confirmó el tipo. Falso solo en ítems que la migración clasificó sin una señal clara.
+	KindChecked bool `gorm:"default:false" json:"kind_checked"`
+
+	// SoldOut: agotado según el inventario (se sincroniza solo). Es lo único del inventario que ve el público.
+	SoldOut bool `gorm:"default:false" json:"sold_out"`
+
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// Tipos de ítem del catálogo.
+const (
+	ItemService = "service"
+	ItemProduct = "product"
+)
+
+// ValidItemKind dice si k es un tipo de ítem conocido.
+func ValidItemKind(k string) bool { return k == ItemService || k == ItemProduct }
+
+// IsService dice si el ítem es un servicio. Un ítem sin tipo (datos viejos) se juzga como antes: por su duración.
+func (it ServiceItem) IsService() bool {
+	if ValidItemKind(it.Kind) {
+		return it.Kind == ItemService
+	}
+	return it.Bookable || it.DurationMin != nil
 }
 
 func (ServiceItem) TableName() string {

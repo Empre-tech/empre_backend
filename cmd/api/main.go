@@ -106,6 +106,12 @@ func main() {
 		&models.SaleLine{},
 		&models.Expense{},
 		&models.DebtPayment{},
+		&models.StockItem{},
+		&models.StockMovement{},
+		&models.ExpenseLine{},
+		&models.ProductSupply{},
+		&models.OpenTab{},
+		&models.OpenTabLine{},
 		&models.VoiceDraft{},
 	)
 	if err != nil {
@@ -128,6 +134,14 @@ func main() {
 	}
 	if err := database.MigrateHierarchy(database.DB); err != nil {
 		log.Fatal("No se pudo migrar la jerarquía de categorías: ", err)
+	}
+	// Tipo de negocio (categorías y negocios): se llena donde falte.
+	if _, err := database.BackfillProfiles(database.DB); err != nil {
+		log.Fatal("No se pudo llenar el tipo de negocio: ", err)
+	}
+	// Tipo de cada ítem del catálogo (servicio o producto): después del tipo de negocio, que lo usa.
+	if err := database.BackfillItemKinds(database.DB); err != nil {
+		log.Fatal("No se pudo llenar el tipo de los ítems: ", err)
 	}
 	if err := database.MigratePlaces(database.DB); err != nil {
 		log.Fatal("No se pudo migrar los places: ", err)
@@ -316,6 +330,8 @@ func main() {
 				entitiesProtected.POST("/:id/catalog", catalogHandler.Create)
 				entitiesProtected.POST("/:id/catalog/confirm", catalogHandler.Confirm)
 				entitiesProtected.PUT("/:id/catalog/:itemId", catalogHandler.Update)
+				entitiesProtected.PUT("/:id/catalog/:itemId/kind", catalogHandler.SetKind)
+				entitiesProtected.POST("/:id/catalog/kinds/confirm", catalogHandler.ConfirmKinds)
 				entitiesProtected.DELETE("/:id/catalog/:itemId", catalogHandler.Retire)
 				entitiesProtected.DELETE("/:id", entityHandler.Delete)
 				entitiesProtected.POST("/:id/images", entityHandler.UploadImage)
@@ -365,7 +381,24 @@ func main() {
 				entitiesProtected.GET("/:id/ledger/items", ledgerHandler.ListItems)
 				entitiesProtected.PUT("/:id/ledger/items/:itemId/cost", ledgerHandler.SetItemCost)
 				entitiesProtected.GET("/:id/ledger/summary", ledgerHandler.Summary)
+				entitiesProtected.GET("/:id/ledger/analytics", ledgerHandler.Analytics)
 				entitiesProtected.GET("/:id/ledger/export", ledgerHandler.Export)
+				entitiesProtected.GET("/:id/ledger/inventory", ledgerHandler.Inventory)
+				entitiesProtected.POST("/:id/ledger/inventory/setup", ledgerHandler.InventorySetup)
+				entitiesProtected.PUT("/:id/ledger/inventory/:ref/settings", ledgerHandler.InventorySettings)
+				entitiesProtected.PUT("/:id/ledger/inventory/:ref/level", ledgerHandler.InventoryLevel)
+				entitiesProtected.POST("/:id/ledger/inventory/:ref/arrived", ledgerHandler.InventoryArrived)
+				entitiesProtected.PUT("/:id/ledger/inventory/:ref/ingredients", ledgerHandler.InventoryIngredients)
+				entitiesProtected.GET("/:id/ledger/tabs", ledgerHandler.ListTabs)
+				entitiesProtected.POST("/:id/ledger/tabs", ledgerHandler.OpenTab)
+				entitiesProtected.POST("/:id/ledger/tabs/:tabId/lines", ledgerHandler.AddToTab)
+				entitiesProtected.DELETE("/:id/ledger/tabs/:tabId/lines/:lineId", ledgerHandler.RemoveFromTab)
+				entitiesProtected.POST("/:id/ledger/tabs/:tabId/pay", ledgerHandler.PayTab)
+				entitiesProtected.POST("/:id/ledger/tabs/:tabId/cancel", ledgerHandler.CancelTab)
+				entitiesProtected.POST("/:id/ledger/inventory/adjust", ledgerHandler.InventoryAdjust)
+				entitiesProtected.POST("/:id/ledger/supplies", ledgerHandler.CreateSupply)
+				entitiesProtected.DELETE("/:id/ledger/supplies/:ref", ledgerHandler.ArchiveSupply)
+				entitiesProtected.GET("/:id/ledger/insights", ledgerHandler.Insights)
 				entitiesProtected.POST("/:id/ledger/voice/parse", ledgerHandler.VoiceParse)
 				entitiesProtected.POST("/:id/ledger/voice/:draftId/confirm", ledgerHandler.VoiceConfirm)
 				entitiesProtected.POST("/:id/ledger/voice/:draftId/discard", ledgerHandler.VoiceDiscard)

@@ -56,14 +56,17 @@ type Entity struct {
 	IsVerified         bool               `gorm:"default:false" json:"is_verified"` // Check dorado
 	// Cómo atiende: en el lugar, a domicilio, o ambos. Vacío = sin especificar (negocios
 	// creados antes de este campo).
-	ServiceMode ServiceMode    `gorm:"type:varchar(20)" json:"service_mode"`
-	CreatedAt   time.Time      `json:"created_at"`
-	UpdatedAt   time.Time      `json:"updated_at"`
-	DeletedAt   gorm.DeletedAt `gorm:"index" json:"-"`
+	ServiceMode ServiceMode `gorm:"type:varchar(20)" json:"service_mode"`
+	// BusinessProfile es el tipo de negocio (shop, food, service, valuable, other). Arranca con el que sugiere su
+	// categoría y el dueño lo puede cambiar («¿Qué vendes principalmente?»).
+	BusinessProfile string         `gorm:"type:varchar(10);not null;default:''" json:"business_profile"`
+	CreatedAt       time.Time      `json:"created_at"`
+	UpdatedAt       time.Time      `json:"updated_at"`
+	DeletedAt       gorm.DeletedAt `gorm:"index" json:"-"`
 
 	// Associations
-	Owner         User           `gorm:"foreignKey:OwnerID" json:"-"`
-	Category      Category       `gorm:"foreignKey:CategoryID" json:"category"`
+	Owner    User     `gorm:"foreignKey:OwnerID" json:"-"`
+	Category Category `gorm:"foreignKey:CategoryID" json:"category"`
 	// Photos: every photo/video of this business, flat (used by the profile grid).
 	Photos []EntityPhoto `gorm:"foreignKey:EntityID" json:"photos"`
 	// PhotosCount es cuántas fotos (sin videos) tiene en total cuando Photos trae solo una muestra (listado del mapa).

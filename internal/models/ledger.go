@@ -111,20 +111,21 @@ func (SaleLine) TableName() string { return "sale_lines" }
 
 // Expense es un gasto. Con método «credit» es una compra a crédito: queda como deuda con el proveedor.
 type Expense struct {
-	ID         uuid.UUID  `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
-	EntityID   uuid.UUID  `gorm:"type:uuid;not null;index:idx_expenses_entity_time,priority:1;uniqueIndex:uniq_expenses_client,priority:1" json:"entity_id"`
-	ClientID   uuid.UUID  `gorm:"type:uuid;not null;uniqueIndex:uniq_expenses_client,priority:2" json:"client_id"`
-	OccurredAt time.Time  `gorm:"not null;index:idx_expenses_entity_time,priority:2" json:"occurred_at"`
-	Amount     int        `gorm:"not null;check:chk_expenses_amount,amount > 0 AND amount <= 100000000" json:"amount"`
-	Category   string     `gorm:"size:30;not null;default:'otro'" json:"category"`
-	Method     string     `gorm:"type:varchar(10);not null" json:"method"`
-	PartyID    *uuid.UUID `gorm:"type:uuid;index" json:"party_id,omitempty"`
-	Party      *Party     `gorm:"foreignKey:PartyID" json:"party,omitempty"`
-	Source     string     `gorm:"type:varchar(20);not null;default:'manual'" json:"source"`
-	Status     string     `gorm:"type:varchar(10);not null;default:'active';index" json:"status"`
-	VoidedAt   *time.Time `json:"voided_at,omitempty"`
-	VoidReason string     `gorm:"size:120" json:"void_reason,omitempty"`
-	Note       string     `gorm:"size:200" json:"note"`
+	ID         uuid.UUID     `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	EntityID   uuid.UUID     `gorm:"type:uuid;not null;index:idx_expenses_entity_time,priority:1;uniqueIndex:uniq_expenses_client,priority:1" json:"entity_id"`
+	ClientID   uuid.UUID     `gorm:"type:uuid;not null;uniqueIndex:uniq_expenses_client,priority:2" json:"client_id"`
+	OccurredAt time.Time     `gorm:"not null;index:idx_expenses_entity_time,priority:2" json:"occurred_at"`
+	Amount     int           `gorm:"not null;check:chk_expenses_amount,amount > 0 AND amount <= 100000000" json:"amount"`
+	Category   string        `gorm:"size:30;not null;default:'otro'" json:"category"`
+	Method     string        `gorm:"type:varchar(10);not null" json:"method"`
+	PartyID    *uuid.UUID    `gorm:"type:uuid;index" json:"party_id,omitempty"`
+	Party      *Party        `gorm:"foreignKey:PartyID" json:"party,omitempty"`
+	Source     string        `gorm:"type:varchar(20);not null;default:'manual'" json:"source"`
+	Status     string        `gorm:"type:varchar(10);not null;default:'active';index" json:"status"`
+	VoidedAt   *time.Time    `json:"voided_at,omitempty"`
+	VoidReason string        `gorm:"size:120" json:"void_reason,omitempty"`
+	Note       string        `gorm:"size:200" json:"note"`
+	Lines      []ExpenseLine `gorm:"foreignKey:ExpenseID" json:"lines,omitempty"`
 
 	CreatedAt time.Time `json:"created_at"`
 }
