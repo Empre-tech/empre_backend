@@ -87,7 +87,7 @@ func (s *EntityService) FindByID(id uuid.UUID) (*models.Entity, error) {
 	return entity, err
 }
 
-func (s *EntityService) FindAll(lat, long, radius float64, categoryID, subcategoryID, query string, openNow bool, page, pageSize int) ([]models.Entity, int64, error) {
+func (s *EntityService) FindAll(lat, long, radius float64, categoryID, subcategoryID, query string, openNow bool, page, pageSize int) ([]repository.EntityListRow, int64, error) {
 	if page <= 0 {
 		page = 1
 	}
@@ -109,7 +109,7 @@ func (s *EntityService) FindAll(lat, long, radius float64, categoryID, subcatego
 				defer wg.Done()
 				s.MediaService.PopulateURL(e.ProfileMedia)
 				e.ProfileURL = e.ProfileMedia.URL
-			}(&entities[i])
+			}(&entities[i].Entity)
 		}
 		wg.Wait()
 	}

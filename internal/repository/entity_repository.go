@@ -35,13 +35,24 @@ func (r *EntityRepository) FindByID(id uuid.UUID) (*models.Entity, error) {
 	return &entity, err
 }
 
-func (r *EntityRepository) FindAll(lat, long, radius float64, categoryID, subcategoryID, query string, openNow bool, page, pageSize int) ([]models.Entity, int64, error) {
-	var entities []models.Entity
+// EntityListRow es un negocio del listado con lo que se calcula en la misma consulta: el total del filtro (para
+// paginar) y el resumen de sus reseñas.
+type EntityListRow struct {
+	models.Entity
+	TotalCount  int64   `gorm:"column:total_count;->"`
+	AvgRating   float64 `gorm:"column:avg_rating;->"`
+	ReviewCount int64   `gorm:"column:review_count;->"`
+}
+
+// FindAll es el listado de GET /api/entities en 2 consultas: la página (con categoría, foto de perfil, total y reseñas)
+// y los horarios. Antes eran 6 en serie, y cada una pagaba la ida y vuelta a la base.
+func (r *EntityRepository) FindAll(lat, long, radius float64, categoryID, subcategoryID, query string, openNow bool, page, pageSize int) ([]EntityListRow, int64, error) {
+	var rows []EntityListRow
 	var total int64
 
-	// Solo lo que devuelve el listado (EntityMapDTO): categoría, foto de perfil y horario. La portada, la galería y las
-	// subcategorías no salen en la respuesta y costaban 2–3 consultas más por petición.
-	db := r.DB.Model(&models.Entity{}).Joins("Category").Joins("ProfileMedia").Preload("Hours")
+	// Solo los filtros; la página y el conteo de respaldo parten de aquí cada uno con su propia sesión (si compartieran
+	// la sentencia, el conteo arrastraría las columnas de la página).
+	db := r.DB.Model(&models.Entity{})
 
 	// Filter by Category
 	db = WhereCategories(db, "category_id", categoryID)
@@ -124,14 +135,26 @@ func (r *EntityRepository) FindAll(lat, long, radius float64, categoryID, subcat
 		)`,
 	)
 
-	// Count total records before applying pagination
-	db.Count(&total)
-
-	// Apply Pagination
+	// El total sale de la misma consulta (COUNT(*) OVER() cuenta todas las filas del filtro antes del LIMIT) y las
+	// reseñas, de subconsultas por negocio (índice idx_review_entity_user); las borradas no cuentan, igual que en
+	// ReviewRepository.Summaries.
+	// Solo lo que devuelve el listado (EntityMapDTO): categoría, foto de perfil y horario. La portada, la galería y las
+	// subcategorías no salen en la respuesta y costaban 2–3 consultas más por petición.
 	offset := (page - 1) * pageSize
-	err := db.Limit(pageSize).Offset(offset).Find(&entities).Error
-
-	return entities, total, err
+	err := db.Session(&gorm.Session{}).Joins("Category").Joins("ProfileMedia").Preload("Hours").Select(`entities.*, COUNT(*) OVER() AS total_count,
+		(SELECT COALESCE(AVG(rv.rating), 0) FROM reviews rv WHERE rv.entity_id = entities.id AND rv.deleted_at IS NULL) AS avg_rating,
+		(SELECT COUNT(*) FROM reviews rv WHERE rv.entity_id = entities.id AND rv.deleted_at IS NULL) AS review_count`).
+		Limit(pageSize).Offset(offset).Find(&rows).Error
+	if err != nil {
+		return nil, 0, err
+	}
+	if len(rows) > 0 {
+		total = rows[0].TotalCount
+	} else if offset > 0 {
+		// Página fuera de rango: no hay filas de donde leer el total, así que se cuenta aparte (solo en este caso).
+		err = db.Session(&gorm.Session{}).Count(&total).Error
+	}
+	return rows, total, err
 }
 
 // FindByBBox returns the businesses inside a visible rectangle plus the total

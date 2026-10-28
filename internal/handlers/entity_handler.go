@@ -433,17 +433,10 @@ func (h *EntityHandler) FindAll(c *gin.Context) {
 		return
 	}
 
-	entityIDs := make([]uuid.UUID, len(entities))
-	for i, e := range entities {
-		entityIDs[i] = e.ID
-	}
-	// Una sola consulta agregada para todas las entidades de esta página, en
-	// vez de una consulta de reseñas por negocio (evita N+1 en el mapa/lista).
-	ratingSummaries, _ := h.ReviewService.Summaries(entityIDs)
-
+	// El resumen de reseñas ya viene en cada fila (misma consulta que la página).
 	var dtosList []dtos.EntityMapDTO
-	for _, e := range entities {
-		summary := ratingSummaries[e.ID]
+	for _, row := range entities {
+		e := row.Entity
 		dtosList = append(dtosList, dtos.EntityMapDTO{
 			ID:            e.ID,
 			Name:          e.Name,
@@ -455,8 +448,8 @@ func (h *EntityHandler) FindAll(c *gin.Context) {
 			Latitude:      e.Latitude,
 			Longitude:     e.Longitude,
 			IsVerified:    e.IsVerified,
-			AvgRating:     summary.Avg,
-			ReviewCount:   summary.Count,
+			AvgRating:     row.AvgRating,
+			ReviewCount:   row.ReviewCount,
 			ServiceMode:   e.ServiceMode,
 			IsOpenNow:     utils.IsOpenNow(e.Hours, utils.NowInCartagena()),
 			HasHours:      len(e.Hours) > 0,
