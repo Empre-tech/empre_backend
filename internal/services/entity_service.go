@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 
+	"empre_backend/internal/ledger"
 	"empre_backend/internal/models"
 	"empre_backend/internal/repository"
 	"sync"
@@ -30,6 +31,9 @@ func (s *EntityService) CreateEntity(entity *models.Entity) error {
 	if entity.Name == "" {
 		return errors.New("name is required")
 	}
+	if !ledger.ValidKind(entity.BusinessProfile) {
+		entity.BusinessProfile = s.CategoryKind(entity.CategoryID)
+	}
 	s.assignZone(entity)
 	return s.Repo.Create(entity)
 }
@@ -37,6 +41,32 @@ func (s *EntityService) CreateEntity(entity *models.Entity) error {
 func (s *EntityService) UpdateEntity(entity *models.Entity) error {
 	s.assignZone(entity)
 	return s.Repo.Update(entity)
+}
+
+// CategoryKind es el tipo de negocio que sugiere una categoría (su campo profile; si está vacío, por su nombre).
+func (s *EntityService) CategoryKind(categoryID uuid.UUID) string {
+	var c models.Category
+	if err := s.Repo.DB.Select("id", "name", "profile").First(&c, "id = ?", categoryID).Error; err != nil {
+		return ledger.KindOther
+	}
+	if ledger.ValidKind(c.Profile) {
+		return c.Profile
+	}
+	if k := ledger.KindForName(c.Name); k != "" {
+		return k
+	}
+	return ledger.KindOther
+}
+
+// FollowCategoryProfile: si el negocio cambió de categoría y su tipo era el que sugería la anterior (el dueño no lo
+// había cambiado a mano), toma el de la nueva. Si el dueño lo había elegido, se respeta.
+func (s *EntityService) FollowCategoryProfile(e *models.Entity, prevCategory uuid.UUID) {
+	if e.CategoryID == prevCategory {
+		return
+	}
+	if !ledger.ValidKind(e.BusinessProfile) || e.BusinessProfile == s.CategoryKind(prevCategory) {
+		e.BusinessProfile = s.CategoryKind(e.CategoryID)
+	}
 }
 
 // assignZone no impide guardar el negocio si falla: la zona es un dato de ayuda.
@@ -57,7 +87,7 @@ func (s *EntityService) FindByID(id uuid.UUID) (*models.Entity, error) {
 	return entity, err
 }
 
-func (s *EntityService) FindAll(lat, long, radius float64, categoryID, subcategoryID, query string, openNow bool, page, pageSize int) ([]models.Entity, int64, error) {
+func (s *EntityService) FindAll(lat, long, radius float64, categoryID, subcategoryID, query string, openNow bool, page, pageSize int) ([]repository.EntityListRow, int64, error) {
 	if page <= 0 {
 		page = 1
 	}
@@ -67,13 +97,19 @@ func (s *EntityService) FindAll(lat, long, radius float64, categoryID, subcatego
 
 	entities, total, err := s.Repo.FindAll(lat, long, radius, categoryID, subcategoryID, query, openNow, page, pageSize)
 	if err == nil {
+		// El listado solo muestra la foto de perfil, que ya viene unida a la consulta. populateMediaURLs no sirve aquí:
+		// sin la portada precargada la buscaría negocio por negocio (una consulta más por cada uno).
 		var wg sync.WaitGroup
 		for i := range entities {
+			if entities[i].ProfileMedia == nil {
+				continue
+			}
 			wg.Add(1)
-			go func(index int) {
+			go func(e *models.Entity) {
 				defer wg.Done()
-				s.populateMediaURLs(&entities[index])
-			}(i)
+				s.MediaService.PopulateURL(e.ProfileMedia)
+				e.ProfileURL = e.ProfileMedia.URL
+			}(&entities[i].Entity)
 		}
 		wg.Wait()
 	}

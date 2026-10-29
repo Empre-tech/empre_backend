@@ -65,6 +65,9 @@ type Offer struct {
 	// NormalPrice es el valor habitual (opcional); si está, se muestra el ahorro.
 	NormalPrice string `json:"normal_price"`
 	Conditions  string `json:"conditions"`
+	// OwnerNote es la nota corta de quien atiende, con su voz («Hoy hay sancocho, llega antes de la 1»). La muestran la
+	// tarjeta y la historia del negocio en Ofertas (3.48). Opcional.
+	OwnerNote string `gorm:"size:90" json:"owner_note"`
 
 	// Vigencia.
 	StartsAt time.Time `json:"starts_at"`

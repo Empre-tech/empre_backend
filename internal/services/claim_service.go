@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"empre_backend/internal/models"
+	"empre_backend/internal/observability"
 	"empre_backend/internal/repository"
 	"empre_backend/pkg/utils"
 
@@ -315,6 +316,7 @@ func (s *ClaimService) RunExpirySweeper(interval time.Duration, stop <-chan stru
 	defer ticker.Stop()
 	for {
 		if n, err := s.ClaimRepo.ExpireOverdue(utils.NowInCartagena()); err != nil {
+			observability.Default.Inc("job_error_claim_expiry")
 			log.Printf("Reclamos: no se pudieron expirar los vencidos: %v", err)
 		} else if n > 0 {
 			log.Printf("Reclamos: %d vencidos expirados y sus cupos liberados", n)

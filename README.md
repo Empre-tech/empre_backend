@@ -162,7 +162,7 @@ declarar cómo presta el servicio.
   ... 6=sábado, igual a `Date.getDay()` en JS). Cada fila tiene `closed`, `is_24h`, `open_time`/`close_time`
   (formato `"HH:MM"`). Si `close_time <= open_time` se interpreta como un horario que cruza la medianoche (ej. un bar
   de 18:00 a 02:00).
-- La hora "actual" para calcular si un negocio está abierto usa un offset fijo UTC-5 (hora de Cartagena), sin
+- La hora "actual" para calcular si un negocio está abierto usa un offset fijo UTC-5 (hora de Colombia, igual en todo el país), sin
   depender de que el contenedor tenga tzdata instalado.
 - `POST /api/entities` y `PUT /api/entities/:id` aceptan `service_mode` y `hours: [{weekday, closed, is_24h,
   open_time, close_time}, ...]`.
@@ -194,7 +194,7 @@ Y devuelve:
   con una sola API key, a través de su endpoint compatible con la Anthropic Messages API (`/v1/messages`),
   incluyendo *tool use* para sacar datos estructurados de una charla libre.
 - Variables de entorno: `AI_API_KEY` (sin ella, el endpoint responde 503 y el resto de la app sigue normal),
-  `AI_BASE_URL` (default `https://opencode.ai/zen/v1`), `AI_MODEL` (default `claude-haiku-4-5`).
+  `AI_BASE_URL` (default `https://opencode.ai/zen/v1`), `AI_MODEL` (default `claude-haiku-5-5`; el dictado fuerza la herramienta, así no gasta en razonamiento).
 - El modelo recibe el catálogo real de categorías/subcategorías en el system prompt y solo puede usar esos IDs;
   el backend además revalida cada `category_id`/`subcategory_id` que el modelo proponga contra la base de datos
   antes de devolverlo — un ID inventado se descarta en silencio en vez de llegar al frontend.
@@ -219,6 +219,46 @@ sin historial, para pedir 2-3 opciones de texto listas para usar.
   más corto). `current_text`, `business_name` y `category_name` son opcionales — dan mejor contexto si se mandan.
 - Usa el mismo `AIService`/API key que el asistente conversacional; si `AI_API_KEY` no está configurada, responde 503.
 - Igual que el asistente conversacional, el dueño siempre elige una opción a mano: nada se guarda solo.
+
+## Ya llegó, análisis y grupos de insumos
+
+- **Ya llegó**: `POST /api/entities/:id/ledger/inventory/:ref/arrived` (solo el dueño). Body: `client_id`, `qty`, y opcional `paid` y `method` (`cash`, `transfer`, `card`). Suma lo que llegó (si el ítem nunca se había contado, cuenta primero); en semáforo vuelve a «hay». Con `paid` registra un gasto de mercancía y actualiza el costo. Todo va en una transacción y es idempotente por `client_id`: reenviar responde lo ya guardado. Lógica en `internal/services/ledger_arrived.go`.
+- **Análisis**: `GET /api/entities/:id/ledger/analytics?from=AAAA-MM-DD&to=AAAA-MM-DD&compare=prev|month|year` (solo el dueño). Devuelve el periodo actual y el de comparación con sus totales, la serie para gráficos (día, semana o mes según el rango), productos e inventario, y los avisos de pérdidas («Este mes perdiste», con el costo tomado de la existencia) y de insumos que se acaban. Lógica en `internal/services/ledger_analytics.go`.
+- **Grupos de insumos**: `stock_items.supply_group` (en el JSON, `group`). El nombre se limpia con `cleanGroup` antes de guardarlo.
+- **Cuentas abiertas**: construidas, pero **apagadas** (`services.TabsEnabled = false` en `internal/services/ledger_tabs.go`). Para encenderlas hay que cambiar ese valor y `FEATURES.tabs` en la app.
+- Pruebas de integración (con `TEST_DATABASE_URL`): `ledger_analytics_integration_test.go`, `ledger_arrived_integration_test.go` y `supply_group_integration_test.go`.
+
+## Administración del negocio («Mi negocio»)
+
+Ventas, gastos, fiados, costos y dictado por voz para el dueño. Todas las rutas son `/api/entities/:id/ledger/...`,
+requieren sesión y ser el dueño del negocio.
+
+| Ruta | Qué hace |
+| --- | --- |
+| `POST/GET .../sales`, `POST .../sales/:saleId/void` | Registrar, listar y anular ventas (con o sin renglones del catálogo; método `cash`, `transfer`, `card` o `credit` = fiado). |
+| `POST/GET .../expenses`, `POST .../expenses/:expenseId/void` | Gastos por categoría; `credit` es una compra a crédito a un proveedor. |
+| `POST/GET .../parties`, `GET .../parties/:partyId/payments` | Clientes (fiados) y proveedores, con su saldo. |
+| `POST .../payments` | Abono de un cliente o pago a un proveedor; no puede superar lo que se debe. |
+| `GET .../items`, `PUT .../items/:itemId/cost` | Catálogo con costo (el costo es privado: no sale en ninguna respuesta pública). |
+| `GET .../summary?period=day\|week\|month&date=AAAA-MM-DD` | Ventas, gastos, utilidad, caja, deudas, margen, más vendidos y comparación con el periodo anterior. |
+| `GET .../export?month=AAAA-MM` | CSV del mes para el contador. |
+| `POST .../voice/parse`, `POST .../voice/:draftId/confirm`, `.../discard` | Dictado: texto → tarjetas → confirmar. |
+
+Reglas:
+- Montos en pesos enteros; el día se calcula en hora de Colombia (UTC-5).
+- Cada venta, gasto, tercero y abono lo crea el teléfono con un `client_id` que es también su `id`: reenviar no duplica
+  (responde 200 con lo ya guardado) y permite referirse a algo que aún no se ha enviado.
+- Nada se borra: se anula con motivo y deja de contar.
+- Reglas puras (monto en letras, lectura de montos hablados, coincidencia de nombres) en `internal/ledger`; lógica en
+  `internal/services/ledger_service.go` y `ledger_voice.go`.
+
+Dictado por voz: la app manda solo el texto. La IA (`AIService`, herramienta `registrar`) propone ventas, gastos y
+abonos, y el servidor verifica lo que la IA no debe decidir sola: contrasta el monto con las palabras dictadas, toma
+el precio del catálogo cuando no se dijo, y casa los nombres con productos y clientes. Nada se guarda hasta que el
+dueño confirma la tarjeta (`voice_drafts` guarda el texto, nunca audio). Límite por negocio y mes:
+`LedgerService.VoiceMonthlyLimit` (1.000). Sin `AI_API_KEY` responde 503 (`ai_disabled`); al llegar al límite, 429.
+
+Pruebas: `go test ./internal/ledger/` (puras) y, con `TEST_DATABASE_URL`, `go test ./internal/services/ -run TestLedger`.
 
 ## Suscripción de negocios (pagos con Wompi)
 
@@ -281,3 +321,16 @@ Pendiente/decisiones futuras:
   tokenizadas pero requiere un flujo de tokenización PCI que no se implementó en este MVP.
 - No hay cron que avise antes de que venza; se podría enviar un push unos días antes usando
   `PushService` + `Repo.FindTokensByUser` sobre el dueño.
+
+## Inventario (Mi negocio, fase 2)
+
+Tablas nuevas (AutoMigrate): `stock_items`, `stock_movements` (solo se agregan) y `expense_lines`; `service_items.sold_out` es lo único que ve el público. Rutas bajo `/api/entities/:id/ledger/`: `inventory`, `inventory/setup`, `inventory/:ref/settings`, `inventory/:ref/level`, `inventory/adjust`, `supplies`, `insights`. Vender descuenta (solo productos con cantidad exacta ya contados), comprar con `lines` suma y actualiza el costo, anular revierte. Las reglas por tipo de negocio están en `internal/ledger/stock.go`; el servicio en `internal/services/ledger_stock.go`.
+
+## Catálogo, inventario e insumos (plan de 8 fases)
+
+- **Tipo de negocio**: `categories.profile` (lo sugiere la categoría) y `entities.business_profile` (el del negocio, editable). Valores: shop, food, service, valuable, other. Al arrancar, `database.BackfillProfiles` llena los vacíos y deja en el log las categorías que no reconoce (quedan en «other» para revisarlas).
+- **Servicio o producto por ítem**: `service_items.kind` + `kind_checked`. `database.BackfillItemKinds` clasifica los ítems viejos. Cambiar de tipo: `PUT /:id/catalog/:itemId/kind` (archiva o reactiva su inventario); confirmar la revisión: `POST /:id/catalog/kinds/confirm`.
+- **Insumos en cualquier ítem**: `stock_items.also_supply` (producto que también se usa) y `product_supplies` con `qty_per_unit` opcional (recetas). `PUT /:id/ledger/inventory/:ref/ingredients` acepta `{items:[{ref,qty}]}`. Vender descuenta por receta (movimiento `use`) y anular lo devuelve.
+- **Variantes**: `service_items.parent_id` + `variant_label` (nombre «Producto · Variante»). El producto agrupa: no se vende ni se cuenta; precio y costo vacíos se heredan; se ve agotado solo si lo están todas.
+- **Cuentas abiertas** (apagadas, ver «Ya llegó, análisis y grupos de insumos»): `open_tabs` + `open_tab_lines` (ids generados por la app). Rutas `/:id/ledger/tabs` (GET, POST), `tabs/:tabId/lines` (POST), `tabs/:tabId/lines/:lineId` (DELETE), `tabs/:tabId/pay`, `tabs/:tabId/cancel`. Cobrar crea una venta normal (fiado = method credit + party_id); la propina va aparte. La voz entiende `tab_add` y `tab_pay` (`voice/parse` acepta `tab_id`).
+- **Dictado**: `AI_MODEL=claude-haiku-5-5`; el dictado fuerza la herramienta (`tool_choice`), sin razonamiento.

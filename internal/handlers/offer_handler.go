@@ -22,11 +22,13 @@ func NewOfferHandler(service *services.OfferService) *OfferHandler {
 }
 
 type CreateOfferRequest struct {
-	Type         string    `json:"type" binding:"required"`
-	Title        string    `json:"title" binding:"required"`
-	Price        string    `json:"price"`
-	NormalPrice  string    `json:"normal_price"`
-	Conditions   string    `json:"conditions"`
+	Type        string `json:"type" binding:"required"`
+	Title       string `json:"title" binding:"required"`
+	Price       string `json:"price"`
+	NormalPrice string `json:"normal_price"`
+	Conditions  string `json:"conditions"`
+	// OwnerNote: la nota de quien atiende (hasta 90 caracteres), opcional.
+	OwnerNote    string    `json:"owner_note"`
 	EndsAt       time.Time `json:"ends_at" binding:"required"`
 	TotalSlots   int       `json:"total_slots" binding:"required"`
 	RadiusMeters int       `json:"radius_meters"`
@@ -88,6 +90,7 @@ func (h *OfferHandler) Publish(c *gin.Context) {
 		Price:          req.Price,
 		NormalPrice:    req.NormalPrice,
 		Conditions:     req.Conditions,
+		OwnerNote:      req.OwnerNote,
 		EndsAt:         req.EndsAt,
 		TotalSlots:     req.TotalSlots,
 		RadiusMeters:   req.RadiusMeters,
@@ -225,6 +228,7 @@ func (h *OfferHandler) Republish(c *gin.Context) {
 		Price:        req.Price,
 		NormalPrice:  req.NormalPrice,
 		Conditions:   req.Conditions,
+		OwnerNote:    req.OwnerNote,
 		EndsAt:       req.EndsAt,
 		TotalSlots:   req.TotalSlots,
 		RadiusMeters: req.RadiusMeters,

@@ -6,46 +6,50 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 )
 
 type Config struct {
-	Port           string
-	DBHost         string
-	DBUser         string
-	DBPassword     string
-	DBName         string
-	DBPort         string
-	DBSSLMode      string
-	JWTSecret      string
+	Port       string
+	DBHost     string
+	DBUser     string
+	DBPassword string
+	DBName     string
+	DBPort     string
+	DBSSLMode  string
+	JWTSecret  string
 	// AppEnv = "production" (o GIN_MODE=release) activa las comprobaciones estrictas de arranque.
 	AppEnv string
 	// Pool de conexiones a PostgreSQL. El pooler de Supabase en modo sesión admite 15: con 100 abiertas
 	// devolvía 500 bajo carga (ver PERFORMANCE-REPORT.md). Por defecto 15 abiertas y 5 ociosas.
 	DBMaxOpenConns int
 	DBMaxIdleConns int
-	S3AccessKey    string
-	S3SecretKey    string
-	S3SessionToken string
-	S3Bucket       string
-	S3Region       string
-	AppURL         string
-	SMTPHost       string
-	SMTPPort       string
-	SMTPUser       string
-	SMTPPass       string
-	SMTPSender     string
-	AIAPIKey       string
-	AIBaseURL      string
-	AIModel        string
+	// DBMaxIdleMinutes: minutos sin uso antes de soltar una conexión. DBWarmConns: cuántas abrir al arrancar.
+	DBMaxIdleMinutes int
+	DBWarmConns      int
+	S3AccessKey      string
+	S3SecretKey      string
+	S3SessionToken   string
+	S3Bucket         string
+	S3Region         string
+	AppURL           string
+	SMTPHost         string
+	SMTPPort         string
+	SMTPUser         string
+	SMTPPass         string
+	SMTPSender       string
+	AIAPIKey         string
+	AIBaseURL        string
+	AIModel          string
 
 	// Wompi (pasarela de pagos para la suscripción de negocios). Sin
 	// WOMPI_PUBLIC_KEY / WOMPI_INTEGRITY_SECRET, los pagos quedan
 	// deshabilitados (el resto de la app funciona igual).
-	WompiPublicKey      string
+	WompiPublicKey       string
 	WompiIntegritySecret string
-	WompiEventsSecret   string
+	WompiEventsSecret    string
 	// A dónde redirige Wompi al terminar el pago en el widget (una pantalla
 	// de la app vía deep link, ej. empre://subscription/success).
 	WompiRedirectURL string
@@ -58,35 +62,37 @@ func LoadConfig() *Config {
 	}
 
 	return &Config{
-		Port:           getEnv("PORT", "8080"),
-		DBHost:         getEnv("DB_HOST", "localhost"),
-		DBUser:         getEnv("DB_USER", "postgres"),
-		DBPassword:     getEnv("DB_PASSWORD", "postgres"),
-		DBName:         getEnv("DB_NAME", "empre_db"),
-		DBPort:         getEnv("DB_PORT", "5432"),
-		DBSSLMode:      getEnv("DB_SSLMODE", "disable"),
-		JWTSecret:      getEnv("JWT_SECRET", "changeme"),
-		AppEnv:         getEnv("APP_ENV", ""),
-		DBMaxOpenConns: getEnvInt("DB_MAX_OPEN_CONNS", DefaultMaxOpenConns),
-		DBMaxIdleConns: getEnvInt("DB_MAX_IDLE_CONNS", DefaultMaxIdleConns),
-		S3AccessKey:    getEnv("S3_ACCESS_KEY", ""),
-		S3SecretKey:    getEnv("S3_SECRET_KEY", ""),
-		S3SessionToken: getEnv("S3_SESSION_TOKEN", ""),
-		S3Bucket:       getEnv("S3_BUCKET", ""),
-		S3Region:       getEnv("S3_REGION", "us-east-1"),
-		AppURL:         getEnv("APP_URL", "http://localhost:8080"),
-		SMTPHost:       getEnv("SMTP_HOST", ""),
-		SMTPPort:       getEnv("SMTP_PORT", "587"),
-		SMTPUser:       getEnv("SMTP_USER", ""),
-		SMTPPass:       getEnv("SMTP_PASS", ""),
-		SMTPSender:     getEnv("SMTP_SENDER", ""),
+		Port:             getEnv("PORT", "8080"),
+		DBHost:           getEnv("DB_HOST", "localhost"),
+		DBUser:           getEnv("DB_USER", "postgres"),
+		DBPassword:       getEnv("DB_PASSWORD", "postgres"),
+		DBName:           getEnv("DB_NAME", "empre_db"),
+		DBPort:           getEnv("DB_PORT", "5432"),
+		DBSSLMode:        getEnv("DB_SSLMODE", "disable"),
+		JWTSecret:        getEnv("JWT_SECRET", "changeme"),
+		AppEnv:           getEnv("APP_ENV", ""),
+		DBMaxOpenConns:   getEnvInt("DB_MAX_OPEN_CONNS", DefaultMaxOpenConns),
+		DBMaxIdleConns:   getEnvInt("DB_MAX_IDLE_CONNS", DefaultMaxIdleConns),
+		DBMaxIdleMinutes: getEnvInt("DB_MAX_IDLE_MINUTES", DefaultMaxIdleMinutes),
+		DBWarmConns:      getEnvInt("DB_WARM_CONNS", DefaultWarmConns),
+		S3AccessKey:      getEnv("S3_ACCESS_KEY", ""),
+		S3SecretKey:      getEnv("S3_SECRET_KEY", ""),
+		S3SessionToken:   getEnv("S3_SESSION_TOKEN", ""),
+		S3Bucket:         getEnv("S3_BUCKET", ""),
+		S3Region:         getEnv("S3_REGION", "us-east-1"),
+		AppURL:           getEnv("APP_URL", "http://localhost:8080"),
+		SMTPHost:         getEnv("SMTP_HOST", ""),
+		SMTPPort:         getEnv("SMTP_PORT", "587"),
+		SMTPUser:         getEnv("SMTP_USER", ""),
+		SMTPPass:         getEnv("SMTP_PASS", ""),
+		SMTPSender:       getEnv("SMTP_SENDER", ""),
 		// OpenCode Zen: un solo API key da acceso a varios modelos (Claude, GPT,
 		// Gemini, etc.) a través de un endpoint compatible con la Anthropic
 		// Messages API. Sin AI_API_KEY el asistente de creación con IA queda
 		// deshabilitado (el resto de la app funciona igual).
 		AIAPIKey:  getEnv("AI_API_KEY", ""),
 		AIBaseURL: getEnv("AI_BASE_URL", "https://opencode.ai/zen/v1"),
-		AIModel:   getEnv("AI_MODEL", "claude-haiku-4-5"),
+		AIModel:   getEnv("AI_MODEL", "claude-haiku-5-5"),
 
 		WompiPublicKey:       getEnv("WOMPI_PUBLIC_KEY", ""),
 		WompiIntegritySecret: getEnv("WOMPI_INTEGRITY_SECRET", ""),
@@ -96,9 +102,17 @@ func LoadConfig() *Config {
 }
 
 // Valores por defecto del pool: coinciden con lo que admite el pooler (15) y se pueden cambiar por entorno.
+//
+// Inactivas = abiertas (3.54): con 5, cada pantalla que pedía 5 o 6 cosas a la vez abría conexiones nuevas y al
+// terminar se cerraban las que pasaban de 5; la siguiente las volvía a abrir (TLS y autenticación con la base remota,
+// varias idas y vueltas). Eso daba cargas de 6 a 16 s 1 de cada 10 veces. Las que nadie usa en DefaultMaxIdleMinutes
+// se sueltan solas (de noche no se quedan 15 abiertas).
 const (
-	DefaultMaxOpenConns = 15
-	DefaultMaxIdleConns = 5
+	DefaultMaxOpenConns   = 15
+	DefaultMaxIdleConns   = 15
+	DefaultMaxIdleMinutes = 15
+	// DefaultWarmConns < 0: al arrancar se abren tantas como inactivas se permiten.
+	DefaultWarmConns = -1
 )
 
 // minJWTSecretLen es el largo mínimo que se considera razonable para firmar tokens.
@@ -132,6 +146,23 @@ func ValidateJWTSecret(secret string, production bool) (warning string, err erro
 }
 
 // NormalizePool deja el pool en valores válidos: al menos 1 abierta y las ociosas nunca por encima de las abiertas.
+// WarmCount: cuántas conexiones abrir al arrancar. Negativo = todas las inactivas; nunca más que las inactivas (las
+// demás se cerrarían enseguida).
+func WarmCount(warm, idle int) int {
+	if warm < 0 || warm > idle {
+		return idle
+	}
+	return warm
+}
+
+// IdleTime: el tiempo máximo sin uso de una conexión (cero o negativo = el valor por omisión).
+func IdleTime(minutes int) time.Duration {
+	if minutes <= 0 {
+		minutes = DefaultMaxIdleMinutes
+	}
+	return time.Duration(minutes) * time.Minute
+}
+
 func NormalizePool(open, idle int) (int, int) {
 	if open < 1 {
 		open = DefaultMaxOpenConns

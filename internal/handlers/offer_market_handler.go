@@ -7,6 +7,7 @@ import (
 
 	"empre_backend/internal/dtos"
 	"empre_backend/internal/services"
+	"empre_backend/pkg/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -25,6 +26,60 @@ type MarketItem struct {
 	DistanceMeters *float64 `json:"distance_meters"`
 	Reason         string   `json:"reason,omitempty"`
 	Trending       bool     `json:"trending,omitempty"`
+	// 3.48: quién atiende, su valoración (promedio de reseñas, sin cuántas) y si está abierto ahora.
+	AttendantName string  `json:"attendant_name,omitempty"`
+	Rating        float64 `json:"rating,omitempty"`
+	OpenNow       bool    `json:"open_now"`
+	// ProfilePhoto: la foto de perfil (la cara del círculo de «Tus vecinos hoy»); vacía = la inicial.
+	ProfilePhoto string `json:"profile_photo,omitempty"`
+	// Latitude/Longitude del negocio: el mapa de «Ver la ruta» (3.49).
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
+	// 3.50: «offer» o «service» (servicio del catálogo con precio de siempre, de un negocio con buenas reseñas).
+	Kind         string `json:"kind"`
+	ServiceID    string `json:"service_id,omitempty"`
+	ServicePrice *int   `json:"service_price,omitempty"`
+	PriceFrom    bool   `json:"price_from,omitempty"`
+	DurationMin  *int   `json:"duration_min,omitempty"`
+	Bookable     bool   `json:"bookable,omitempty"`
+	// OpenUntil: a qué hora cierra hoy («20:00»; «24h»; vacío sin horario), para reacomodar la ruta en la app.
+	OpenUntil string `json:"open_until,omitempty"`
+}
+
+// MarketSlide es una diapositiva de la pasarela: la regla a la vista y su oferta.
+type MarketSlide struct {
+	Rule string     `json:"rule"`
+	Item MarketItem `json:"item"`
+}
+
+// MarketRoute es una ruta del barrio (3.49): su tema, su nivel (walk | zone | day), las paradas en orden con la hora
+// sugerida de cada una (nula si el negocio no tiene horario) y el ahorro sumado. Zone: la zona de la primera parada.
+type MarketRoute struct {
+	Theme      string       `json:"theme"`
+	Level      string       `json:"level"`
+	Zone       string       `json:"zone,omitempty"`
+	Stops      []MarketItem `json:"stops"`
+	Times      []*time.Time `json:"times"`
+	Saving     int          `json:"saving"`
+	WalkMeters float64      `json:"walk_meters"`
+	// 3.50: lo que cuesta el plan (precio especial de las ofertas más precio de siempre de los servicios) y la
+	// distancia de ti a la primera parada (nula sin ubicación).
+	TotalPrice      int      `json:"total_price"`
+	DistanceFromYou *float64 `json:"distance_from_you"`
+}
+
+// MarketNeighbor es un círculo de «Tus vecinos hoy»; TimeLeft (0 a 1) es lo que le queda a su oferta.
+type MarketNeighbor struct {
+	Item     MarketItem `json:"item"`
+	TimeLeft float64    `json:"time_left"`
+}
+
+// MarketVoiceItem es una frase de «Lo recomiendan tus vecinos» (reseña verificada), con la oferta de hoy del negocio.
+type MarketVoiceItem struct {
+	Quote  string     `json:"quote"`
+	Author string     `json:"author"`
+	When   time.Time  `json:"when"`
+	Item   MarketItem `json:"item"`
 }
 
 type marketSearched struct {
@@ -66,6 +121,25 @@ type MarketResponse struct {
 	Searched marketSearched `json:"searched"`
 	Trending []MarketItem   `json:"trending"`
 	ForYou   marketForYou   `json:"for_you"`
+	// 3.48: el barrio. Pasarela y mosaico no se repiten en las secciones; vecinos, rutas y voces son de todo el barrio.
+	Spotlight []MarketSlide     `json:"spotlight"`
+	Bento     []MarketItem      `json:"bento"`
+	Routes    []MarketRoute     `json:"routes"`
+	Neighbors []MarketNeighbor  `json:"neighbors"`
+	Voices    []MarketVoiceItem `json:"voices"`
+}
+
+// MonthSavingsResponse es «Este mes ahorraste»: el total y los negocios (el más reciente primero).
+type MonthSavingsResponse struct {
+	Total      int                  `json:"total"`
+	Businesses []MonthSavingsEntity `json:"businesses"`
+}
+
+type MonthSavingsEntity struct {
+	ID            uuid.UUID `json:"id"`
+	Name          string    `json:"name"`
+	CategoryColor string    `json:"category_color,omitempty"`
+	ProfilePhoto  string    `json:"profile_photo,omitempty"`
 }
 
 // MarketAllResponse es una tanda de «Todas las ofertas de la ciudad». NextCursor vacío = no hay más.
@@ -99,7 +173,15 @@ func marketItems(list []services.MarketCandidate) []MarketItem {
 			OfferResponse: dtos.OfferResponseFrom(&c.Offer), EntityName: e.Name, CategoryName: e.Category.Name,
 			CategoryColor: e.Category.Color, CategoryIcon: e.Category.Icon, Photo: photo, DistanceMeters: d,
 			Reason: c.Reason, Trending: c.Trend >= services.MarketTrendMin,
+			AttendantName: e.AttendantName, Rating: c.Rating, OpenNow: c.Open, ProfilePhoto: services.ProfilePath(e),
+			Latitude: e.Latitude, Longitude: e.Longitude, Kind: "offer", OpenUntil: utils.ClosesAt(e.Hours, utils.NowInColombia()),
 		})
+		if c.Service != nil {
+			it := &out[len(out)-1]
+			it.Kind, it.ServiceID = "service", c.Service.ID.String()
+			it.ServicePrice, it.PriceFrom, it.DurationMin, it.Bookable = c.Service.Price, c.Service.PriceFrom, c.Service.DurationMin, c.Bookable
+			it.Price, it.NormalPrice, it.SpecialPrice, it.ReferencePrice, it.Saving = "", "", nil, nil, nil
+		}
 	}
 	return out
 }
@@ -172,7 +254,112 @@ func (h *OfferMarketHandler) Market(c *gin.Context) {
 		Searched:    marketSearched{Terms: nonNilTerms(res.Terms), Term: res.Term, Items: marketItems(s.Searched)},
 		Trending:    marketItems(s.Trending),
 		ForYou:      marketForYou{TopRated: s.TopRated, Items: marketItems(s.ForYou)},
+		Spotlight:   marketSlides(res.Spotlight),
+		Bento:       marketItems(res.Bento),
+		Routes:      marketRoutes(res.Routes, res.ZoneNames, lat, long, hasLoc),
+		Neighbors:   marketNeighbors(res.Neighbors),
+		Voices:      marketVoices(res.Voices),
 	})
+}
+
+func marketSlides(list []services.SpotlightSlide) []MarketSlide {
+	out := make([]MarketSlide, 0, len(list))
+	for _, sl := range list {
+		out = append(out, MarketSlide{Rule: sl.Rule, Item: marketItems([]services.MarketCandidate{sl.Cand})[0]})
+	}
+	return out
+}
+
+func marketRoutes(list []services.PlanRoute, zones map[uuid.UUID]string, lat, long float64, hasLoc bool) []MarketRoute {
+	out := make([]MarketRoute, 0, len(list))
+	for _, r := range list {
+		cands := make([]services.MarketCandidate, 0, len(r.Stops))
+		times := make([]*time.Time, 0, len(r.Stops))
+		for _, s := range r.Stops {
+			cands = append(cands, s.Cand)
+			times = append(times, s.At)
+		}
+		zone := ""
+		if r.ZoneID != nil {
+			zone = zones[*r.ZoneID]
+		}
+		total := 0
+		for _, c := range cands {
+			total += services.StopPrice(c)
+		}
+		var fromYou *float64
+		if hasLoc && len(cands) > 0 {
+			v := utils.DistanceMeters(lat, long, cands[0].Offer.Entity.Latitude, cands[0].Offer.Entity.Longitude)
+			fromYou = &v
+		}
+		out = append(out, MarketRoute{Theme: r.Theme, Level: r.Level, Zone: zone, Stops: marketItems(cands), Times: times, Saving: r.Saving, WalkMeters: r.WalkM,
+			TotalPrice: total, DistanceFromYou: fromYou})
+	}
+	return out
+}
+
+// Next godoc
+// @Summary  «Completa tu plan»: hasta 2 vecinos para después de reclamar esta oferta (3.49)
+// @Tags     offers
+// @Produce  json
+// @Param    id path string true "Id de la oferta"
+// @Success  200 {object} map[string][]MarketItem
+// @Router   /offers/{id}/next [get]
+func (h *OfferMarketHandler) Next(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "oferta inválida"})
+		return
+	}
+	list, err := h.service.Next(id, time.Now())
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"items": []MarketItem{}})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"items": marketItems(list)})
+}
+
+func marketNeighbors(list []services.Neighbor) []MarketNeighbor {
+	out := make([]MarketNeighbor, 0, len(list))
+	for _, n := range list {
+		out = append(out, MarketNeighbor{Item: marketItems([]services.MarketCandidate{n.Cand})[0], TimeLeft: n.TimeLeft})
+	}
+	return out
+}
+
+func marketVoices(list []services.MarketVoice) []MarketVoiceItem {
+	out := make([]MarketVoiceItem, 0, len(list))
+	for _, v := range list {
+		out = append(out, MarketVoiceItem{Quote: v.Quote, Author: v.Author, When: v.When, Item: marketItems([]services.MarketCandidate{v.Cand})[0]})
+	}
+	return out
+}
+
+// MonthSavings godoc
+// @Summary  «Este mes ahorraste»: lo que la persona ahorró en sus canjes del mes y en qué negocios (3.48)
+// @Tags     offers
+// @Produce  json
+// @Security BearerAuth
+// @Success  200 {object} MonthSavingsResponse
+// @Router   /offers/savings [get]
+func (h *OfferMarketHandler) MonthSavings(c *gin.Context) {
+	v, _ := c.Get("userID")
+	user, ok := v.(uuid.UUID)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized", "message": "Inicia sesión"})
+		return
+	}
+	res, err := h.service.MonthSavings(user, time.Now())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "no se pudo calcular tu ahorro"})
+		return
+	}
+	out := MonthSavingsResponse{Total: res.Total, Businesses: []MonthSavingsEntity{}}
+	for i := range res.Businesses {
+		e := &res.Businesses[i]
+		out.Businesses = append(out.Businesses, MonthSavingsEntity{ID: e.ID, Name: e.Name, CategoryColor: e.Category.Color, ProfilePhoto: services.ProfilePath(e)})
+	}
+	c.JSON(http.StatusOK, out)
 }
 
 // MarketAll godoc

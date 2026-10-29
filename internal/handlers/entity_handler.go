@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"empre_backend/internal/dtos"
+	"empre_backend/internal/ledger"
 	"empre_backend/internal/models"
 	"empre_backend/internal/services"
 	"empre_backend/pkg/utils"
@@ -63,7 +64,9 @@ type CreateEntityRequest struct {
 	Name        string `json:"name" binding:"required"`
 	Description string `json:"description"`
 	// Tagline es opcional; en una edición, si no viene, no se toca.
-	Tagline        *string       `json:"tagline"`
+	Tagline *string `json:"tagline"`
+	// AttendantName: quién atiende (hasta 40 caracteres); en una edición, si no viene, no se toca.
+	AttendantName  *string       `json:"attendant_name"`
 	Category       string        `json:"category"`
 	SubcategoryIDs []string      `json:"subcategory_ids"`
 	Address        string        `json:"address"`
@@ -76,6 +79,8 @@ type CreateEntityRequest struct {
 	Gallery        []string      `json:"gallery"` // List of Media IDs (UUIDs)
 	ServiceMode    string        `json:"service_mode"`
 	Hours          []HourRequest `json:"hours"`
+	// BusinessProfile: «¿Qué vendes principalmente?». Vacío = el que sugiere la categoría (o no tocarlo al editar).
+	BusinessProfile string `json:"business_profile"`
 }
 
 // HourRequest is one weekday's schedule in a create/update request.
@@ -171,27 +176,37 @@ func (h *EntityHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "La frase corta admite hasta 80 caracteres"})
 		return
 	}
+	if req.AttendantName != nil && utf8.RuneCountInString(strings.TrimSpace(*req.AttendantName)) > AttendantNameMax {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "El nombre de quien atiende admite hasta 40 caracteres"})
+		return
+	}
 
 	if !models.ServiceMode(req.ServiceMode).Valid() {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid service_mode. Use in_place, delivery or both"})
 		return
 	}
+	if req.BusinessProfile != "" && !ledger.ValidKind(req.BusinessProfile) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid", "message": "Tipo de negocio no válido"})
+		return
+	}
 
 	entity := models.Entity{
-		ID:             uuid.New(),
-		OwnerID:        userID.(uuid.UUID),
-		Name:           req.Name,
-		Description:    req.Description,
-		Tagline:        taglineOf(req.Tagline),
-		CategoryID:     categoryID,
-		Address:        req.Address,
-		City:           req.City,
-		ContactInfo:    req.ContactInfo,
-		Latitude:       req.Latitude,
-		Longitude:      req.Longitude,
-		ProfileMediaID: req.ProfileMediaID,
-		BannerMediaID:  req.BannerMediaID,
-		ServiceMode:    models.ServiceMode(req.ServiceMode),
+		BusinessProfile: req.BusinessProfile,
+		ID:              uuid.New(),
+		OwnerID:         userID.(uuid.UUID),
+		Name:            req.Name,
+		Description:     req.Description,
+		Tagline:         taglineOf(req.Tagline),
+		AttendantName:   taglineOf(req.AttendantName),
+		CategoryID:      categoryID,
+		Address:         req.Address,
+		City:            req.City,
+		ContactInfo:     req.ContactInfo,
+		Latitude:        req.Latitude,
+		Longitude:       req.Longitude,
+		ProfileMediaID:  req.ProfileMediaID,
+		BannerMediaID:   req.BannerMediaID,
+		ServiceMode:     models.ServiceMode(req.ServiceMode),
 	}
 
 	// Handle Gallery: at creation time each photo becomes its own
@@ -256,12 +271,15 @@ func (h *EntityHandler) Create(c *gin.Context) {
 		Name:          fullEntity.Name,
 		Description:   fullEntity.Description,
 		Tagline:       fullEntity.Tagline,
+		AttendantName: fullEntity.AttendantName,
 		Category: dtos.CategoryResponse{
-			ID:    fullEntity.Category.ID,
-			Name:  fullEntity.Category.Name,
-			Icon:  fullEntity.Category.Icon,
-			Color: fullEntity.Category.Color,
+			ID:      fullEntity.Category.ID,
+			Name:    fullEntity.Category.Name,
+			Icon:    fullEntity.Category.Icon,
+			Color:   fullEntity.Category.Color,
+			Profile: fullEntity.Category.Profile,
 		},
+		BusinessProfile:    fullEntity.BusinessProfile,
 		Address:            fullEntity.Address,
 		City:               fullEntity.City,
 		ContactInfo:        fullEntity.ContactInfo,
@@ -276,7 +294,7 @@ func (h *EntityHandler) Create(c *gin.Context) {
 		Photos:             photos,
 		ServiceMode:        fullEntity.ServiceMode,
 		Hours:              hourDTOs(fullEntity.Hours),
-		IsOpenNow:          utils.IsOpenNow(fullEntity.Hours, utils.NowInCartagena()),
+		IsOpenNow:          utils.IsOpenNow(fullEntity.Hours, utils.NowInColombia()),
 	}
 
 	c.JSON(http.StatusCreated, response)
@@ -333,16 +351,19 @@ func (h *EntityHandler) FindByID(c *gin.Context) {
 	}
 
 	response := dtos.EntityDetailDTO{
-		ID:          entity.ID,
-		Name:        entity.Name,
-		Description: entity.Description,
-		Tagline:     entity.Tagline,
+		ID:            entity.ID,
+		Name:          entity.Name,
+		Description:   entity.Description,
+		Tagline:       entity.Tagline,
+		AttendantName: entity.AttendantName,
 		Category: dtos.CategoryResponse{
-			ID:    entity.Category.ID,
-			Name:  entity.Category.Name,
-			Icon:  entity.Category.Icon,
-			Color: entity.Category.Color,
+			ID:      entity.Category.ID,
+			Name:    entity.Category.Name,
+			Icon:    entity.Category.Icon,
+			Color:   entity.Category.Color,
+			Profile: entity.Category.Profile,
 		},
+		BusinessProfile:    entity.BusinessProfile,
 		Subcategories:      subcategoryDTOs(entity.Subcategories),
 		Address:            entity.Address,
 		City:               entity.City,
@@ -361,7 +382,7 @@ func (h *EntityHandler) FindByID(c *gin.Context) {
 		IsFavorite:         isFavorite,
 		ServiceMode:        entity.ServiceMode,
 		Hours:              hourDTOs(entity.Hours),
-		IsOpenNow:          utils.IsOpenNow(entity.Hours, utils.NowInCartagena()),
+		IsOpenNow:          utils.IsOpenNow(entity.Hours, utils.NowInColombia()),
 	}
 
 	c.JSON(http.StatusOK, response)
@@ -412,17 +433,10 @@ func (h *EntityHandler) FindAll(c *gin.Context) {
 		return
 	}
 
-	entityIDs := make([]uuid.UUID, len(entities))
-	for i, e := range entities {
-		entityIDs[i] = e.ID
-	}
-	// Una sola consulta agregada para todas las entidades de esta página, en
-	// vez de una consulta de reseñas por negocio (evita N+1 en el mapa/lista).
-	ratingSummaries, _ := h.ReviewService.Summaries(entityIDs)
-
+	// El resumen de reseñas ya viene en cada fila (misma consulta que la página).
 	var dtosList []dtos.EntityMapDTO
-	for _, e := range entities {
-		summary := ratingSummaries[e.ID]
+	for _, row := range entities {
+		e := row.Entity
 		dtosList = append(dtosList, dtos.EntityMapDTO{
 			ID:            e.ID,
 			Name:          e.Name,
@@ -434,8 +448,8 @@ func (h *EntityHandler) FindAll(c *gin.Context) {
 			Latitude:      e.Latitude,
 			Longitude:     e.Longitude,
 			IsVerified:    e.IsVerified,
-			AvgRating:     summary.Avg,
-			ReviewCount:   summary.Count,
+			AvgRating:     row.AvgRating,
+			ReviewCount:   row.ReviewCount,
 			ServiceMode:   e.ServiceMode,
 			IsOpenNow:     utils.IsOpenNow(e.Hours, utils.NowInCartagena()),
 			HasHours:      len(e.Hours) > 0,
@@ -543,11 +557,18 @@ func (h *EntityHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "La frase corta admite hasta 80 caracteres"})
 		return
 	}
+	if req.AttendantName != nil && utf8.RuneCountInString(strings.TrimSpace(*req.AttendantName)) > AttendantNameMax {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "El nombre de quien atiende admite hasta 40 caracteres"})
+		return
+	}
 
 	existing.Name = req.Name
 	existing.Description = req.Description
 	if req.Tagline != nil {
 		existing.Tagline = taglineOf(req.Tagline)
+	}
+	if req.AttendantName != nil {
+		existing.AttendantName = taglineOf(req.AttendantName)
 	}
 	existing.Address = req.Address
 	existing.City = req.City
@@ -561,9 +582,20 @@ func (h *EntityHandler) Update(c *gin.Context) {
 		existing.BannerMediaID = req.BannerMediaID
 	}
 
+	prevCategory := existing.CategoryID
 	if req.Category != "" {
 		catID, _ := uuid.Parse(req.Category)
 		existing.CategoryID = catID
+	}
+	if req.BusinessProfile != "" {
+		if !ledger.ValidKind(req.BusinessProfile) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid", "message": "Tipo de negocio no válido"})
+			return
+		}
+		existing.BusinessProfile = req.BusinessProfile
+	} else {
+		// Cambió de categoría y el dueño nunca eligió otro tipo: sigue el que sugiere la nueva categoría.
+		h.Service.FollowCategoryProfile(existing, prevCategory)
 	}
 
 	if req.ServiceMode != "" {
@@ -1043,16 +1075,19 @@ func (h *EntityHandler) VerifyEntity(c *gin.Context) {
 	}
 
 	response := dtos.EntityDetailDTO{
-		ID:          entity.ID,
-		Name:        entity.Name,
-		Description: entity.Description,
-		Tagline:     entity.Tagline,
+		ID:            entity.ID,
+		Name:          entity.Name,
+		Description:   entity.Description,
+		Tagline:       entity.Tagline,
+		AttendantName: entity.AttendantName,
 		Category: dtos.CategoryResponse{
-			ID:    entity.Category.ID,
-			Name:  entity.Category.Name,
-			Icon:  entity.Category.Icon,
-			Color: entity.Category.Color,
+			ID:      entity.Category.ID,
+			Name:    entity.Category.Name,
+			Icon:    entity.Category.Icon,
+			Color:   entity.Category.Color,
+			Profile: entity.Category.Profile,
 		},
+		BusinessProfile:    entity.BusinessProfile,
 		Subcategories:      subcategoryDTOs(entity.Subcategories),
 		Address:            entity.Address,
 		City:               entity.City,
@@ -1068,11 +1103,14 @@ func (h *EntityHandler) VerifyEntity(c *gin.Context) {
 		Photos:             photos,
 		ServiceMode:        entity.ServiceMode,
 		Hours:              hourDTOs(entity.Hours),
-		IsOpenNow:          utils.IsOpenNow(entity.Hours, utils.NowInCartagena()),
+		IsOpenNow:          utils.IsOpenNow(entity.Hours, utils.NowInColombia()),
 	}
 
 	c.JSON(http.StatusOK, response)
 }
+
+// AttendantNameMax es el largo máximo del nombre de quien atiende (3.48).
+const AttendantNameMax = 40
 
 // TaglineMax es el largo máximo de la frase corta (cabe en una línea de la tarjeta).
 const TaglineMax = 80

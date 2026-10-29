@@ -54,6 +54,11 @@ var EventSpecs = map[string]EventSpec{
 	// «Pregúntale»: qué se preguntó (la intención, nunca el texto) y si había dato para responder.
 	"question_asked":  {NeedsEntity: true, Props: map[string]propKind{"intent": propString, "answered": propBool}},
 	"booking_started": {NeedsEntity: true, Props: map[string]propKind{"origin": propString}},
+	// Salud de la app (3.53): peticiones lentas o fallidas (la ruta como plantilla, sin ids), el arranque y los
+	// errores de pantalla (solo el mensaje y dónde, nunca datos de la persona).
+	"api_health": {Props: map[string]propKind{"route": propString, "status": propNumber, "ms": propNumber}},
+	"app_start":  {Props: map[string]propKind{"ms": propNumber}},
+	"js_error":   {Props: map[string]propKind{"message": propString, "where": propString}},
 }
 
 // EventInput es un evento tal como llega de la app.
@@ -203,6 +208,62 @@ func (s *EventService) Summary(since time.Time) ([]EventCount, error) {
 		Where("created_at >= ?", since).
 		Group("name").Order("events DESC").Scan(&rows).Error
 	return rows, err
+}
+
+// AppRouteHealth: lo que la app reportó de una ruta (peticiones lentas o fallidas).
+type AppRouteHealth struct {
+	Route   string  `json:"route"`
+	Reports int64   `json:"reports"`
+	AvgMs   float64 `json:"avg_ms"`
+	Offline int64   `json:"offline"` // sin respuesta (status 0: sin señal o tiempo agotado)
+	Errors  int64   `json:"errors_5xx"`
+}
+
+// AppErrorCount: cuántas veces falló una pantalla con el mismo mensaje.
+type AppErrorCount struct {
+	Where    string `json:"where"`
+	Message  string `json:"message"`
+	Count    int64  `json:"count"`
+	Installs int64  `json:"installs"`
+}
+
+// AppStartStats: el arranque en frío de la app, en milisegundos.
+type AppStartStats struct {
+	Samples int64   `json:"samples"`
+	P50Ms   float64 `json:"p50_ms"`
+	P95Ms   float64 `json:"p95_ms"`
+}
+
+// AppHealth es lo que la app reportó de su salud desde `since`.
+type AppHealth struct {
+	Routes []AppRouteHealth `json:"routes"`
+	Errors []AppErrorCount  `json:"errors"`
+	Start  AppStartStats    `json:"start"`
+}
+
+// Health resume los eventos de salud de la app (3.53): rutas lentas o fallidas, errores de pantalla y arranque.
+func (s *EventService) Health(since time.Time) (AppHealth, error) {
+	var out AppHealth
+	if err := s.DB.Model(&models.Event{}).
+		Select(`props->>'route' AS route, COUNT(*) AS reports, ROUND(AVG((props->>'ms')::numeric)) AS avg_ms,
+			COUNT(*) FILTER (WHERE (props->>'status')::numeric = 0) AS offline,
+			COUNT(*) FILTER (WHERE (props->>'status')::numeric >= 500) AS errors`).
+		Where("name = ? AND created_at >= ?", "api_health", since).
+		Group("props->>'route'").Order("reports DESC").Limit(20).Scan(&out.Routes).Error; err != nil {
+		return out, err
+	}
+	if err := s.DB.Model(&models.Event{}).
+		Select(`props->>'where' AS "where", props->>'message' AS message, COUNT(*) AS count, COUNT(DISTINCT anon_id) AS installs`).
+		Where("name = ? AND created_at >= ?", "js_error", since).
+		Group("props->>'where', props->>'message'").Order("count DESC").Limit(10).Scan(&out.Errors).Error; err != nil {
+		return out, err
+	}
+	err := s.DB.Model(&models.Event{}).
+		Select(`COUNT(*) AS samples,
+			COALESCE(percentile_cont(0.5) WITHIN GROUP (ORDER BY (props->>'ms')::numeric), 0) AS p50_ms,
+			COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY (props->>'ms')::numeric), 0) AS p95_ms`).
+		Where("name = ? AND created_at >= ?", "app_start", since).Scan(&out.Start).Error
+	return out, err
 }
 
 // PurgeOlderThan borra los eventos anteriores a `before` (retención). Devuelve cuántos.

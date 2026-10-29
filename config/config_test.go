@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestValidateJWTSecret(t *testing.T) {
 	cases := []struct {
@@ -64,6 +67,9 @@ func TestNormalizePool(t *testing.T) {
 			t.Errorf("NormalizePool(%d,%d) = %d,%d; quería %d,%d", c.open, c.idle, o, i, c.wantOpen, c.wantIdle)
 		}
 	}
+	if DefaultMaxIdleConns != DefaultMaxOpenConns {
+		t.Errorf("las inactivas deben ser tantas como las abiertas (3.54): %d y %d", DefaultMaxIdleConns, DefaultMaxOpenConns)
+	}
 	if DefaultMaxOpenConns != 15 {
 		t.Errorf("el pool por defecto debe ser 15 (el del pooler), es %d", DefaultMaxOpenConns)
 	}
@@ -84,5 +90,22 @@ func TestGetEnvInt(t *testing.T) {
 	}
 	if got := getEnvInt("EMPRE_TEST_INT_AUSENTE", 9); got != 9 {
 		t.Errorf("ausente debe dar el valor por defecto: %d", got)
+	}
+}
+
+func TestWarmCountAndIdleTime(t *testing.T) {
+	cases := []struct{ warm, idle, want int }{
+		{-1, 15, 15}, // por omisión: todas las inactivas
+		{6, 15, 6},
+		{40, 15, 15}, // nunca más que las inactivas
+		{0, 15, 0},   // 0 = sin precalentar
+	}
+	for _, c := range cases {
+		if got := WarmCount(c.warm, c.idle); got != c.want {
+			t.Errorf("WarmCount(%d,%d) = %d; quería %d", c.warm, c.idle, got, c.want)
+		}
+	}
+	if IdleTime(0) != 15*time.Minute || IdleTime(3) != 3*time.Minute {
+		t.Errorf("IdleTime: %v, %v", IdleTime(0), IdleTime(3))
 	}
 }

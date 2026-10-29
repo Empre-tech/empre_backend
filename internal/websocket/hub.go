@@ -239,8 +239,35 @@ func (h *Hub) RouteMessage(msg *models.Message, rawData []byte, senderID uuid.UU
 	}
 }
 
-// IsOnline reports whether userID currently has a live WebSocket connection to this hub (the agenda uses it to
-// choose between a live frame and a push notification).
+// ReadReceipt is the frame sent to whoever sent some messages, when the
+// other side opens the conversation and those messages get marked as read.
+// The "event" field is how the client tells this apart from a chat message
+// (models.Message never has one) without changing that format at all.
+type ReadReceipt struct {
+	Event    string    `json:"event"`
+	EntityID uuid.UUID `json:"entity_id"`
+}
+
+// BroadcastRead tells recipientID, best-effort and only if they're currently
+// connected, that their messages in this conversation were just read. Silent
+// no-op if they're offline — they'll see the updated status next time they
+// fetch the conversation's history.
+func (h *Hub) BroadcastRead(entityID, recipientID uuid.UUID) {
+	data, err := json.Marshal(ReadReceipt{Event: "conversation_read", EntityID: entityID})
+	if err != nil {
+		log.Println("Error marshaling read receipt:", err)
+		return
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if client, ok := h.Clients[recipientID]; ok {
+		h.deliver(client, data)
+	}
+}
+
+// IsOnline reports whether userID currently has a live WebSocket connection
+// to this hub (used to show real "en línea" presence in the chat, not just
+// whether the viewer's own socket is connected).
 func (h *Hub) IsOnline(userID uuid.UUID) bool {
 	h.mu.RLock()
 	defer h.mu.RUnlock()

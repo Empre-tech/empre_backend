@@ -84,7 +84,19 @@ type anthropicRequest struct {
 	System    string             `json:"system,omitempty"`
 	Messages  []anthropicMessage `json:"messages"`
 	Tools     []AITool           `json:"tools,omitempty"`
+	// ToolChoice obliga a usar una herramienta. Con la herramienta forzada, los modelos 5.x responden directo con la
+	// llamada, sin bloque de razonamiento: más rápido y más barato para tareas de extracción como el dictado.
+	ToolChoice *anthropicToolChoice `json:"tool_choice,omitempty"`
 }
+
+type anthropicToolChoice struct {
+	Type string `json:"type"`
+	Name string `json:"name,omitempty"`
+}
+
+// aiMaxTokens deja espacio para el razonamiento adaptativo de los modelos 5.x (cuenta dentro de max_tokens) sin cortar
+// la respuesta. Solo se cobra lo que de verdad se genera.
+const aiMaxTokens = 4096
 
 type anthropicContentBlock struct {
 	Type  string          `json:"type"`
@@ -105,6 +117,16 @@ type anthropicResponse struct {
 // this is NOT fire-and-forget: the person is waiting on this to answer them,
 // so errors are returned to the caller instead of only logged.
 func (s *AIService) Chat(systemPrompt string, messages []AIMessage, tools []AITool) (*AIReply, error) {
+	return s.send(systemPrompt, messages, tools, nil)
+}
+
+// ChatTool obliga al modelo a responder llamando a `tool` (sin texto libre ni razonamiento previo). Es lo que usa el
+// dictado: siempre hay que devolver datos, y así cada dictado cuesta lo mínimo.
+func (s *AIService) ChatTool(systemPrompt string, messages []AIMessage, tool AITool) (*AIReply, error) {
+	return s.send(systemPrompt, messages, []AITool{tool}, &anthropicToolChoice{Type: "tool", Name: tool.Name})
+}
+
+func (s *AIService) send(systemPrompt string, messages []AIMessage, tools []AITool, choice *anthropicToolChoice) (*AIReply, error) {
 	if !s.Enabled() {
 		return nil, errors.New("ai: no hay una API key de IA configurada (AI_API_KEY)")
 	}
@@ -115,11 +137,12 @@ func (s *AIService) Chat(systemPrompt string, messages []AIMessage, tools []AITo
 	}
 
 	payload, err := json.Marshal(anthropicRequest{
-		Model:     s.Model,
-		MaxTokens: 1024,
-		System:    systemPrompt,
-		Messages:  reqMessages,
-		Tools:     tools,
+		Model:      s.Model,
+		MaxTokens:  aiMaxTokens,
+		System:     systemPrompt,
+		Messages:   reqMessages,
+		Tools:      tools,
+		ToolChoice: choice,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("ai: codificando la petición: %w", err)

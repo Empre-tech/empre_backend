@@ -108,15 +108,24 @@ func (r *ChatRepository) UnreadCountsForViewer(viewerID uuid.UUID) ([]Conversati
 // one conversation as read, from readerID's point of view: if readerID owns
 // the business, it marks the customer's messages; otherwise it marks the
 // business' messages (readerID is then the customer, targetUserID == readerID).
-func (r *ChatRepository) MarkConversationRead(entityID, targetUserID, readerID uuid.UUID) error {
+// Returns the id of whoever SENT those now-read messages (the owner or the
+// customer), so the caller can tell them in real time that they were read.
+func (r *ChatRepository) MarkConversationRead(entityID, targetUserID, readerID uuid.UUID) (uuid.UUID, error) {
 	var entity models.Entity
 	if err := r.DB.Select("owner_id").First(&entity, "id = ?", entityID).Error; err != nil {
-		return err
+		return uuid.Nil, err
 	}
 	// true  -> reader is the customer: mark the business' messages as read.
 	// false -> reader is the owner: mark the customer's messages as read.
 	markSentByEntity := entity.OwnerID != readerID
-	return r.DB.Model(&models.Message{}).
+	if err := r.DB.Model(&models.Message{}).
 		Where("entity_id = ? AND user_id = ? AND sent_by_entity = ? AND is_read = false", entityID, targetUserID, markSentByEntity).
-		Update("is_read", true).Error
+		Update("is_read", true).Error; err != nil {
+		return uuid.Nil, err
+	}
+	recipientID := targetUserID
+	if markSentByEntity {
+		recipientID = entity.OwnerID
+	}
+	return recipientID, nil
 }
