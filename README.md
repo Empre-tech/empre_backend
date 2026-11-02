@@ -97,12 +97,20 @@ Como el equipo comparte una sola base de datos (Supabase), **estos comandos borr
 los tuyos — úsalos solo si el equipo está de acuerdo, nunca por probar. Requieren Go local (`go run ...`; no hay
 equivalente en Docker) y usan el mismo `.env` que `cmd/api`, así que apuntan a la base que tengas configurada ahí.
 
-- `go run ./cmd/resetall` — borra todos los negocios (con todo lo que cuelga de ellos: chats, reseñas, favoritos,
-  fotos/publicaciones, horarios, suscripciones) y todas las cuentas que no sean admin. Pide confirmación
-  (escribir "si") antes de borrar. Las categorías/admins sobreviven; las categorías por defecto se recrean solas
-  la próxima vez que arranque `cmd/api`.
-- `go run ./cmd/resetcatalog` — borra negocios, categorías y subcategorías, y recrea el catálogo de categorías
-  por defecto. También pide confirmación.
+- `go run ./cmd/resetall` — borra todos los negocios con todo lo que cuelga de ellos, las categorías y
+  subcategorías, y todas las cuentas que no sean admin. Pide confirmación (escribir "si") antes de borrar.
+- `go run ./cmd/resetcatalog` — borra todos los negocios con todo lo que cuelga de ellos, y las categorías y
+  subcategorías; las cuentas de usuario se quedan. Después recrea las categorías, subcategorías y plantillas de
+  secciones por defecto. También pide confirmación.
+
+«Todo lo que cuelga de un negocio» es la lista de `deleteAllBusinessData` (`internal/database/seed.go`): catálogo,
+secciones del negocio, ventas, gastos, fiados, inventario, recetas, cuentas abiertas, dictados, ofertas,
+promociones, citas, chats, reseñas, favoritos, fotos, publicaciones, horarios, señales, eventos y suscripciones.
+Si se agrega una tabla que cuelga de un negocio, va en esa lista. El catálogo global de secciones (`sections`)
+no se borra.
+
+Orden para empezar de cero: primero desplegar el backend nuevo (crea las tablas al arrancar), después correr el
+comando contra la base y, por último, reiniciar el backend para que siembre categorías y secciones.
 
 ---
 
@@ -224,9 +232,60 @@ sin historial, para pedir 2-3 opciones de texto listas para usar.
 
 - **Ya llegó**: `POST /api/entities/:id/ledger/inventory/:ref/arrived` (solo el dueño). Body: `client_id`, `qty`, y opcional `paid` y `method` (`cash`, `transfer`, `card`). Suma lo que llegó (si el ítem nunca se había contado, cuenta primero); en semáforo vuelve a «hay». Con `paid` registra un gasto de mercancía y actualiza el costo. Todo va en una transacción y es idempotente por `client_id`: reenviar responde lo ya guardado. Lógica en `internal/services/ledger_arrived.go`.
 - **Análisis**: `GET /api/entities/:id/ledger/analytics?from=AAAA-MM-DD&to=AAAA-MM-DD&compare=prev|month|year` (solo el dueño). Devuelve el periodo actual y el de comparación con sus totales, la serie para gráficos (día, semana o mes según el rango), productos e inventario, y los avisos de pérdidas («Este mes perdiste», con el costo tomado de la existencia) y de insumos que se acaban. Lógica en `internal/services/ledger_analytics.go`.
-- **Grupos de insumos**: `stock_items.supply_group` (en el JSON, `group`). El nombre se limpia con `cleanGroup` antes de guardarlo.
+- **Secciones de insumos**: cada insumo va en una sección de tipo `supply` (ver «Secciones del catálogo»). `stock_items.section_id` es la sección y `supply_group` (en el JSON, `group`) guarda una copia de su nombre.
 - **Cuentas abiertas**: construidas, pero **apagadas** (`services.TabsEnabled = false` en `internal/services/ledger_tabs.go`). Para encenderlas hay que cambiar ese valor y `FEATURES.tabs` en la app.
-- Pruebas de integración (con `TEST_DATABASE_URL`): `ledger_analytics_integration_test.go`, `ledger_arrived_integration_test.go` y `supply_group_integration_test.go`.
+- Pruebas de integración (con `TEST_DATABASE_URL`): `ledger_analytics_integration_test.go`, `ledger_arrived_integration_test.go` y `sections_integration_test.go`.
+
+## Secciones del catálogo
+
+Todo producto, servicio e insumo va en una sección. Las secciones son un catálogo global que administra el equipo
+de Empre: el dueño elige de ahí y nunca crea secciones.
+
+| Tabla | Para qué |
+| --- | --- |
+| `sections` | Catálogo global. `kind` = `sell` (lo que se vende) o `supply` (insumos); nombre único por tipo. |
+| `subcategory_sections` | Las secciones más comunes de cada subcategoría, en orden (la plantilla). |
+| `entity_sections` | Secciones del catálogo que un negocio agregó fuera de su plantilla. |
+| `section_requests` | Secciones que un negocio pidió porque no existen; las revisa el admin. |
+| `service_items.section_id`, `stock_items.section_id` | La sección de cada ítem. `section` y `supply_group` guardan una copia del nombre. |
+
+- **Plantillas**: `internal/database/sections_seed.go` (`sectionTemplates`, por nombre de subcategoría). `SeedSections`
+  corre en cada arranque: crea las secciones que falten y rehace las plantillas, así un cambio llega a todos los
+  negocios sin migrar nada. Nunca borra secciones.
+- **Secciones de un negocio** = las plantillas de sus subcategorías (sin repetir) + las que agregó + «Otros» al final.
+  Sin subcategoría, toma las más repetidas de las subcategorías de su categoría (hasta 8).
+- **Sección obligatoria**: crear un producto, servicio o insumo con `section_id` de otro tipo o inexistente responde
+  400. Si un cliente no manda `section_id`, el ítem va en «Otros» (nunca queda sin sección). Usar una sección del
+  catálogo que no estaba entre las del negocio la agrega. Las variantes van en la sección de su producto, y un
+  servicio creado desde la agenda sin sección va en la primera sección del negocio.
+- **Perfil público**: `GET /api/entities/:id/catalog` devuelve además `sections`: solo las que tienen productos, en el
+  orden del negocio, con su conteo y «Otros» al final.
+
+| Ruta | Qué hace |
+| --- | --- |
+| `GET /api/entities/:id/sections?kind=sell\|supply` | Secciones del negocio con cuántos ítems tiene cada una (dueño). |
+| `POST /api/entities/:id/sections` `{section_id}` | Agrega una sección del catálogo al negocio (dueño). |
+| `POST /api/entities/:id/sections/requests` `{kind, name}` | Pide una sección. Si ya existe con ese nombre, la agrega y responde `section`; si no, abre la petición (dueño). |
+| `GET /api/sections?kind=sell\|supply&q=` | Catálogo global, para «Más secciones» (con sesión). |
+| `GET /api/admin/section-requests?status=open\|added\|dismissed` | Peticiones, con el nombre del negocio (admin). |
+| `POST /api/admin/section-requests/:requestId` `{action: add\|dismiss, name?}` | `add` crea la sección (con `name` si se corrige) y se la deja puesta al negocio que la pidió (admin). |
+
+- **Para quién** (ropa, calzado y deporte: `models.AudienceSubcategories`): `service_items.audience` (jsonb) con
+  `men`, `women`, `kids` y/o `unisex`. En «Ropa y calzado» las secciones dicen qué es la prenda (Camisetas,
+  Pantalones…) y el público va aquí. `ServiceInput.audience` (sin el campo no se toca; `[]` lo quita); las variantes
+  llevan el de su producto. `GET /api/entities/:id/catalog` y `GET /api/entities/:id/sections` devuelven
+  `audience: true` cuando el negocio lo usa.
+- **Íconos**: cada sección trae un ícono de Ionicons (`sections.icon`, en `internal/database/section_icons.go`),
+  que viaja en todas las respuestas de secciones. Se recalcula al arrancar.
+- **Fotos de productos**: `service_items.photos` (jsonb, ids de `Media`, en orden; la primera es la portada; hasta
+  3). La app sube cada foto con `POST /api/images/upload` y luego fija la lista con
+  `PUT /api/entities/:id/catalog/:itemId/photos` `{photos: [mediaId, …]}` (agregar, quitar y reordenar en una sola
+  llamada; solo el dueño; las variantes usan las de su producto y el catálogo se las devuelve así). Cada foto se ve
+  por `GET /api/images/{id}`. La descripción de un producto admite hasta 600 letras.
+- **Limpieza**: al arrancar, `SeedSections` quita del catálogo las secciones que ya no están en ninguna plantilla y que
+  nadie usa (ni un ítem, ni un negocio, ni una petición).
+
+Lógica en `internal/services/section_service.go`; pruebas en `internal/services/sections_integration_test.go`.
 
 ## Administración del negocio («Mi negocio»)
 

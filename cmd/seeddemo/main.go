@@ -67,7 +67,7 @@ func main() {
 		// Centro Histórico: 4 muy juntos (~30 m entre sí) para ver la pila de pines.
 		{"Carlos Rodríguez", "Restaurantes", "Casa Canoas", "Comida típica samaria frente al parque.", 11.24200, -74.21100, models.OfferHours, "Almuerzo típico 2x1", 14000, 28000, 2 * time.Hour},
 		{"Andrés Felipe Torres", "Belleza y peluquería", "Barbería Samaria", "Cortes clásicos y degradados.", 11.24202, -74.21103, models.OfferDay, "Corte + barba", 30000, 38000, 9 * time.Hour},
-		{"Camila Sánchez", "Cafeterías y postres", "Café Quinta de San Pedro", "Café de origen y postres artesanales.", 11.24201, -74.21098, models.OfferHours, "2x1 en capuchino", 8000, 16000, 40 * time.Minute},
+		{"Camila Sánchez", "Cafeterías, panaderías y postres", "Café Quinta de San Pedro", "Café de origen y postres artesanales.", 11.24201, -74.21098, models.OfferHours, "2x1 en capuchino", 8000, 16000, 40 * time.Minute},
 		{"Diego Ramírez", "Tiendas y comercio", "Almacén El Faro", "Ropa, calzado y accesorios.", 11.24203, -74.21101, models.OfferWeek, "Camisas de lino 25 % menos", 45000, 60000, 5 * 24 * time.Hour},
 		// Centro, dispersos.
 		{"Gabriela Mendoza", "Educación", "Colegio de Idiomas Samario", "Clases de inglés y francés.", 11.23700, -74.20600, models.OfferWeek, "Primera clase de inglés a mitad", 25000, 50000, 6 * 24 * time.Hour},

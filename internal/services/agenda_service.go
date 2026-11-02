@@ -327,6 +327,8 @@ type AgendaServiceInput struct {
 	Name        string `json:"name"`
 	DurationMin int    `json:"duration_min"`
 	Active      *bool  `json:"active"`
+	// SectionID: la sección del catálogo (opcional aquí: sin ella va en la primera sección del negocio).
+	SectionID *uuid.UUID `json:"section_id"`
 }
 
 func (in AgendaServiceInput) validate() error {
@@ -355,7 +357,22 @@ func (s *AgendaService) CreateService(ownerID, entityID uuid.UUID, in AgendaServ
 		return BookableService{}, &InvalidError{"llegaste al tope de servicios del catálogo"}
 	}
 	d := in.DurationMin
-	it := models.ServiceItem{EntityID: entityID, Name: strings.TrimSpace(in.Name), DurationMin: &d, Bookable: true, Status: models.ServiceActive, Position: int(active)}
+	var sec models.Section
+	var err error
+	if in.SectionID != nil {
+		sec, err = resolveSection(s.db, entityID, *in.SectionID, models.SectionSell)
+	} else {
+		sec, err = defaultSection(s.db, entityID, models.SectionSell)
+	}
+	if err != nil {
+		if errors.Is(err, ErrSectionNotFound) {
+			return BookableService{}, &InvalidError{"esa sección no existe"}
+		}
+		return BookableService{}, err
+	}
+	secID := sec.ID
+	it := models.ServiceItem{EntityID: entityID, Name: strings.TrimSpace(in.Name), DurationMin: &d, Bookable: true, Status: models.ServiceActive, Position: int(active),
+		Kind: models.ItemService, KindChecked: true, SectionID: &secID, Section: sec.Name}
 	if err := s.db.Create(&it).Error; err != nil {
 		return BookableService{}, err
 	}

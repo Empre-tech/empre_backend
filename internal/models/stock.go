@@ -76,8 +76,10 @@ type StockItem struct {
 	// AlsoSupply: un producto que además se usa en otros ítems (el champú que se vende y con el que se lava). Así se
 	// puede elegir como insumo sin crear un segundo registro: una sola existencia baja por venta y por uso.
 	AlsoSupply bool `gorm:"default:false" json:"also_supply"`
-	// Group: el grupo de un insumo (Carnes, Verduras, Empaques…), para encontrarlo entre cientos. Lo escribe el dueño;
-	// vacío = sin grupo. La columna no se llama «group» porque es palabra reservada en SQL.
+	// SectionID: la sección de insumo (models.Section, tipo supply) en la que va un insumo: Carnes y pollo, Verduras y
+	// frutas, Desechables y empaques… Obligatoria al crear un insumo; los productos se agrupan por su sección del catálogo.
+	SectionID *uuid.UUID `gorm:"type:uuid;index" json:"section_id"`
+	// Group es una copia del nombre de esa sección (la columna no se llama «group» porque es palabra reservada en SQL).
 	Group string `gorm:"column:supply_group;size:40;not null;default:''" json:"group"`
 
 	CreatedAt time.Time `json:"created_at"`

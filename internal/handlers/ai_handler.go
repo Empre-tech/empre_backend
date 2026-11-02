@@ -40,7 +40,13 @@ type AIBusinessDraft struct {
 	ServiceMode     string        `json:"service_mode,omitempty"`
 	Hours           []HourRequest `json:"hours,omitempty"`
 	Ready           bool          `json:"ready,omitempty"`
+	// Reply es el mensaje para el dueño. Va dentro de la herramienta porque los modelos 5.x, con la herramienta
+	// forzada, no escriben texto aparte; el servidor lo pasa a AIChatResponse.Reply y no lo repite en el borrador.
+	Reply string `json:"reply,omitempty"`
 }
+
+// aiFallbackReply: si el modelo no dejó ningún mensaje, el chat nunca muestra una burbuja vacía.
+const aiFallbackReply = "Listo, lo anoté. ¿Qué más me cuentas de tu negocio?"
 
 type AIChatResponse struct {
 	Reply string           `json:"reply"`
@@ -52,7 +58,12 @@ const businessDraftToolName = "propose_business_draft"
 
 var businessDraftToolSchema = json.RawMessage(`{
 	"type": "object",
+	"required": ["reply"],
 	"properties": {
+		"reply": {
+			"type": "string",
+			"description": "Tu mensaje para el dueño en este turno: breve, cálido, en español, sin listas. Responde lo que te pidió (por ejemplo, si pide nombres, menciónalos aquí también) y haz la siguiente pregunta."
+		},
 		"name": {
 			"type": "string",
 			"description": "El nombre EXACTO que el dueño ya decidió y te dijo para su negocio. Solo llena esto cuando el dueño ya lo confirmó (aunque sea al principio de la conversación); no lo repitas como sugerencia."
@@ -114,7 +125,7 @@ Tu meta es reunir, con preguntas cortas (una o dos a la vez, nunca un cuestionar
 
 NO preguntes por dirección, ubicación en el mapa, fotos, ni datos de contacto: eso se llena aparte en la app.
 
-Cada vez que tengas información nueva o actualizada, llama a la herramienta "propose_business_draft" con los campos que ya tengas claros (puedes llamarla varias veces a lo largo de la conversación, no solo al final). Cuando ya tengas categoría, horario y modalidad, marca "ready": true en esa llamada y dile al dueño que puede revisar el formulario. Responde siempre también con un mensaje de texto breve para el dueño, además de la llamada a la herramienta.`
+En CADA turno llama a la herramienta "propose_business_draft": en "reply" va tu mensaje para el dueño (es lo único que él lee) y en los demás campos lo que ya tengas claro (deja vacíos los que aún no sepas). Cuando ya tengas categoría, horario y modalidad, marca "ready": true y dile en "reply" que puede revisar el formulario.`
 
 func (h *AIHandler) BusinessAssistant(c *gin.Context) {
 	if h.AI == nil || !h.AI.Enabled() {
@@ -168,7 +179,8 @@ func (h *AIHandler) BusinessAssistant(c *gin.Context) {
 		InputSchema: businessDraftToolSchema,
 	}}
 
-	reply, err := h.AI.Chat(systemPrompt, req.Messages, tools)
+	// Herramienta forzada: así el mensaje para el dueño llega siempre (en "reply") y el borrador se actualiza en cada turno.
+	reply, err := h.AI.ChatTool(systemPrompt, req.Messages, tools[0])
 	if err != nil {
 		// El detalle real (401 de API key inválida, endpoint/modelo mal escrito,
 		// etc.) solo importa para depurar desde la consola del backend; al
@@ -206,6 +218,10 @@ func (h *AIHandler) BusinessAssistant(c *gin.Context) {
 		}
 		draft.Hours = validAIHours(draft.Hours)
 
+		if draft.Reply != "" && resp.Reply == "" {
+			resp.Reply = draft.Reply
+		}
+		draft.Reply = ""
 		if resp.Draft == nil {
 			resp.Draft = &draft
 		} else {
@@ -216,6 +232,10 @@ func (h *AIHandler) BusinessAssistant(c *gin.Context) {
 		}
 	}
 
+	resp.Reply = strings.TrimSpace(resp.Reply)
+	if resp.Reply == "" {
+		resp.Reply = aiFallbackReply
+	}
 	c.JSON(http.StatusOK, resp)
 }
 

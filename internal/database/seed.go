@@ -22,7 +22,7 @@ type defaultCategory struct {
 // category to register a business).
 var defaultCategories = []defaultCategory{
 	{"Restaurantes", "restaurant-outline", "#F58220"},
-	{"Cafeterías y postres", "cafe-outline", "#F59A4B"},
+	{"Cafeterías, panaderías y postres", "cafe-outline", "#F59A4B"},
 	{"Bares y vida nocturna", "beer-outline", "#D96A0C"},
 	{"Tiendas y comercio", "storefront-outline", "#2468C6"},
 	{"Belleza y peluquería", "cut-outline", "#0B8A8F"},
@@ -66,32 +66,40 @@ func SeedCategories(db *gorm.DB) {
 // admins can add more later from the admin panel.
 var defaultSubcategories = map[string][]string{
 	"Restaurantes": {
+		"Corrientazo y almuerzos",
 		"Comida rápida",
-		"Comida saludable / fit",
-		"Comida internacional",
 		"Comida típica",
-		"Vegetariano / vegano",
-		"A domicilio",
+		"Pescados y mariscos",
+		"Asaderos y pollo",
+		"Comida internacional",
+		"Saludable y vegetariana",
 	},
-	"Cafeterías y postres": {
+	"Cafeterías, panaderías y postres": {
 		"Cafetería",
 		"Panadería",
 		"Repostería y postres",
 		"Heladería",
+		"Jugos y fruterías",
 	},
 	"Bares y vida nocturna": {
 		"Bar",
 		"Discoteca",
 		"Karaoke",
-		"Billar / juegos",
+		"Billar y juegos",
 	},
 	"Tiendas y comercio": {
-		"Ropa y accesorios",
-		"Supermercado / minimarket",
+		"Tienda de barrio y minimercado",
+		"Fruver",
+		"Licorera",
+		"Ropa y calzado",
 		"Artesanías y regalos",
-		"Electrónica",
 		"Papelería",
 		"Ferretería",
+	},
+	"Tecnología": {
+		"Celulares y accesorios",
+		"Reparación de celulares",
+		"Reparación de computadores",
 	},
 	"Belleza y peluquería": {
 		"Peluquería",
@@ -102,8 +110,9 @@ var defaultSubcategories = map[string][]string{
 	"Salud y bienestar": {
 		"Consultorio médico",
 		"Odontología",
-		"Gimnasio",
-		"Farmacia",
+		"Droguería",
+		"Psicología y terapias",
+		"Óptica",
 	},
 	"Servicios del hogar": {
 		"Plomería",
@@ -113,11 +122,6 @@ var defaultSubcategories = map[string][]string{
 		"Mudanzas",
 		"Fumigación",
 	},
-	"Tecnología": {
-		"Reparación de celulares",
-		"Reparación de computadores",
-		"Accesorios tecnológicos",
-	},
 	"Turismo y hospedaje": {
 		"Hotel",
 		"Hostal",
@@ -125,13 +129,13 @@ var defaultSubcategories = map[string][]string{
 		"Alquiler vacacional",
 	},
 	"Educación": {
-		"Academia / instituto",
-		"Clases particulares",
+		"Academia o instituto",
+		"Refuerzo escolar",
 		"Idiomas",
 	},
 	"Automotriz": {
 		"Taller mecánico",
-		"Lavadero de carros",
+		"Lavadero",
 		"Repuestos y accesorios",
 		"Alquiler de vehículos",
 	},
@@ -139,7 +143,7 @@ var defaultSubcategories = map[string][]string{
 		"Veterinaria",
 		"Peluquería canina",
 		"Tienda de mascotas",
-		"Guardería y paseo de mascotas",
+		"Guardería y paseos",
 	},
 	"Eventos y fiestas": {
 		"Decoración y alquiler",
@@ -148,15 +152,18 @@ var defaultSubcategories = map[string][]string{
 		"Organización de eventos",
 	},
 	"Fotografía y diseño": {
-		"Fotografía",
+		"Fotografía y video",
 		"Diseño gráfico",
 		"Impresión y publicidad",
 	},
 	"Deporte y recreación": {
-		"Gimnasio / crossfit",
-		"Clases y entrenadores",
+		"Gimnasio y crossfit",
+		"Entrenadores y clases deportivas",
 		"Alquiler de canchas",
 		"Tienda deportiva",
+	},
+	"Otros": {
+		"Otros",
 	},
 }
 
@@ -214,15 +221,8 @@ func ResetCatalog(db *gorm.DB) error {
 			return err
 		}
 
-		// Then the catalog itself.
-		if err := tx.Exec("DELETE FROM subcategories").Error; err != nil {
-			return err
-		}
-		if err := tx.Exec("DELETE FROM categories").Error; err != nil {
-			return err
-		}
-
-		return nil
+		// Then the catalog itself (the global sections survive: their templates are rebuilt on start).
+		return deleteCatalog(tx)
 	})
 }
 
@@ -237,35 +237,41 @@ func ResetCatalog(db *gorm.DB) error {
 // reset used to leave orphaned rows behind referencing deleted entities.
 // Fixed here.
 func deleteAllBusinessData(tx *gorm.DB) error {
-	if err := tx.Exec("DELETE FROM messages").Error; err != nil {
-		return err
+	// Hijos antes que padres. Cada tabla que cuelga de un negocio está aquí: si se agrega una nueva, va en esta lista.
+	tables := []string{
+		// Mi negocio: ventas, gastos, fiados, inventario, cuentas abiertas, dictado.
+		"voice_drafts", "open_tab_lines", "open_tabs", "product_supplies", "stock_movements", "expense_lines",
+		"stock_items", "debt_payments", "sale_lines", "sales", "expenses", "parties",
+		// Agenda, ofertas y promociones.
+		"appointments", "agenda_settings", "offer_claims", "offer_items", "offers", "promotion_items", "promotions",
+		// Catálogo y secciones del negocio.
+		"service_items", "entity_sections", "section_requests",
+		// Perfil, chat, reseñas y señales.
+		"messages", "reviews", "favorites", "entity_subcategories", "business_categories", "entity_photos", "posts",
+		"business_hours", "business_statuses", "signals", "events", "subscription_payments", "subscriptions",
+		"entities",
 	}
-	if err := tx.Exec("DELETE FROM reviews").Error; err != nil {
-		return err
+	for _, t := range tables {
+		if !tx.Migrator().HasTable(t) {
+			continue // una base vieja que aún no tiene esa tabla
+		}
+		if err := tx.Exec("DELETE FROM " + t).Error; err != nil {
+			return err
+		}
 	}
-	if err := tx.Exec("DELETE FROM favorites").Error; err != nil {
-		return err
-	}
-	if err := tx.Exec("DELETE FROM entity_subcategories").Error; err != nil {
-		return err
-	}
-	if err := tx.Exec("DELETE FROM entity_photos").Error; err != nil {
-		return err
-	}
-	if err := tx.Exec("DELETE FROM posts").Error; err != nil {
-		return err
-	}
-	if err := tx.Exec("DELETE FROM business_hours").Error; err != nil {
-		return err
-	}
-	if err := tx.Exec("DELETE FROM subscription_payments").Error; err != nil {
-		return err
-	}
-	if err := tx.Exec("DELETE FROM subscriptions").Error; err != nil {
-		return err
-	}
-	if err := tx.Exec("DELETE FROM entities").Error; err != nil {
-		return err
+	return nil
+}
+
+// deleteCatalog borra categorías y subcategorías (y lo que las referencia: plantillas de secciones y relaciones).
+// DELETE y no soft delete: las subcategorías y categorías usan gorm.DeletedAt, pero aquí se quieren fuera de verdad.
+func deleteCatalog(tx *gorm.DB) error {
+	for _, t := range []string{"subcategory_sections", "category_relations", "subcategories", "categories"} {
+		if !tx.Migrator().HasTable(t) {
+			continue
+		}
+		if err := tx.Exec("DELETE FROM " + t).Error; err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -286,10 +292,7 @@ func ResetEverythingExceptAdmins(db *gorm.DB) error {
 		if err := deleteAllBusinessData(tx); err != nil {
 			return err
 		}
-		if err := tx.Exec("DELETE FROM subcategories").Error; err != nil {
-			return err
-		}
-		if err := tx.Exec("DELETE FROM categories").Error; err != nil {
+		if err := deleteCatalog(tx); err != nil {
 			return err
 		}
 

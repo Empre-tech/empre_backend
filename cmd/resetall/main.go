@@ -51,5 +51,8 @@ func main() {
 
 	database.SeedCategories(database.DB)
 	database.SeedSubcategories(database.DB)
+	if err := database.SeedSections(database.DB); err != nil {
+		log.Println("No se pudieron sembrar las secciones (se siembran al arrancar el backend): ", err)
+	}
 	fmt.Println("Categorías y subcategorías predeterminadas creadas de nuevo.")
 }

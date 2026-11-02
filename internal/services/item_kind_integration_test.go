@@ -222,7 +222,11 @@ func TestVariants(t *testing.T) {
 	db, svc, owner, _, ent := ledgerFixture(t)
 	cat := NewCatalogService(db)
 	now := time.Now()
-	prot, _ := cat.Create(ent.ID, owner.ID, ServiceInput{Name: "Proteína 2 lb", Kind: "product", Price: intp(120000), Section: "Suplementos"}, now)
+	supl := models.Section{Kind: models.SectionSell, Name: "Suplementos"}
+	if err := db.Create(&supl).Error; err != nil {
+		t.Fatal(err)
+	}
+	prot, _ := cat.Create(ent.ID, owner.ID, ServiceInput{Name: "Proteína 2 lb", Kind: "product", Price: intp(120000), SectionID: &supl.ID}, now)
 	cost := 95000
 	if err := svc.SetItemCost(owner.ID, ent.ID, prot.ID, &cost); err != nil {
 		t.Fatal(err)
@@ -287,7 +291,7 @@ func TestVariants(t *testing.T) {
 	}
 
 	// Renombrar el producto renombra sus variantes; quitarlo las quita.
-	if _, err := cat.Update(ent.ID, prot.ID, owner.ID, ServiceInput{Name: "Whey 2 lb", Price: intp(120000), Section: "Suplementos"}, now); err != nil {
+	if _, err := cat.Update(ent.ID, prot.ID, owner.ID, ServiceInput{Name: "Whey 2 lb", Price: intp(120000), SectionID: &supl.ID}, now); err != nil {
 		t.Fatal(err)
 	}
 	var cv models.ServiceItem

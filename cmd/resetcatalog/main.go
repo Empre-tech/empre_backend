@@ -27,7 +27,7 @@ func main() {
 	cfg := config.LoadConfig()
 	database.ConnectDB(cfg)
 
-	fmt.Printf("Esto borrará TODOS los negocios, categorías y subcategorías de la base de datos %q. Escribe \"si\" para continuar: ", cfg.DBName)
+	fmt.Printf("Esto borrará TODOS los negocios (con sus productos, ventas, inventario, ofertas y citas), categorías y subcategorías de la base de datos %q. Escribe \"si\" para continuar: ", cfg.DBName)
 	reader := bufio.NewReader(os.Stdin)
 	answer, _ := reader.ReadString('\n')
 	if strings.TrimSpace(strings.ToLower(answer)) != "si" {
@@ -42,5 +42,8 @@ func main() {
 
 	database.SeedCategories(database.DB)
 	database.SeedSubcategories(database.DB)
+	if err := database.SeedSections(database.DB); err != nil {
+		log.Println("No se pudieron sembrar las secciones (se siembran al arrancar el backend): ", err)
+	}
 	fmt.Println("Listo: categorías y subcategorías predeterminadas creadas de nuevo.")
 }

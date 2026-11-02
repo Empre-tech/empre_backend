@@ -22,10 +22,18 @@ type ServiceItem struct {
 	EntityID uuid.UUID `gorm:"type:uuid;not null;index" json:"entity_id"`
 
 	Name        string `gorm:"size:80;not null" json:"name"`
-	Description string `gorm:"size:240" json:"description"`
-	// Section agrupa el catálogo («Almuerzos», «Cortes», «Calzado»): texto libre del dueño, opcional. Vale para cualquier
-	// tipo de negocio; la app le sugiere secciones según su categoría.
+	Description string `gorm:"size:600" json:"description"`
+	// SectionID es la sección del catálogo global (models.Section, tipo sell) en la que va: obligatoria al crear. Las
+	// variantes llevan la de su producto.
+	SectionID *uuid.UUID `gorm:"type:uuid;index" json:"section_id"`
+	// Section es una copia del nombre de esa sección, para agrupar y mostrar sin un join. La escribe el servidor.
 	Section string `gorm:"size:40" json:"section"`
+	// Audience: para quién es (men, women, kids, unisex; varios a la vez). Solo en negocios de ropa, calzado y deporte
+	// (AudienceSubcategories); vacío = no se dijo. Las variantes llevan la de su producto.
+	Audience []string `gorm:"type:jsonb;serializer:json" json:"audience,omitempty"`
+	// Photos: ids de Media (subidas por /api/images/upload), en orden; la primera es la portada. Hasta 3. Las
+	// variantes muestran las de su producto.
+	Photos []string `gorm:"type:jsonb;serializer:json" json:"photos,omitempty"`
 
 	// Price es el precio habitual en pesos colombianos, sin decimales. Nil = el negocio no publica precio
 	// (un dato desconocido NO es cero).
@@ -64,6 +72,20 @@ type ServiceItem struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
+
+// Para quién es un ítem.
+const (
+	AudienceMen    = "men"
+	AudienceWomen  = "women"
+	AudienceKids   = "kids"
+	AudienceUnisex = "unisex"
+)
+
+// AudienceValues en el orden en que se muestran.
+var AudienceValues = []string{AudienceMen, AudienceWomen, AudienceKids, AudienceUnisex}
+
+// AudienceSubcategories: las subcategorías cuyos negocios dicen para quién es cada producto.
+var AudienceSubcategories = []string{"Ropa y calzado", "Tienda deportiva"}
 
 // Tipos de ítem del catálogo.
 const (
