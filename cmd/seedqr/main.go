@@ -92,7 +92,7 @@ var shops = []shop{
 		catalog: []item{{"Corte de cabello", 25000}, {"Arreglo de barba", 12000}}, special: 28000,
 	},
 	{
-		owner: "Sofía Pinedo", category: "Cafeterías y postres", name: "Café Sierra Nevada",
+		owner: "Sofía Pinedo", category: "Cafeterías, panaderías y postres", name: "Café Sierra Nevada",
 		tagline: "Café de la Sierra y pan recién horneado", desc: "Café de origen samario y repostería.",
 		north: 260, east: 210, hours: "06:00-21:00",
 		// Pocos cupos: para probar «oferta agotada» con varias cuentas.

@@ -135,6 +135,17 @@ func (h *Hub) handleIncoming(envelope MessageEnvelope) {
 		return
 	}
 
+	// Tarjeta del producto por el que se pregunta: la arma el servidor con el
+	// catálogo del negocio. Si el producto ya no está, el mensaje se guarda igual, sin tarjeta.
+	if incoming.ItemID != nil {
+		if card, err := services.MessageItemCard(h.DB, msg.EntityID, *incoming.ItemID); err == nil {
+			msg.ItemID = &card.ID
+			msg.Item = card
+		} else {
+			log.Printf("Message from %s without item card: %v\n", senderID, err)
+		}
+	}
+
 	// Save to DB (without touching associations).
 	if err := h.DB.Omit(clause.Associations).Create(&msg).Error; err != nil {
 		log.Println("Error saving message to DB:", err)
@@ -160,7 +171,11 @@ func (h *Hub) handleIncoming(envelope MessageEnvelope) {
 	h.mu.RUnlock()
 
 	h.RouteMessage(&msg, data, senderID)
-	h.notifyOffline(&msg, &entity, senderID, content)
+	pushText := content
+	if msg.Item != nil {
+		pushText = "Sobre «" + msg.Item.Name + "»: " + content
+	}
+	h.notifyOffline(&msg, &entity, senderID, pushText)
 
 	// Solo un mensaje de un cliente hacia el negocio puede sumar un cliente
 	// distinto nuevo; revisamos aquí si eso acaba de cruzar el umbral gratis.

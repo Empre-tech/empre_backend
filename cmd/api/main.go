@@ -113,6 +113,10 @@ func main() {
 		&models.OpenTab{},
 		&models.OpenTabLine{},
 		&models.VoiceDraft{},
+		&models.Section{},
+		&models.SubcategorySection{},
+		&models.EntitySection{},
+		&models.SectionRequest{},
 	)
 	if err != nil {
 		log.Fatal("Migration failed: ", err)
@@ -126,6 +130,10 @@ func main() {
 	// Seed default categories (and their subcategories) on a fresh database
 	database.SeedCategories(database.DB)
 	database.SeedSubcategories(database.DB)
+	// Catálogo global de secciones y plantilla de cada subcategoría (se recalcula en cada arranque).
+	if err := database.SeedSections(database.DB); err != nil {
+		log.Println("Secciones: no se pudo sembrar el catálogo: ", err)
+	}
 
 	// Migraciones de datos (idempotentes): extensiones de búsqueda tolerante,
 	// jerarquía de categorías, business_categories, places y sinónimos.
@@ -266,6 +274,8 @@ func main() {
 	eventHandler := handlers.NewEventHandler(eventService)
 	healthHandler := handlers.NewHealthHandler(sqlDB, observability.Default, eventService)
 	catalogHandler := handlers.NewCatalogHandler(services.NewCatalogService(database.DB))
+	sectionHandler := handlers.NewSectionHandler(services.NewSectionService(database.DB))
+	catalogHandler.Sections = sectionHandler.Service
 	// Retención: los eventos de uso de más de 180 días se borran al arrancar.
 	if n, err := eventService.PurgeOlderThan(time.Now().AddDate(0, 0, -180)); err != nil {
 		log.Println("No se pudieron purgar eventos viejos: ", err)
@@ -277,6 +287,7 @@ func main() {
 	offerMarketHandler := handlers.NewOfferMarketHandler(services.NewOfferMarketService(database.DB, reviewService))
 	completenessHandler := handlers.NewCompletenessHandler(services.NewCompletenessService(database.DB))
 	searchHandler := handlers.NewSearchHandler(searchService)
+	askHandler := handlers.NewAskHandler(services.NewAskService(database.DB, searchService, aiService))
 	agendaHandler := handlers.NewAgendaHandler(agendaService)
 	ledgerService := services.NewLedgerService(database.DB)
 	ledgerService.SetVoiceModel(aiService)
@@ -328,9 +339,13 @@ func main() {
 				entitiesProtected.PUT("/:id", entityHandler.Update)
 				// Catálogo de servicios (solo el dueño; la lectura es pública, arriba).
 				entitiesProtected.POST("/:id/catalog", catalogHandler.Create)
+				entitiesProtected.GET("/:id/sections", sectionHandler.ForEntity)
+				entitiesProtected.POST("/:id/sections", sectionHandler.Add)
+				entitiesProtected.POST("/:id/sections/requests", sectionHandler.Request)
 				entitiesProtected.POST("/:id/catalog/confirm", catalogHandler.Confirm)
 				entitiesProtected.PUT("/:id/catalog/:itemId", catalogHandler.Update)
 				entitiesProtected.PUT("/:id/catalog/:itemId/kind", catalogHandler.SetKind)
+				entitiesProtected.PUT("/:id/catalog/:itemId/photos", catalogHandler.SetPhotos)
 				entitiesProtected.POST("/:id/catalog/kinds/confirm", catalogHandler.ConfirmKinds)
 				entitiesProtected.DELETE("/:id/catalog/:itemId", catalogHandler.Retire)
 				entitiesProtected.DELETE("/:id", entityHandler.Delete)
@@ -434,6 +449,7 @@ func main() {
 
 		// Búsqueda por niveles + chips dinámicos (público).
 		api.GET("/search", searchHandler.Search)
+		api.GET("/ask", askHandler.Ask)
 		api.GET("/categories/chips", searchHandler.Chips)
 
 		// Ofertas: acciones del negocio (quick actions, republish) y reclamo
@@ -540,6 +556,16 @@ func main() {
 			adminGroup.POST("/subcategories", categoryHandler.CreateSubcategory)
 			adminGroup.PUT("/subcategories/:id", categoryHandler.UpdateSubcategory)
 			adminGroup.DELETE("/subcategories/:id", categoryHandler.DeleteSubcategory)
+
+			adminGroup.GET("/section-requests", sectionHandler.ListRequests)
+			adminGroup.POST("/section-requests/:requestId", sectionHandler.ResolveRequest)
+		}
+
+		// Catálogo global de secciones (para «Más secciones»). Requiere sesión.
+		sectionsGroup := api.Group("/sections")
+		sectionsGroup.Use(middleware.AuthMiddleware(cfg))
+		{
+			sectionsGroup.GET("", sectionHandler.Catalog)
 		}
 
 		// Pagos (webhook público: lo llama Wompi, no un usuario autenticado;

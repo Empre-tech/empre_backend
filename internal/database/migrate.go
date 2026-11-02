@@ -210,7 +210,7 @@ func SeedFamilies(db *gorm.DB) error {
 func SeedSynonyms(db *gorm.DB) error {
 	table := map[string][]string{
 		"Restaurantes":         {"restaurante", "restaurant", "comida", "almuerzo", "cenar"},
-		"Cafeterías y postres": {"cafeteria", "cafe", "café", "postre", "postres", "panaderia", "panadería", "heladeria"},
+		"Cafeterías, panaderías y postres": {"cafeteria", "cafe", "café", "postre", "postres", "panaderia", "panadería", "heladeria"},
 		"Bares y vida nocturna": {"bar", "discoteca", "rumba", "cerveza", "copas", "karaoke"},
 		"Tiendas y comercio":    {"tienda", "almacen", "almacén", "comercio", "ropa", "supermercado"},
 		"Belleza y peluquería":  {"peluqueria", "peluquería", "barberia", "barbería", "spa", "unas", "uñas", "corte"},

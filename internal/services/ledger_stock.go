@@ -364,8 +364,9 @@ type InventoryItem struct {
 	// StockID: el id de su existencia (si la tiene). AlsoSupply: producto que también se usa como insumo.
 	StockID    *uuid.UUID `json:"stock_id,omitempty"`
 	AlsoSupply bool       `json:"also_supply"`
-	// Group: el grupo del insumo (vacío = sin grupo). Un producto que también se usa toma su sección.
-	Group string `json:"group,omitempty"`
+	// Group: la sección del insumo (su nombre) y SectionID su id. Un producto que también se usa toma su sección.
+	Group     string     `json:"group,omitempty"`
+	SectionID *uuid.UUID `json:"section_id,omitempty"`
 	// Servings: para cuántas unidades alcanzan sus insumos (solo si todos tienen cantidad y se cuentan exacto).
 	// Limit: el insumo que pone ese límite.
 	Servings *float64 `json:"servings"`
@@ -470,9 +471,9 @@ func (s *LedgerService) inventory(entityID uuid.UUID) (InventoryOverview, error)
 			it.Mode, it.Qty, it.Level, it.Unit, it.PackSize, it.LowAt = st.Mode, st.Qty, st.Level, st.Unit, st.PackSize, st.LowAt
 			sid := st.ID
 			it.StockID, it.AlsoSupply = &sid, st.AlsoSupply
-			it.Group = st.Group
+			it.Group, it.SectionID = st.Group, st.SectionID
 			if st.ServiceItemID != nil {
-				it.Group = section
+				it.Group, it.SectionID = section, nil
 			}
 			it.Counted = st.CountedAt != nil
 			it.Status = ledger.Status(st.Mode, it.Counted, st.Qty, st.Level, st.LowAt, it.Sold28)
@@ -732,8 +733,8 @@ type ItemSettings struct {
 	ClearLowAt bool `json:"clear_low_at"`
 	// AlsoSupply: «también lo uso en mis servicios o platos» (solo productos). Apagarlo lo quita de donde se usaba.
 	AlsoSupply *bool `json:"also_supply"`
-	// Group: el grupo de un insumo (solo insumos; "" lo deja sin grupo).
-	Group *string `json:"group"`
+	// SectionID: cambia la sección de un insumo (solo insumos).
+	SectionID *uuid.UUID `json:"section_id"`
 }
 
 func (s *LedgerService) UpdateStockSettings(ownerID, entityID, ref uuid.UUID, in ItemSettings) (InventoryOverview, error) {
@@ -784,11 +785,15 @@ func (s *LedgerService) UpdateStockSettings(ownerID, entityID, ref uuid.UUID, in
 		} else if in.ClearLowAt {
 			upd["low_at"] = nil
 		}
-		if in.Group != nil {
+		if in.SectionID != nil {
 			if it.ServiceItemID != nil {
-				return &InvalidError{"un producto se agrupa por su sección, no por grupo"}
+				return &InvalidError{"un producto va en la sección de su catálogo"}
 			}
-			upd["supply_group"] = cleanGroup(*in.Group)
+			sec, err := supplySection(tx, entityID, in.SectionID)
+			if err != nil {
+				return err
+			}
+			upd["section_id"], upd["supply_group"] = sec.ID, sec.Name
 		}
 		if in.AlsoSupply != nil && it.ServiceItemID != nil && *in.AlsoSupply != it.AlsoSupply {
 			upd["also_supply"] = *in.AlsoSupply
@@ -956,17 +961,22 @@ type SupplyInput struct {
 	Unit     string    `json:"unit"`
 	Mode     string    `json:"mode"` // light (por defecto) o exact
 	Qty      *float64  `json:"qty"`  // cuántos hay hoy (solo cantidad exacta)
-	Group    string    `json:"group"` // opcional: Carnes, Verduras, Empaques…
+	// SectionID: la sección de insumo (Carnes y pollo, Desechables y empaques…). Obligatoria para un insumo nuevo.
+	SectionID *uuid.UUID `json:"section_id"`
 }
 
-// cleanGroup deja el grupo con mayúscula inicial y sin espacios de sobra, para que «carnes» y «Carnes » sean uno solo.
-func cleanGroup(g string) string {
-	g = cleanText(g, 40)
-	if g == "" {
-		return ""
+// supplySection valida la sección de insumo que eligió el dueño (y la agrega a las suyas si no estaba). Sin sección,
+// «Otros».
+func supplySection(db *gorm.DB, entityID uuid.UUID, id *uuid.UUID) (models.Section, error) {
+	if id == nil || *id == uuid.Nil {
+		// La app siempre la pide; si no llega, el insumo va en «Otros», nunca sin sección.
+		return otherSection(db, models.SectionSupply)
 	}
-	r := []rune(g)
-	return strings.ToUpper(string(r[0])) + string(r[1:])
+	sec, err := resolveSection(db, entityID, *id, models.SectionSupply)
+	if errors.Is(err, ErrSectionNotFound) {
+		return sec, &InvalidError{"esa sección no existe"}
+	}
+	return sec, err
 }
 
 // CreateSupply agrega un insumo que no se vende (lechuga, harina, vasos). Si ya hay uno con ese nombre, lo devuelve.
@@ -1012,10 +1022,14 @@ func (s *LedgerService) CreateSupply(ownerID, entityID uuid.UUID, in SupplyInput
 		for _, e := range existing {
 			if e.ID == in.ClientID || (!e.Archived && ledger.Normalize(e.Name) == key) {
 				out = e
-				// Ya existía: si no tenía grupo y ahora lo traen, se lo pone.
-				if g := cleanGroup(in.Group); g != "" && e.Group == "" {
-					out.Group = g
-					return tx.Model(&models.StockItem{}).Where("id = ?", e.ID).Update("supply_group", g).Error
+				// Ya existía: si no tenía sección y ahora la traen, se la pone.
+				if e.SectionID == nil && in.SectionID != nil {
+					sec, err := supplySection(tx, entityID, in.SectionID)
+					if err != nil {
+						return err
+					}
+					out.SectionID, out.Group = &sec.ID, sec.Name
+					return tx.Model(&models.StockItem{}).Where("id = ?", e.ID).Updates(map[string]any{"section_id": sec.ID, "supply_group": sec.Name}).Error
 				}
 				return nil
 			}
@@ -1030,7 +1044,12 @@ func (s *LedgerService) CreateSupply(ownerID, entityID uuid.UUID, in SupplyInput
 		if unit == "" {
 			unit = "unidad"
 		}
-		out = models.StockItem{ID: in.ClientID, EntityID: entityID, Kind: models.StockSupply, Name: name, Mode: mode, Level: ledger.LevelOK, Unit: unit, Group: cleanGroup(in.Group)}
+		sec, err := supplySection(tx, entityID, in.SectionID)
+		if err != nil {
+			return err
+		}
+		out = models.StockItem{ID: in.ClientID, EntityID: entityID, Kind: models.StockSupply, Name: name, Mode: mode, Level: ledger.LevelOK, Unit: unit,
+			SectionID: &sec.ID, Group: sec.Name}
 		if err := tx.Create(&out).Error; err != nil {
 			return err
 		}

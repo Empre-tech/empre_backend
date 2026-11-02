@@ -14,6 +14,8 @@ import (
 
 type CatalogHandler struct {
 	Service *services.CatalogService
+	// Sections arma las secciones del perfil público (las que tienen ítems, en el orden del negocio).
+	Sections *services.SectionService
 }
 
 func NewCatalogHandler(service *services.CatalogService) *CatalogHandler {
@@ -21,10 +23,14 @@ func NewCatalogHandler(service *services.CatalogService) *CatalogHandler {
 }
 
 type serviceItemDTO struct {
-	ID             uuid.UUID  `json:"id"`
-	Name           string     `json:"name"`
-	Description    string     `json:"description"`
-	Section        string     `json:"section"`
+	ID          uuid.UUID  `json:"id"`
+	Name        string     `json:"name"`
+	Description string     `json:"description"`
+	Section     string     `json:"section"`
+	SectionID   *uuid.UUID `json:"section_id"`
+	Audience    []string   `json:"audience,omitempty"`
+	// Photos: ids de las fotos (GET /api/images/{id}), la primera es la portada. Una variante muestra las de su producto.
+	Photos         []string   `json:"photos,omitempty"`
 	Price          *int       `json:"price"`
 	PriceFrom      bool       `json:"price_from"`
 	PriceUpdatedAt *time.Time `json:"price_updated_at"`
@@ -47,7 +53,7 @@ type serviceItemDTO struct {
 
 func toServiceDTO(it models.ServiceItem, now time.Time) serviceItemDTO {
 	return serviceItemDTO{
-		ID: it.ID, Name: it.Name, Description: it.Description, Section: it.Section, Price: it.Price, PriceFrom: it.PriceFrom,
+		ID: it.ID, Name: it.Name, Description: it.Description, Section: it.Section, SectionID: it.SectionID, Audience: it.Audience, Photos: it.Photos, Price: it.Price, PriceFrom: it.PriceFrom,
 		PriceUpdatedAt: it.PriceUpdatedAt, ConfirmedAt: it.ConfirmedAt, Fresh: services.PriceFreshness(it, now),
 		DurationMin: it.DurationMin, Bookable: it.Bookable, SoldOut: it.SoldOut,
 		Kind: itemKind(it), KindChecked: it.KindChecked, ParentID: it.ParentID, VariantLabel: it.VariantLabel,
@@ -99,6 +105,12 @@ func (h *CatalogHandler) List(c *gin.Context) {
 	out := make([]serviceItemDTO, 0, len(items))
 	for _, it := range items {
 		d := toServiceDTO(it, now)
+		// Una variante sin fotos propias muestra las del producto.
+		if it.ParentID != nil && len(it.Photos) == 0 {
+			if p, ok := parents[*it.ParentID]; ok {
+				d.Photos = p.Photos
+			}
+		}
 		// Una variante sin precio propio muestra el del producto.
 		if it.ParentID != nil && it.Price == nil {
 			if p, ok := parents[*it.ParentID]; ok && p.Price != nil {
@@ -107,7 +119,17 @@ func (h *CatalogHandler) List(c *gin.Context) {
 		}
 		out = append(out, d)
 	}
-	c.JSON(http.StatusOK, gin.H{"items": out, "fresh_days": services.CatalogFreshDays})
+	// sections: las secciones con productos, en el orden en que el negocio las muestra (el perfil agrupa con ellas).
+	sections := []services.SectionView{}
+	audience := false
+	if h.Sections != nil {
+		if sv, err := h.Sections.PublicSections(entityID); err == nil {
+			sections = sv
+		}
+		audience = services.AudienceEnabled(h.Sections.DB(), entityID)
+	}
+	// audience: el negocio dice para quién es cada producto; el perfil muestra el filtro «Para».
+	c.JSON(http.StatusOK, gin.H{"items": out, "sections": sections, "audience": audience, "fresh_days": services.CatalogFreshDays})
 }
 
 // Create añade un servicio (solo el dueño).
@@ -163,6 +185,35 @@ func (h *CatalogHandler) Update(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, toServiceDTO(*item, now))
+}
+
+// SetPhotos deja las fotos de un ítem: {photos: [mediaId, …]} en orden, hasta 3 (solo el dueño).
+// @Router /api/entities/{id}/catalog/{itemId}/photos [put]
+func (h *CatalogHandler) SetPhotos(c *gin.Context) {
+	entityID, err := uuid.Parse(c.Param("id"))
+	itemID, err2 := uuid.Parse(c.Param("itemId"))
+	if err != nil || err2 != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID inválido"})
+		return
+	}
+	userID, ok := ownerID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "No autenticado"})
+		return
+	}
+	var in struct {
+		Photos []uuid.UUID `json:"photos"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Cuerpo inválido"})
+		return
+	}
+	item, err := h.Service.SetPhotos(entityID, itemID, userID, in.Photos)
+	if err != nil {
+		catalogError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, toServiceDTO(*item, time.Now()))
 }
 
 // Retire retira un servicio del catálogo (solo el dueño): deja de mostrarse.
