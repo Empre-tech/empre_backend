@@ -128,6 +128,9 @@ func main() {
 	photoDir := flag.String("photos", "", "carpeta con tus fotos: <carpeta>/<nombre-del-negocio>/*.jpg (si no, se dibujan)")
 	noPhotos := flag.Bool("nophotos", false, "no subir fotos")
 	samples := flag.String("samples", "", "guardar las fotos dibujadas en esta carpeta y salir (para verlas)")
+	volumen := flag.Int("volumen", 0, "crear este número de negocios en Santa Marta para ver la app con volumen (cuentas vol001…)")
+	ventas := flag.String("ventas", "", "id del negocio al que agregarle varias semanas de ventas de todos los tipos")
+	limpiar := flag.Bool("limpiar", false, "con -volumen o -ventas: quitar lo sembrado en vez de crearlo")
 	flag.Parse()
 
 	if *samples != "" {
@@ -149,6 +152,37 @@ func main() {
 	catByName := make(map[string]models.Category, len(categories))
 	for _, c := range categories {
 		catByName[c.Name] = c
+	}
+
+	if *ventas != "" {
+		id, err := uuid.Parse(*ventas)
+		if err != nil {
+			log.Fatal("El id del negocio no es válido: ", err)
+		}
+		if *limpiar {
+			borrarVentas(db, id)
+		} else {
+			seedVentas(db, id)
+		}
+		if *volumen == 0 {
+			return
+		}
+	}
+	if *volumen > 0 {
+		if *limpiar {
+			borrarVolumen(db)
+			return
+		}
+		vr := make([]models.User, len(reviewerNames))
+		for i, n := range reviewerNames {
+			vr[i] = ensureUser(db, fmt.Sprintf("resena%d@empre.app", i+1), n)
+		}
+		var vs uploader
+		if !*noPhotos && cfg.S3Bucket != "" {
+			vs = services.NewStorageService(cfg)
+		}
+		seedVolumen(db, *volumen, vs, vr)
+		return
 	}
 
 	client := ensureUser(db, "cliente.qr@empre.app", "Cliente de prueba")
