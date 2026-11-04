@@ -98,6 +98,10 @@ type Analytics struct {
 
 	Bucket string        `json:"bucket"` // day | week | month
 	Series []SeriesPoint `json:"series"`
+	// PreviousSeries: las ventas del periodo con que se compara, barra por barra.
+	PreviousSeries []int `json:"previous_series"`
+	// Normal: por día, lo que se suele vender ese día de la semana (6 semanas). Vacío sin historia o si no va por días.
+	Normal []int `json:"normal,omitempty"`
 	// Heat[día][franja]: ventas por día de la semana (0 = lunes) y franja (mañana, mediodía, tarde, noche).
 	Heat [7][4]int `json:"heat"`
 
@@ -172,7 +176,8 @@ func (s *LedgerService) Analytics(ownerID, entityID uuid.UUID, fromS, toS, compa
 		return out, err
 	}
 	out.Current = cur
-	if out.Previous, _, _, err = s.periodTotals(entityID, cf, ct); err != nil {
+	var prevSales []models.Sale
+	if out.Previous, prevSales, _, err = s.periodTotals(entityID, cf, ct); err != nil {
 		return out, err
 	}
 
@@ -203,6 +208,15 @@ func (s *LedgerService) Analytics(ownerID, entityID uuid.UUID, fromS, toS, compa
 		if i, ok := idx[bucketOf(out.Bucket, e.OccurredAt.In(loc)).Format(dayFmt)]; ok {
 			out.Series[i].Expenses += e.Amount
 		}
+	}
+
+	out.PreviousSeries = salesByBucket(out.Bucket, cf, ct, prevSales)
+	if out.Bucket == "day" {
+		history, err := s.salesHistory(entityID, from)
+		if err != nil {
+			return out, err
+		}
+		out.Normal = normalForDays(from, to, history)
 	}
 
 	out.Products, out.UncostedCount, out.UncostedRevenue = productStats(sales)
