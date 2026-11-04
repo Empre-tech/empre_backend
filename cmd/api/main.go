@@ -105,6 +105,8 @@ func main() {
 		&models.Sale{},
 		&models.SaleLine{},
 		&models.Expense{},
+		&models.CashMove{},
+		&models.CashClose{},
 		&models.DebtPayment{},
 		&models.StockItem{},
 		&models.StockMovement{},
@@ -389,6 +391,10 @@ func main() {
 				entitiesProtected.GET("/:id/ledger/expenses", ledgerHandler.ListExpenses)
 				entitiesProtected.GET("/:id/ledger/expenses/usual", ledgerHandler.UsualExpenses)
 				entitiesProtected.POST("/:id/ledger/expenses/:expenseId/void", ledgerHandler.VoidExpense)
+				entitiesProtected.GET("/:id/ledger/cash", ledgerHandler.CashDay)
+				entitiesProtected.POST("/:id/ledger/cash/moves", ledgerHandler.CreateCashMove)
+				entitiesProtected.POST("/:id/ledger/cash/moves/:moveId/void", ledgerHandler.VoidCashMove)
+				entitiesProtected.POST("/:id/ledger/cash/close", ledgerHandler.CloseCash)
 				entitiesProtected.POST("/:id/ledger/parties", ledgerHandler.CreateParty)
 				entitiesProtected.GET("/:id/ledger/parties", ledgerHandler.ListParties)
 				entitiesProtected.GET("/:id/ledger/parties/:partyId/payments", ledgerHandler.ListPayments)

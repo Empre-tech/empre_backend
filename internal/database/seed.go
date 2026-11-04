@@ -241,7 +241,7 @@ func deleteAllBusinessData(tx *gorm.DB) error {
 	tables := []string{
 		// Mi negocio: ventas, gastos, fiados, inventario, cuentas abiertas, dictado.
 		"voice_drafts", "open_tab_lines", "open_tabs", "product_supplies", "stock_movements", "expense_lines",
-		"stock_items", "debt_payments", "sale_lines", "sales", "expenses", "parties",
+		"cash_closes", "cash_moves", "stock_items", "debt_payments", "sale_lines", "sales", "expenses", "parties",
 		// Agenda, ofertas y promociones.
 		"appointments", "agenda_settings", "offer_claims", "offer_items", "offers", "promotion_items", "promotions",
 		// Catálogo y secciones del negocio.
