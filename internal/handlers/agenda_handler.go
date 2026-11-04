@@ -424,6 +424,33 @@ func (h *AgendaHandler) DeleteService(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+// CreateOwnerAppointment: POST /entities/:id/agenda/appointments {"starts_at","customer_name","service_id"}
+func (h *AgendaHandler) CreateOwnerAppointment(c *gin.Context) {
+	user, ok := currentUser(c)
+	if !ok {
+		return
+	}
+	entityID, ok := uuidParam(c, "id")
+	if !ok {
+		return
+	}
+	var in struct {
+		StartsAt     time.Time  `json:"starts_at" binding:"required"`
+		CustomerName string     `json:"customer_name" binding:"required"`
+		ServiceID    *uuid.UUID `json:"service_id"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	appt, err := h.service.CreateOwnerAppointment(user, entityID, in.ServiceID, in.StartsAt, in.CustomerName)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, appt)
+}
+
 // CreateBlock: POST /entities/:id/agenda/blocks {"starts_at","ends_at","force"}
 func (h *AgendaHandler) CreateBlock(c *gin.Context) {
 	user, ok := currentUser(c)

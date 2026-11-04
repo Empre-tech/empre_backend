@@ -1172,6 +1172,45 @@ func (s *AgendaService) MyAppointments(userID uuid.UUID) ([]models.Appointment, 
 // CreateBlock closes a range of the agenda by hand. With live appointments in
 // the way it fails with OverlapsBookingError unless force is set, in which
 // case those appointments are cancelled (and their customers notified).
+// CreateOwnerAppointment anota una cita que el dueño acordó por fuera de Empre (en persona o por teléfono). No hay cuenta
+// de cliente: el nombre queda en la nota, sin avisos ni tarjeta de chat, y entra confirmada porque ya la decidió el dueño.
+func (s *AgendaService) CreateOwnerAppointment(ownerID, entityID uuid.UUID, serviceID *uuid.UUID, startsAt time.Time, customerName string) (*models.Appointment, error) {
+	if _, err := s.requireOwner(ownerID, entityID); err != nil {
+		return nil, err
+	}
+	name := strings.TrimSpace(customerName)
+	if name == "" {
+		return nil, &InvalidError{"escribe el nombre del cliente"}
+	}
+	st, err := s.settings(entityID)
+	if err != nil {
+		return nil, err
+	}
+	if !st.Enabled {
+		return nil, ErrAgendaDisabled
+	}
+	dur, err := s.durationFor(entityID, serviceID, st)
+	if err != nil {
+		return nil, err
+	}
+	start := startsAt.In(nowCO().Location()).Truncate(time.Minute)
+	end := start.Add(time.Duration(dur) * time.Minute)
+	deadline := end.Add(closingDeadlineAfterEnd)
+	now := time.Now()
+	appt := models.Appointment{
+		EntityID: entityID, Kind: models.AppointmentBooking, ServiceID: serviceID, CustomerNote: name,
+		StartsAt: start, EndsAt: end, BlocksUntil: end.Add(time.Duration(st.BufferMin) * time.Minute),
+		Status: models.ApptConfirmed, RespondedAt: &now, ClosingDeadline: &deadline, OwnerNotifiedAt: &now,
+	}
+	if err := s.db.Omit(clause.Associations).Create(&appt).Error; err != nil {
+		if isOverlapViolation(err) || isRetryableConflict(err) {
+			return nil, &InvalidError{"ya hay una cita o un bloqueo en ese horario"}
+		}
+		return nil, err
+	}
+	return s.load(appt.ID)
+}
+
 func (s *AgendaService) CreateBlock(ownerID, entityID uuid.UUID, start, end time.Time, force bool) (*models.Appointment, error) {
 	e, err := s.requireOwner(ownerID, entityID)
 	if err != nil {
