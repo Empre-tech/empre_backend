@@ -262,6 +262,10 @@ func redeemValidResponse(res *services.ClaimResult) dtos.RedeemResponse {
 		SlotsLeft:       left,
 		SlotsTotal:      total,
 	}
+	out.EntityID = &res.Claim.EntityID
+	if res.Sale != nil {
+		out.SaleID, out.SaleTotal = &res.Sale.ID, res.Sale.Total
+	}
 	return out
 }
 

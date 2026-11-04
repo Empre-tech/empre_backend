@@ -33,6 +33,13 @@ type ClaimService struct {
 	EntityRepo    *repository.EntityRepository
 	UserRepo      *repository.UserRepository
 	SignalService *SignalService
+	// Sales registra la venta de cada canje en Empre Finance.
+	Sales RedemptionRecorder
+}
+
+// RedemptionRecorder guarda la venta de un canje; sin precio en pesos devuelve nil.
+type RedemptionRecorder interface {
+	RecordRedemption(claim *models.OfferClaim, offer *models.Offer) (*models.Sale, error)
 }
 
 func NewClaimService(claimRepo *repository.ClaimRepository, offerRepo *repository.OfferRepository, entityRepo *repository.EntityRepository, userRepo *repository.UserRepository, signalService *SignalService) *ClaimService {
@@ -122,6 +129,8 @@ type ClaimResult struct {
 	Offer      *models.Offer
 	ClientName string
 	EntityName string
+	// Sale: la venta registrada sola; nil si la oferta no dice cuánto se cobró o no se pudo guardar.
+	Sale *models.Sale
 }
 
 // Claim reserves a slot and creates a personal QR for the user. lat/lng are
@@ -450,7 +459,16 @@ func (s *ClaimService) redeem(claim *models.OfferClaim, redeemerID uuid.UUID, de
 	// ranking solo cuando el cliente lo confirma (ver Confirm). Así un negocio
 	// no puede inflar su posición canjeando con cuentas falsas.
 
-	return &ClaimResult{Claim: redeemed, Offer: offer, ClientName: clientName, EntityName: entity.Name}, nil
+	// La venta nunca tumba el canje: el cliente ya recibió su oferta. Si falla, el dueño la anota a mano.
+	var sale *models.Sale
+	if s.Sales != nil {
+		if sale, err = s.Sales.RecordRedemption(redeemed, offer); err != nil {
+			log.Printf("canje %s: no se pudo registrar la venta: %v", redeemed.ID, err)
+			sale = nil
+		}
+	}
+
+	return &ClaimResult{Claim: redeemed, Offer: offer, ClientName: clientName, EntityName: entity.Name, Sale: sale}, nil
 }
 
 // Confirm marks a redeemed claim as verified by the client. Only verified

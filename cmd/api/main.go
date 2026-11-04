@@ -293,6 +293,7 @@ func main() {
 	agendaHandler := handlers.NewAgendaHandler(agendaService)
 	ledgerService := services.NewLedgerService(database.DB)
 	ledgerService.SetVoiceModel(aiService)
+	claimService.Sales = ledgerService
 	ledgerHandler := handlers.NewLedgerHandler(ledgerService)
 	inboxHandler := handlers.NewInboxHandler(services.NewInboxService(database.DB))
 
@@ -387,6 +388,7 @@ func main() {
 				entitiesProtected.POST("/:id/ledger/sales", ledgerHandler.CreateSale)
 				entitiesProtected.GET("/:id/ledger/sales", ledgerHandler.ListSales)
 				entitiesProtected.POST("/:id/ledger/sales/:saleId/void", ledgerHandler.VoidSale)
+				entitiesProtected.PUT("/:id/ledger/sales/:saleId/method", ledgerHandler.SetSaleMethod)
 				entitiesProtected.POST("/:id/ledger/expenses", ledgerHandler.CreateExpense)
 				entitiesProtected.GET("/:id/ledger/expenses", ledgerHandler.ListExpenses)
 				entitiesProtected.GET("/:id/ledger/expenses/usual", ledgerHandler.UsualExpenses)

@@ -49,6 +49,10 @@ type RedeemResponse struct {
 	RedeemedAt      *time.Time `json:"redeemed_at,omitempty"`
 	SlotsLeft       *int       `json:"slots_left,omitempty"`
 	SlotsTotal      *int       `json:"slots_total,omitempty"`
+	EntityID        *uuid.UUID `json:"entity_id,omitempty"`
+	// La venta que el canje dejó en Empre Finance. Sin ella, la oferta no dice cuánto se cobró.
+	SaleID    *uuid.UUID `json:"sale_id,omitempty"`
+	SaleTotal int        `json:"sale_total,omitempty"`
 }
 
 // ShortName reduces a full name to "Nombre I." (first name and the initial of

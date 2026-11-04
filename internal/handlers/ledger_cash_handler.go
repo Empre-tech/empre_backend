@@ -8,6 +8,31 @@ import (
 	"empre_backend/internal/services"
 )
 
+// SetSaleMethod cambia cómo se pagó una venta.
+func (h *LedgerHandler) SetSaleMethod(c *gin.Context) {
+	user, entity, ok := h.ids(c)
+	if !ok {
+		return
+	}
+	id, ok := uuidParam(c, "saleId")
+	if !ok {
+		return
+	}
+	var body struct {
+		Method string `json:"method"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid", "message": "datos inválidos"})
+		return
+	}
+	sale, err := h.svc.SetSaleMethod(user, entity, id, body.Method)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, sale)
+}
+
 // ---- caja ----
 
 func (h *LedgerHandler) CashDay(c *gin.Context) {
