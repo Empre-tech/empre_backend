@@ -105,6 +105,8 @@ type MarketZoneItem struct {
 	Name           string           `json:"name"`
 	DistanceMeters *float64         `json:"distance_meters"`
 	Here           bool             `json:"here"`
+	Latitude       float64          `json:"latitude"`
+	Longitude      float64          `json:"longitude"`
 	Looks          []MarketZoneLook `json:"looks"`
 }
 
@@ -205,7 +207,7 @@ func marketZones(list []services.MarketZone) []MarketZoneItem {
 		for _, l := range z.Looks {
 			looks = append(looks, MarketZoneLook{Color: l.Color, Icon: l.Icon})
 		}
-		out = append(out, MarketZoneItem{ID: z.Zone.ID, Name: z.Zone.Name, DistanceMeters: d, Here: z.Here, Looks: looks})
+		out = append(out, MarketZoneItem{ID: z.Zone.ID, Name: z.Zone.Name, DistanceMeters: d, Here: z.Here, Latitude: z.Zone.Latitude, Longitude: z.Zone.Longitude, Looks: looks})
 	}
 	return out
 }
