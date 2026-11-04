@@ -75,12 +75,15 @@ func (Party) TableName() string { return "parties" }
 // Sale es una venta. Si hay líneas, cada una guarda el nombre, el precio y el costo del momento: cambiar el catálogo
 // después no reescribe la historia. Una venta sin líneas («vendí 50 mil») es válida.
 type Sale struct {
-	ID         uuid.UUID  `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
-	EntityID   uuid.UUID  `gorm:"type:uuid;not null;index:idx_sales_entity_time,priority:1;uniqueIndex:uniq_sales_client,priority:1" json:"entity_id"`
-	ClientID   uuid.UUID  `gorm:"type:uuid;not null;uniqueIndex:uniq_sales_client,priority:2" json:"client_id"`
-	OccurredAt time.Time  `gorm:"not null;index:idx_sales_entity_time,priority:2" json:"occurred_at"`
-	Total      int        `gorm:"not null;check:chk_sales_total,total > 0 AND total <= 100000000" json:"total"`
-	Method     string     `gorm:"type:varchar(10);not null" json:"method"`
+	ID         uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	EntityID   uuid.UUID `gorm:"type:uuid;not null;index:idx_sales_entity_time,priority:1;uniqueIndex:uniq_sales_client,priority:1" json:"entity_id"`
+	ClientID   uuid.UUID `gorm:"type:uuid;not null;uniqueIndex:uniq_sales_client,priority:2" json:"client_id"`
+	OccurredAt time.Time `gorm:"not null;index:idx_sales_entity_time,priority:2" json:"occurred_at"`
+	Total      int       `gorm:"not null;check:chk_sales_total,total > 0 AND total <= 100000000" json:"total"`
+	Method     string    `gorm:"type:varchar(10);not null" json:"method"`
+	// Method2 y Amount2: la parte que no se pagó con Method. Con «credit» es lo que queda en «Te deben»: pagó una parte.
+	Method2    string     `gorm:"column:method2;type:varchar(10);not null;default:''" json:"method2,omitempty"`
+	Amount2    int        `gorm:"column:amount2;not null;default:0" json:"amount2,omitempty"`
 	PartyID    *uuid.UUID `gorm:"type:uuid;index" json:"party_id,omitempty"`
 	Party      *Party     `gorm:"foreignKey:PartyID" json:"party,omitempty"`
 	Source     string     `gorm:"type:varchar(20);not null;default:'manual'" json:"source"`
@@ -95,6 +98,20 @@ type Sale struct {
 }
 
 func (Sale) TableName() string { return "sales" }
+
+// SalePay es lo que se pagó de una venta con un medio.
+type SalePay struct {
+	Method string
+	Amount int
+}
+
+// Pays reparte el total de la venta entre sus medios de pago.
+func (s Sale) Pays() []SalePay {
+	if s.Method2 == "" || s.Amount2 <= 0 {
+		return []SalePay{{s.Method, s.Total}}
+	}
+	return []SalePay{{s.Method, s.Total - s.Amount2}, {s.Method2, s.Amount2}}
+}
 
 // SaleLine es un renglón de una venta.
 type SaleLine struct {

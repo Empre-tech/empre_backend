@@ -198,6 +198,9 @@ func (s *LedgerService) party(entityID, partyID uuid.UUID, kind string) (models.
 }
 
 // balances devuelve lo que se debe por tercero (solo registros activos).
+// saleCreditSum: lo que las ventas dejan en «Te deben»: todo el fiado y, si pagó una parte, solo el resto.
+const saleCreditSum = "COALESCE(SUM(CASE WHEN method = 'credit' THEN total ELSE amount2 END),0)"
+
 func (s *LedgerService) balances(entityID uuid.UUID) (map[uuid.UUID]int, error) {
 	out := map[uuid.UUID]int{}
 	type row struct {
@@ -208,8 +211,8 @@ func (s *LedgerService) balances(entityID uuid.UUID) (map[uuid.UUID]int, error) 
 	// Tres sumas independientes: en paralelo (3.53), una ida y vuelta en vez de tres.
 	g := new(errgroup.Group)
 	g.Go(func() error {
-		return s.db.Model(&models.Sale{}).Select("party_id, COALESCE(SUM(total),0) AS sum").
-			Where("entity_id = ? AND status = ? AND method = ? AND party_id IS NOT NULL", entityID, models.LedgerActive, models.PayCredit).
+		return s.db.Model(&models.Sale{}).Select("party_id, "+saleCreditSum+" AS sum").
+			Where("entity_id = ? AND status = ? AND (method = ? OR method2 = ?) AND party_id IS NOT NULL", entityID, models.LedgerActive, models.PayCredit, models.PayCredit).
 			Group("party_id").Scan(&credit).Error
 	})
 	g.Go(func() error {
@@ -281,10 +284,35 @@ type SaleInput struct {
 	OccurredAt *time.Time  `json:"occurred_at"`
 	Total      *int        `json:"total"`
 	Method     string      `json:"method"`
+	Method2    string      `json:"method2"`
+	Amount2    int         `json:"amount2"`
 	PartyID    *uuid.UUID  `json:"party_id"`
 	Note       string      `json:"note"`
 	Lines      []LineInput `json:"lines"`
 	Source     string      `json:"source"`
+}
+
+// checkSalePay valida una venta con dos formas de pago o pagada en parte. Sin Method2 no hay nada que revisar.
+func checkSalePay(in SaleInput, total int) error {
+	if in.Method2 == "" {
+		if in.Amount2 != 0 {
+			return &InvalidError{"falta la segunda forma de pago"}
+		}
+		return nil
+	}
+	if !models.ValidPayMethod(in.Method2) {
+		return &InvalidError{"medio de pago inválido"}
+	}
+	if in.Method == models.PayCredit || in.Method2 == in.Method {
+		return &InvalidError{"las dos formas de pago deben ser distintas y la primera no puede ser fiado"}
+	}
+	if in.Amount2 <= 0 || in.Amount2 >= total {
+		return &InvalidError{"las dos partes deben sumar el total de la venta"}
+	}
+	if in.Method2 == models.PayCredit && in.PartyID == nil {
+		return &InvalidError{"quien queda debiendo necesita un cliente"}
+	}
+	return nil
 }
 
 func validSource(src string) (string, error) {
@@ -400,9 +428,12 @@ func (s *LedgerService) createSale(entityID uuid.UUID, in SaleInput, tx *gorm.DB
 			return models.Sale{}, false, &InvalidError{"un fiado necesita el cliente"}
 		}
 	}
+	if err := checkSalePay(in, total); err != nil {
+		return models.Sale{}, false, err
+	}
 	if in.PartyID != nil {
 		want := ""
-		if in.Method == models.PayCredit {
+		if in.Method == models.PayCredit || in.Method2 == models.PayCredit {
 			want = models.PartyCustomer
 		}
 		var p models.Party
@@ -420,7 +451,7 @@ func (s *LedgerService) createSale(entityID uuid.UUID, in SaleInput, tx *gorm.DB
 
 	sale := models.Sale{
 		ID: in.ClientID, EntityID: entityID, ClientID: in.ClientID, OccurredAt: at, Total: total, Method: in.Method,
-		PartyID: in.PartyID, Source: src, Status: models.LedgerActive, Note: cleanText(in.Note, 200),
+		Method2: in.Method2, Amount2: in.Amount2, PartyID: in.PartyID, Source: src, Status: models.LedgerActive, Note: cleanText(in.Note, 200),
 	}
 	var created bool
 	body := func(t *gorm.DB) error {
@@ -769,8 +800,8 @@ func (s *LedgerService) createPayment(entityID uuid.UUID, in PaymentInput, tx *g
 
 func (s *LedgerService) partyBalance(db *gorm.DB, entityID, partyID uuid.UUID) (int, error) {
 	var credit, buys, pays int
-	if err := db.Model(&models.Sale{}).Where("entity_id = ? AND party_id = ? AND status = ? AND method = ?", entityID, partyID, models.LedgerActive, models.PayCredit).
-		Select("COALESCE(SUM(total),0)").Scan(&credit).Error; err != nil {
+	if err := db.Model(&models.Sale{}).Where("entity_id = ? AND party_id = ? AND status = ? AND (method = ? OR method2 = ?)", entityID, partyID, models.LedgerActive, models.PayCredit, models.PayCredit).
+		Select(saleCreditSum).Scan(&credit).Error; err != nil {
 		return 0, err
 	}
 	if err := db.Model(&models.Expense{}).Where("entity_id = ? AND party_id = ? AND status = ? AND method = ?", entityID, partyID, models.LedgerActive, models.PayCredit).
@@ -984,18 +1015,20 @@ func (s *LedgerService) Summary(ownerID, entityID uuid.UUID, period string, ref 
 	for _, sl := range sales {
 		sum.SalesTotal += sl.Total
 		sum.SalesCount++
-		switch sl.Method {
-		case models.PayCash:
-			sum.ByMethod.Cash += sl.Total
-			sum.CashIn += sl.Total
-		case models.PayTransfer:
-			sum.ByMethod.Transfer += sl.Total
-			sum.CashIn += sl.Total
-		case models.PayCard:
-			sum.ByMethod.Card += sl.Total
-			sum.CashIn += sl.Total
-		case models.PayCredit:
-			sum.ByMethod.Credit += sl.Total
+		for _, pay := range sl.Pays() {
+			switch pay.Method {
+			case models.PayCash:
+				sum.ByMethod.Cash += pay.Amount
+				sum.CashIn += pay.Amount
+			case models.PayTransfer:
+				sum.ByMethod.Transfer += pay.Amount
+				sum.CashIn += pay.Amount
+			case models.PayCard:
+				sum.ByMethod.Card += pay.Amount
+				sum.CashIn += pay.Amount
+			case models.PayCredit:
+				sum.ByMethod.Credit += pay.Amount
+			}
 		}
 		// Reparto del descuento: el margen se calcula con el total real, repartido por renglón.
 		lineSum := 0
@@ -1086,6 +1119,15 @@ func (s *LedgerService) Summary(ownerID, entityID uuid.UUID, period string, ref 
 // ---------- exportar ----------
 
 // ExportCSV devuelve ventas y gastos del rango como CSV (para el contador). Incluye anulados, marcados.
+// saleMethodCSV: el medio de pago de una venta; con dos, cuánto fue en cada uno.
+func saleMethodCSV(x models.Sale) string {
+	pays := x.Pays()
+	if len(pays) == 1 {
+		return x.Method
+	}
+	return pays[0].Method + ":" + strconv.Itoa(pays[0].Amount) + "+" + pays[1].Method + ":" + strconv.Itoa(pays[1].Amount)
+}
+
 func (s *LedgerService) ExportCSV(ownerID, entityID uuid.UUID, from, to time.Time) ([]byte, error) {
 	if err := s.requireOwner(ownerID, entityID); err != nil {
 		return nil, err
@@ -1116,7 +1158,7 @@ func (s *LedgerService) ExportCSV(ownerID, entityID uuid.UUID, from, to time.Tim
 		return p.Name
 	}
 	for _, x := range sales {
-		rows = append(rows, rec{x.OccurredAt, []string{x.OccurredAt.Format("2006-01-02 15:04"), "venta", strconv.Itoa(x.Total), x.Method, "", csvSafe(party(x.Party)), csvSafe(x.Note), x.Status}})
+		rows = append(rows, rec{x.OccurredAt, []string{x.OccurredAt.Format("2006-01-02 15:04"), "venta", strconv.Itoa(x.Total), saleMethodCSV(x), "", csvSafe(party(x.Party)), csvSafe(x.Note), x.Status}})
 	}
 	for _, x := range exps {
 		rows = append(rows, rec{x.OccurredAt, []string{x.OccurredAt.Format("2006-01-02 15:04"), "gasto", strconv.Itoa(x.Amount), x.Method, x.Category, csvSafe(party(x.Party)), csvSafe(x.Note), x.Status}})

@@ -69,9 +69,14 @@ type CashDay struct {
 func cashSpan(sales []models.Sale, expenses []models.Expense, pays []models.DebtPayment, moves []models.CashMove) CashFlow {
 	var f CashFlow
 	for _, sl := range sales {
-		if sl.Method == models.PayCash && sl.Status == models.LedgerActive {
-			f.Sales += sl.Total
-			f.SalesCount++
+		if sl.Status != models.LedgerActive {
+			continue
+		}
+		for _, pay := range sl.Pays() {
+			if pay.Method == models.PayCash {
+				f.Sales += pay.Amount
+				f.SalesCount++
+			}
 		}
 	}
 	for _, e := range expenses {

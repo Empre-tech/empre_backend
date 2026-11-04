@@ -281,15 +281,17 @@ func (s *LedgerService) periodTotals(entityID uuid.UUID, from, to time.Time) (Pe
 	for _, sl := range sales {
 		t.SalesTotal += sl.Total
 		t.SalesCount++
-		switch sl.Method {
-		case models.PayCash:
-			t.ByMethod.Cash += sl.Total
-		case models.PayTransfer:
-			t.ByMethod.Transfer += sl.Total
-		case models.PayCard:
-			t.ByMethod.Card += sl.Total
-		case models.PayCredit:
-			t.ByMethod.Credit += sl.Total
+		for _, pay := range sl.Pays() {
+			switch pay.Method {
+			case models.PayCash:
+				t.ByMethod.Cash += pay.Amount
+			case models.PayTransfer:
+				t.ByMethod.Transfer += pay.Amount
+			case models.PayCard:
+				t.ByMethod.Card += pay.Amount
+			case models.PayCredit:
+				t.ByMethod.Credit += pay.Amount
+			}
 		}
 		for _, l := range saleLineRevenue(sl) {
 			lines += l.rev
