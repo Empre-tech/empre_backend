@@ -381,6 +381,7 @@ func main() {
 				entitiesProtected.POST("/:id/agenda/services", agendaHandler.CreateService)
 				entitiesProtected.PUT("/:id/agenda/services/:serviceId", agendaHandler.UpdateService)
 				entitiesProtected.DELETE("/:id/agenda/services/:serviceId", agendaHandler.DeleteService)
+				entitiesProtected.POST("/:id/agenda/appointments", agendaHandler.CreateOwnerAppointment)
 				entitiesProtected.POST("/:id/agenda/blocks", agendaHandler.CreateBlock)
 				entitiesProtected.DELETE("/:id/agenda/blocks/:blockId", agendaHandler.DeleteBlock)
 
