@@ -137,6 +137,8 @@ type PartyInput struct {
 type PartyBalance struct {
 	models.Party
 	Balance int `json:"balance"`
+	// OldestAt: desde cuándo está pendiente lo que se debe (lo pagado cubre primero lo más viejo).
+	OldestAt *time.Time `json:"oldest_at,omitempty"`
 }
 
 func (s *LedgerService) CreateParty(ownerID, entityID uuid.UUID, in PartyInput) (models.Party, bool, error) {
@@ -266,6 +268,9 @@ func (s *LedgerService) ListParties(ownerID, entityID uuid.UUID, kind string, on
 	}
 	if onlyOwing {
 		sort.SliceStable(out, func(i, j int) bool { return out[i].Balance > out[j].Balance })
+		if err := s.fillOldest(entityID, out); err != nil {
+			return nil, err
+		}
 	}
 	return out, nil
 }
