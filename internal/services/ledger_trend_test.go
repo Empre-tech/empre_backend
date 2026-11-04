@@ -42,3 +42,14 @@ func TestNormalForDaysSinHistoriaNoDiceNada(t *testing.T) {
 		t.Fatalf("got %v", got)
 	}
 }
+
+func TestSourceTotalsReparteLasVentas(t *testing.T) {
+	var s SourceTotals
+	s.Add(models.SourceManual, 10)
+	s.Add(models.SourceVoice, 5)
+	s.Add(models.SourceOfferClaim, 20)
+	s.Add(models.SourceAppointment, 30)
+	if s.Manual != 15 || s.Offers != 20 || s.Agenda != 30 {
+		t.Fatalf("%+v", s)
+	}
+}

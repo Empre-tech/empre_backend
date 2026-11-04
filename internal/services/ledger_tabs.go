@@ -334,6 +334,16 @@ func (s *LedgerService) payTab(tx *gorm.DB, entityID, tabID uuid.UUID, in PayTab
 	if err != nil {
 		return err
 	}
+	// Cobrar la cuenta de una cita la deja atendida, y la venta cuenta como de la agenda.
+	if t.AppointmentID != nil {
+		if err := tx.Model(&models.Sale{}).Where("id = ?", created.ID).Update("source", models.SourceAppointment).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&models.Appointment{}).Where("id = ? AND entity_id = ? AND status = ?", *t.AppointmentID, entityID, models.ApptConfirmed).
+			Updates(map[string]any{"business_attended": true, "status": models.ApptCompleted}).Error; err != nil {
+			return err
+		}
+	}
 	now := nowCO()
 	return tx.Model(&models.OpenTab{}).Where("id = ?", t.ID).
 		Updates(map[string]any{"status": models.TabPaid, "closed_at": now, "sale_id": created.ID, "tip": in.Tip}).Error

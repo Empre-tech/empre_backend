@@ -32,11 +32,31 @@ type PeriodTotals struct {
 	Profit        int            `json:"profit"`
 	AvgTicket     int            `json:"avg_ticket"`
 	ByMethod      MethodTotals   `json:"by_method"`
+	BySource      SourceTotals   `json:"by_source"`
 	ExpensesByCat map[string]int `json:"expenses_by_category"`
 	// Margen bruto sobre los renglones con costo; MarginCoverage = % de lo vendido que tenía costo.
 	GrossMargin    int `json:"gross_margin"`
 	MarginCoverage int `json:"margin_coverage_pct"`
 	CostedRevenue  int `json:"costed_revenue"` // lo vendido en renglones con costo (base del margen %)
+}
+
+// SourceTotals: de dónde vinieron las ventas. Lo dictado cuenta como manual.
+type SourceTotals struct {
+	Manual int `json:"manual"`
+	Offers int `json:"offers"`
+	Agenda int `json:"agenda"`
+}
+
+// Add suma una venta según su origen.
+func (t *SourceTotals) Add(source string, amount int) {
+	switch source {
+	case models.SourceOfferClaim:
+		t.Offers += amount
+	case models.SourceAppointment:
+		t.Agenda += amount
+	default:
+		t.Manual += amount
+	}
 }
 
 // SeriesPoint es una barra del gráfico: un día, una semana o un mes que empieza en Start.
@@ -281,6 +301,7 @@ func (s *LedgerService) periodTotals(entityID uuid.UUID, from, to time.Time) (Pe
 	for _, sl := range sales {
 		t.SalesTotal += sl.Total
 		t.SalesCount++
+		t.BySource.Add(sl.Source, sl.Total)
 		for _, pay := range sl.Pays() {
 			switch pay.Method {
 			case models.PayCash:
