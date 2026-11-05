@@ -55,3 +55,18 @@ func TestCashSpanCuentaSoloLaParteEnEfectivo(t *testing.T) {
 		t.Fatalf("%+v", f)
 	}
 }
+
+func TestTeQuedoSinFiado(t *testing.T) {
+	if got := periodLeft(100_000, 30_000, 10_000, 25_000); got != 55_000 {
+		t.Fatalf("te quedó: %d", got)
+	}
+	if got := SaleEntered(models.Sale{Method: models.PayCredit, Total: 16_000}); got != 0 {
+		t.Fatalf("todo fiado: %d", got)
+	}
+	if got := SaleEntered(models.Sale{Method: models.PayCash, Total: 35_000, Method2: models.PayCredit, Amount2: 15_000}); got != 20_000 {
+		t.Fatalf("pagó una parte: %d", got)
+	}
+	if got := SaleEntered(models.Sale{Method: models.PayCash, Total: 35_000, Method2: models.PayTransfer, Amount2: 15_000}); got != 35_000 {
+		t.Fatalf("dos formas sin fiado: %d", got)
+	}
+}

@@ -57,6 +57,9 @@ func TestAnalytics(t *testing.T) {
 	if c.SalesTotal != 25_000 || c.SalesCount != 2 || c.ExpensesTotal != 4_000 || c.Profit != 21_000 || c.AvgTicket != 12_500 {
 		t.Fatalf("totales: %+v", c)
 	}
+	if c.Left != 21_000 || a.Series[0].Left != 20_000 || a.Series[1].Left != 1_000 {
+		t.Fatalf("te quedó: %d, serie %+v", c.Left, a.Series)
+	}
 	if c.ByMethod.Cash != 20_000 || c.ByMethod.Transfer != 5_000 || c.ExpensesByCat["servicios"] != 4_000 {
 		t.Fatalf("métodos y categorías: %+v", c)
 	}
