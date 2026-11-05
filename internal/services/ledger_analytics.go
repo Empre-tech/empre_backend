@@ -30,9 +30,15 @@ type PeriodTotals struct {
 	SalesCount    int            `json:"sales_count"`
 	ExpensesTotal int            `json:"expenses_total"`
 	Profit        int            `json:"profit"` // ventas menos gastos, con lo fiado incluido
-	// Left es «Te quedó»: lo que entró menos los gastos. Lo fiado no cuenta hasta que lo pagan.
+	// Left es «Te quedó»: lo que entró menos lo que salió. Ni lo fiado ni lo comprado a crédito cuentan hasta que se pagan.
 	Left           int `json:"left"`
+	Entered        int `json:"entered"`         // ventas sin lo fiado, más abonos de clientes
+	Out            int `json:"out"`             // gastos pagados, más pagos a proveedores
 	DebtsCollected int `json:"debts_collected"` // abonos de clientes en el rango
+	DebtsPaid      int `json:"debts_paid"`      // pagos a proveedores en el rango
+	ExpensesCredit int `json:"expenses_credit"` // comprado a crédito en el rango: aún no sale
+	// OutByCat son los gastos ya pagados por categoría.
+	OutByCat map[string]int `json:"out_by_category"`
 	AvgTicket     int            `json:"avg_ticket"`
 	ByMethod      MethodTotals   `json:"by_method"`
 	BySource      SourceTotals   `json:"by_source"`
@@ -67,7 +73,9 @@ type SeriesPoint struct {
 	Start    string `json:"start"` // AAAA-MM-DD
 	Sales    int    `json:"sales"`
 	Expenses int    `json:"expenses"`
-	Left     int    `json:"left"` // lo que entró (sin fiado, con abonos) menos los gastos
+	In       int    `json:"in"`   // ventas sin lo fiado, más abonos de clientes
+	Out      int    `json:"out"`  // gastos pagados, más pagos a proveedores
+	Left     int    `json:"left"` // In menos Out
 }
 
 // ProductStat: lo vendido de un producto en el rango. Profit/MarginPct solo cuentan renglones con costo.
@@ -224,7 +232,7 @@ func (s *LedgerService) Analytics(ownerID, entityID uuid.UUID, fromS, toS, compa
 		t := sl.OccurredAt.In(loc)
 		if i, ok := idx[bucketOf(out.Bucket, t).Format(dayFmt)]; ok {
 			out.Series[i].Sales += sl.Total
-			out.Series[i].Left += SaleEntered(sl)
+			out.Series[i].In += SaleEntered(sl)
 		}
 		wd := (int(t.Weekday()) + 6) % 7
 		out.Heat[wd][franja(t.Hour())] += sl.Total
@@ -232,17 +240,26 @@ func (s *LedgerService) Analytics(ownerID, entityID uuid.UUID, fromS, toS, compa
 	for _, e := range exps {
 		if i, ok := idx[bucketOf(out.Bucket, e.OccurredAt.In(loc)).Format(dayFmt)]; ok {
 			out.Series[i].Expenses += e.Amount
-			out.Series[i].Left -= e.Amount
+			if e.Method != models.PayCredit {
+				out.Series[i].Out += e.Amount
+			}
 		}
 	}
-	collected, err := s.collectedPayments(entityID, from, to)
+	moved, err := s.debtPayments(entityID, from, to)
 	if err != nil {
 		return out, err
 	}
-	for _, p := range collected {
+	for _, p := range moved {
 		if i, ok := idx[bucketOf(out.Bucket, p.OccurredAt.In(loc)).Format(dayFmt)]; ok {
-			out.Series[i].Left += p.Amount
+			if p.Direction == models.DebtReceivable {
+				out.Series[i].In += p.Amount
+			} else {
+				out.Series[i].Out += p.Amount
+			}
 		}
+	}
+	for i := range out.Series {
+		out.Series[i].Left = out.Series[i].In - out.Series[i].Out
 	}
 
 	out.PreviousSeries = salesByBucket(out.Bucket, cf, ct, prevSales)
@@ -306,7 +323,7 @@ func bucketStarts(bucket string, from, to time.Time) []time.Time {
 }
 
 func (s *LedgerService) periodTotals(entityID uuid.UUID, from, to time.Time) (PeriodTotals, []models.Sale, []models.Expense, error) {
-	t := PeriodTotals{ExpensesByCat: map[string]int{}}
+	t := PeriodTotals{ExpensesByCat: map[string]int{}, OutByCat: map[string]int{}}
 	var sales []models.Sale
 	if err := s.db.Preload("Lines").Where("entity_id = ? AND status = ? AND occurred_at >= ? AND occurred_at < ?",
 		entityID, models.LedgerActive, from, to).Find(&sales).Error; err != nil {
@@ -352,22 +369,33 @@ func (s *LedgerService) periodTotals(entityID uuid.UUID, from, to time.Time) (Pe
 	for _, e := range exps {
 		t.ExpensesTotal += e.Amount
 		t.ExpensesByCat[e.Category] += e.Amount
+		if e.Method == models.PayCredit {
+			t.ExpensesCredit += e.Amount
+		} else {
+			t.OutByCat[e.Category] += e.Amount
+		}
 	}
 	t.Profit = t.SalesTotal - t.ExpensesTotal
-	pays, err := s.collectedPayments(entityID, from, to)
+	pays, err := s.debtPayments(entityID, from, to)
 	if err != nil {
 		return t, nil, nil, err
 	}
 	for _, p := range pays {
-		t.DebtsCollected += p.Amount
+		if p.Direction == models.DebtReceivable {
+			t.DebtsCollected += p.Amount
+		} else {
+			t.DebtsPaid += p.Amount
+		}
 	}
-	t.Left = periodLeft(t.SalesTotal, t.ByMethod.Credit, t.DebtsCollected, t.ExpensesTotal)
+	t.Entered = t.SalesTotal - t.ByMethod.Credit + t.DebtsCollected
+	t.Out = t.ExpensesTotal - t.ExpensesCredit + t.DebtsPaid
+	t.Left = periodLeft(t.SalesTotal, t.ByMethod.Credit, t.DebtsCollected, t.Out)
 	return t, sales, exps, nil
 }
 
-// periodLeft es «Te quedó»: lo vendido sin lo fiado, más lo que te abonaron, menos lo que gastaste.
-func periodLeft(sales, credit, collected, expenses int) int {
-	return sales - credit + collected - expenses
+// periodLeft es «Te quedó»: lo vendido sin lo fiado, más lo que te abonaron, menos lo que salió de verdad.
+func periodLeft(sales, credit, collected, out int) int {
+	return sales - credit + collected - out
 }
 
 // SaleEntered es lo que entró con una venta: su total sin la parte fiada.
@@ -381,11 +409,11 @@ func SaleEntered(sl models.Sale) int {
 	return in
 }
 
-// collectedPayments son los abonos de clientes en el rango.
-func (s *LedgerService) collectedPayments(entityID uuid.UUID, from, to time.Time) ([]models.DebtPayment, error) {
+// debtPayments son los abonos de clientes y los pagos a proveedores en el rango.
+func (s *LedgerService) debtPayments(entityID uuid.UUID, from, to time.Time) ([]models.DebtPayment, error) {
 	var pays []models.DebtPayment
-	err := s.db.Where("entity_id = ? AND direction = ? AND occurred_at >= ? AND occurred_at < ?",
-		entityID, models.DebtReceivable, from, to).Find(&pays).Error
+	err := s.db.Where("entity_id = ? AND occurred_at >= ? AND occurred_at < ?",
+		entityID, from, to).Find(&pays).Error
 	return pays, err
 }
 
