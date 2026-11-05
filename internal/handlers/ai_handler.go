@@ -274,7 +274,7 @@ func mergeAIDraft(dst, src *AIBusinessDraft) {
 // business description or a post caption) — much simpler than the
 // conversational assistant: one call in, a few ready-to-use options out.
 type AITextRequest struct {
-	// Kind selects which prompt we use: "business_description" or "post_caption".
+	// Kind selects which prompt we use: "business_description", "post_caption" or "offer_title".
 	Kind string `json:"kind" binding:"required"`
 	// CurrentText is whatever the owner already wrote, if anything. May be empty.
 	CurrentText string `json:"current_text"`
@@ -312,6 +312,10 @@ const aiTextSystemPromptPostCaption = `Eres un redactor de redes sociales ayudan
 
 MUY IMPORTANTE: el dueño no puede responderte preguntas, esto es una sola llamada sin conversación. Nunca respondas pidiendo más información ni hagas preguntas: con lo que te dieron (aunque sea poco o nada) escribe igual 2 o 3 opciones completas y usables, genéricas pero atractivas si no tienes contexto. Siempre llama a la herramienta "propose_text_suggestions" con 2 o 3 opciones distintas entre sí; nunca respondas solo con texto plano.`
 
+const aiTextSystemPromptOfferTitle = `Eres un redactor ayudando a un dueño de negocio en Colombia a escribir el título de una oferta en Empre (la plataforma de negocios locales). Escribe títulos claros y cortos, de máximo 40 caracteres, en español neutro y cercano. Di solo lo que la oferta es: no inventes precios, descuentos, condiciones, plazos ni productos que no estén en el texto del dueño. Sin emojis, sin signos de exclamación y sin palabras como "increíble" o "imperdible".
+
+MUY IMPORTANTE: el dueño no puede responderte preguntas, esto es una sola llamada sin conversación. Nunca respondas pidiendo más información ni hagas preguntas: con lo que tengas, usa la herramienta para entregar las opciones.`
+
 // ImproveText generates a few ready-to-use options for a business description
 // or a post caption. Unlike BusinessAssistant this is a single request/response
 // (no conversation history): the owner picks one option or asks again.
@@ -333,8 +337,10 @@ func (h *AIHandler) ImproveText(c *gin.Context) {
 		systemPrompt = aiTextSystemPromptBusinessDescription
 	case "post_caption":
 		systemPrompt = aiTextSystemPromptPostCaption
+	case "offer_title":
+		systemPrompt = aiTextSystemPromptOfferTitle
 	default:
-		c.JSON(http.StatusBadRequest, gin.H{"error": "kind debe ser business_description o post_caption"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "kind debe ser business_description, post_caption u offer_title"})
 		return
 	}
 
