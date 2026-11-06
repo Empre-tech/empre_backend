@@ -81,8 +81,13 @@ func nowCO() time.Time { return utils.NowInCartagena() }
 
 // ---------- configuration ----------
 
+// defaultSettings es lo que ve un negocio que aún no guarda su agenda. Repite los valores por defecto de la tabla:
+// sin ellos la app recibe campos vacíos y luego no puede guardar.
 func defaultSettings(entityID uuid.UUID) models.AgendaSettings {
-	return models.AgendaSettings{EntityID: entityID, SlotMinutes: 30, MinNoticeMin: agenda.MinNoticeFloor, HorizonDays: 14}
+	return models.AgendaSettings{
+		EntityID: entityID, SlotMinutes: 30, MinNoticeMin: agenda.MinNoticeFloor, HorizonDays: 14,
+		IntakeMode: agenda.IntakeRules, ReviewNoShows: 2, ReviewNoticeMin: 120, NotifyEvery: 60, QuietMode: agenda.QuietHours,
+	}
 }
 
 func (s *AgendaService) settings(entityID uuid.UUID) (models.AgendaSettings, error) {
@@ -169,7 +174,7 @@ func applyIntake(st *models.AgendaSettings, in SettingsInput) error {
 		case agenda.IntakeManual, agenda.IntakeRules, agenda.IntakeAuto:
 			st.IntakeMode = *in.IntakeMode
 		default:
-			return &InvalidError{"intake_mode debe ser manual, rules o auto"}
+			return &InvalidError{"Elige cómo quieres recibir las solicitudes de cita."}
 		}
 	}
 	if in.ReviewNoShows != nil {
@@ -209,7 +214,7 @@ func applyIntake(st *models.AgendaSettings, in SettingsInput) error {
 				return &InvalidError{"el silencio necesita desde y hasta distintos (HH:MM)"}
 			}
 		default:
-			return &InvalidError{"quiet_mode debe ser hours, custom u off"}
+			return &InvalidError{"Elige cuándo no quieres recibir avisos."}
 		}
 		st.QuietMode = *in.QuietMode
 	}
