@@ -303,6 +303,7 @@ func main() {
 	// Expira los reclamos vencidos y libera sus cupos (vive lo que el proceso).
 	go claimService.RunExpirySweeper(time.Minute, nil)
 	chatHandler := handlers.NewChatHandler(wsHub, chatService)
+	chatHandler.Classifier = services.NewIntentClassifier(aiService, database.DB)
 	businessAnswerHandler := handlers.NewBusinessAnswerHandler(services.NewBusinessAnswerService(database.DB))
 
 	// La agenda empuja cambios por WebSocket y corre su proceso de fondo
@@ -514,6 +515,7 @@ func main() {
 			chatGroup.GET("/history/:entity_id", chatHandler.FindMessagesHistory)
 			chatGroup.POST("/ai-answer/:entity_id", chatHandler.AIAnswer)
 			chatGroup.POST("/ai-unknown/:entity_id", chatHandler.AIUnknown)
+			chatGroup.POST("/classify/:entity_id", chatHandler.Classify)
 		}
 
 		// Citas (cliente y negocio; la autorización se resuelve por cita)

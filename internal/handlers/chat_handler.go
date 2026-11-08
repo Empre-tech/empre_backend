@@ -26,6 +26,8 @@ type ChatPaginatedResponse struct {
 type ChatHandler struct {
 	Hub     *websocket.Hub
 	service *services.ChatService
+	// Classifier entiende preguntas raras para Empre AI (3.62, F4). Nil = apagado.
+	Classifier *services.IntentClassifier
 }
 
 func NewChatHandler(hub *websocket.Hub, service *services.ChatService) *ChatHandler {
@@ -379,5 +381,49 @@ func (h *ChatHandler) AIUnknown(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "No pudimos guardarlo"})
 	default:
 		c.Status(http.StatusNoContent)
+	}
+}
+
+type classifyInput struct {
+	Text string `json:"text" binding:"required"`
+}
+
+// Classify: cuando las reglas de la app no entienden una pregunta del cliente, la clasifica en la lista cerrada de
+// intenciones (3.62, F4). Devuelve solo la intención: la respuesta la arma la app con lo que publicó el negocio.
+func (h *ChatHandler) Classify(c *gin.Context) {
+	userIDVal, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+	entityID, err := uuid.Parse(c.Param("entity_id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "entity_id inválido"})
+		return
+	}
+	var in classifyInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if h.Classifier == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": services.ErrClassifierOff.Error()})
+		return
+	}
+	res, err := h.Classifier.Classify(entityID, userIDVal.(uuid.UUID), in.Text, time.Now())
+	switch {
+	case errors.Is(err, services.ErrClassifierOff):
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+	case errors.Is(err, services.ErrClassifyLimit):
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
+	case errors.Is(err, services.ErrAIChatOff):
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+	case errors.Is(err, services.ErrClassifyInput):
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	case err != nil:
+		// Si el modelo falla, la app sigue con sus reglas: no es un error para la persona.
+		c.JSON(http.StatusOK, services.ClassifyResult{Intent: "unknown"})
+	default:
+		c.JSON(http.StatusOK, res)
 	}
 }
