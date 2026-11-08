@@ -1,6 +1,9 @@
 package repository
 
 import (
+	"errors"
+	"time"
+
 	"empre_backend/internal/models"
 
 	"github.com/google/uuid"
@@ -60,6 +63,43 @@ func (r *ChatRepository) FindMessagesHistory(entityID, userID uuid.UUID, page, p
 
 func (r *ChatRepository) CreateMessage(message *models.Message) error {
 	return r.DB.Create(message).Error
+}
+
+// CustomerHasWritten dice si el cliente ya le escribió a este negocio: Empre AI solo responde dentro de una
+// conversación que el cliente empezó.
+func (r *ChatRepository) CustomerHasWritten(entityID, customerID uuid.UUID) (bool, error) {
+	var n int64
+	err := r.DB.Model(&models.Message{}).
+		Where("entity_id = ? AND user_id = ? AND sender_id = ? AND sent_by_entity = false", entityID, customerID, customerID).
+		Limit(1).Count(&n).Error
+	return n > 0, err
+}
+
+// FindRecentAIAnswer devuelve la respuesta de Empre AI a la misma pregunta (intención y servicio) desde `since`, o
+// nil: así no se repite.
+func (r *ChatRepository) FindRecentAIAnswer(entityID, customerID uuid.UUID, intent string, serviceID *uuid.UUID, since time.Time) (*models.Message, error) {
+	q := r.DB.Where("entity_id = ? AND user_id = ? AND kind = ? AND ai_intent = ? AND created_at >= ?", entityID, customerID, "ai_answer", intent, since)
+	if serviceID != nil {
+		q = q.Where("ai_service_id = ?", *serviceID)
+	} else {
+		q = q.Where("ai_service_id IS NULL")
+	}
+	var m models.Message
+	err := q.Order("created_at DESC").First(&m).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+// ServiceBelongs dice si el servicio del catálogo es de este negocio.
+func (r *ChatRepository) ServiceBelongs(entityID, serviceID uuid.UUID) (bool, error) {
+	var n int64
+	err := r.DB.Model(&models.ServiceItem{}).Where("id = ? AND entity_id = ?", serviceID, entityID).Count(&n).Error
+	return n > 0, err
 }
 
 // CountDistinctCustomers returns how many different customers (user_id) have

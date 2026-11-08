@@ -503,6 +503,7 @@ func main() {
 			chatGroup.GET("/ws", chatHandler.HandleWebSocket)
 			chatGroup.GET("/conversations", chatHandler.FindAllConversations)
 			chatGroup.GET("/history/:entity_id", chatHandler.FindMessagesHistory)
+			chatGroup.POST("/ai-answer/:entity_id", chatHandler.AIAnswer)
 		}
 
 		// Citas (cliente y negocio; la autorización se resuelve por cita)

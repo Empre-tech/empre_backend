@@ -6,11 +6,13 @@ import (
 	"empre_backend/internal/services"
 	"empre_backend/internal/websocket"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -296,5 +298,51 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	jsonData, _ := json.Marshal(msg)
 	h.Hub.RouteMessage(&msg, jsonData, userID)
 
+	c.JSON(http.StatusCreated, msg)
+}
+
+type aiAnswerInput struct {
+	Intent    string     `json:"intent" binding:"required"`
+	ServiceID *uuid.UUID `json:"service_id"`
+}
+
+// AIAnswer guarda que Empre AI respondió una pregunta del cliente con lo que publicó el negocio (3.62, F2) y se la
+// muestra al dueño en tiempo real. Solo lo pide el cliente de la conversación; las apps arman la respuesta con los
+// datos publicados a partir de la intención, nunca con un texto que mande el cliente.
+func (h *ChatHandler) AIAnswer(c *gin.Context) {
+	userIDVal, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+	userID := userIDVal.(uuid.UUID)
+	entityID, err := uuid.Parse(c.Param("entity_id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "entity_id inválido"})
+		return
+	}
+	var in aiAnswerInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	msg, created, err := h.service.SaveAIAnswer(entityID, userID, in.Intent, in.ServiceID, time.Now())
+	switch {
+	case errors.Is(err, services.ErrAIIntent):
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	case errors.Is(err, services.ErrNoConversation):
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	case err != nil:
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "No pudimos guardar la respuesta"})
+		return
+	}
+	if !created {
+		c.JSON(http.StatusOK, msg)
+		return
+	}
+	jsonData, _ := json.Marshal(msg)
+	h.Hub.RouteMessage(msg, jsonData, userID)
 	c.JSON(http.StatusCreated, msg)
 }
