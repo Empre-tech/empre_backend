@@ -119,6 +119,7 @@ func main() {
 		&models.SubcategorySection{},
 		&models.EntitySection{},
 		&models.SectionRequest{},
+		&models.BusinessAnswer{},
 	)
 	if err != nil {
 		log.Fatal("Migration failed: ", err)
@@ -302,6 +303,7 @@ func main() {
 	// Expira los reclamos vencidos y libera sus cupos (vive lo que el proceso).
 	go claimService.RunExpirySweeper(time.Minute, nil)
 	chatHandler := handlers.NewChatHandler(wsHub, chatService)
+	businessAnswerHandler := handlers.NewBusinessAnswerHandler(services.NewBusinessAnswerService(database.DB))
 
 	// La agenda empuja cambios por WebSocket y corre su proceso de fondo
 	// (expiración, recordatorios y cierre) cada 30 segundos.
@@ -333,6 +335,9 @@ func main() {
 			entities.GET("/:id/status", statusHandler.Get)
 			entities.GET("/:id/promotions/active", promotionHandler.Active)
 			entities.GET("/:id/catalog", catalogHandler.List)
+			// Empre AI en el chat (3.62, F3): lo que enseñó el dueño y cuánto suele tardar en responder (público).
+			entities.GET("/:id/answers", businessAnswerHandler.List)
+			entities.GET("/:id/reply-time", businessAnswerHandler.ReplyTime)
 
 			// Protected mutations
 			entitiesProtected := entities.Use(middleware.AuthMiddleware(cfg))
@@ -367,6 +372,10 @@ func main() {
 				entitiesProtected.GET("/:id/offers", offerHandler.List)
 				entitiesProtected.GET("/:id/offers/stats", offerHandler.Stats)
 				entitiesProtected.GET("/:id/completeness", completenessHandler.Get)
+				entitiesProtected.PUT("/:id/answers", businessAnswerHandler.Upsert)
+				entitiesProtected.DELETE("/:id/answers/:answerId", businessAnswerHandler.Delete)
+				entitiesProtected.GET("/:id/answers/unanswered", businessAnswerHandler.Unanswered)
+				entitiesProtected.PATCH("/:id/answers/chat", businessAnswerHandler.SetChat)
 				entitiesProtected.PATCH("/:id/status", statusHandler.Update)
 				entitiesProtected.POST("/:id/promotions", promotionHandler.Publish)
 				entitiesProtected.GET("/:id/promotions", promotionHandler.List)
@@ -504,6 +513,7 @@ func main() {
 			chatGroup.GET("/conversations", chatHandler.FindAllConversations)
 			chatGroup.GET("/history/:entity_id", chatHandler.FindMessagesHistory)
 			chatGroup.POST("/ai-answer/:entity_id", chatHandler.AIAnswer)
+			chatGroup.POST("/ai-unknown/:entity_id", chatHandler.AIUnknown)
 		}
 
 		// Citas (cliente y negocio; la autorización se resuelve por cita)

@@ -84,18 +84,45 @@ var (
 	ErrNoConversation = errors.New("el cliente no le ha escrito a este negocio")
 )
 
+// AICustomIntent: Empre AI respondió con algo que el dueño le enseñó (3.62, F3).
+const AICustomIntent = "custom"
+
 // AIAnswerSummary es el texto corto de una intención válida.
 func AIAnswerSummary(intent string) (string, bool) {
+	if intent == AICustomIntent {
+		return "Empre AI respondió con lo que enseñó el negocio", true
+	}
 	s, ok := AIIntents[intent]
 	return s, ok
 }
 
 // SaveAIAnswer guarda que Empre AI respondió `intent` en la conversación del cliente con el negocio. Devuelve el
 // mensaje y si es nuevo (false = esa misma pregunta ya se respondió en las últimas 24 h y se devuelve esa).
-func (s *ChatService) SaveAIAnswer(entityID, customerID uuid.UUID, intent string, serviceID *uuid.UUID, now time.Time) (*models.Message, bool, error) {
+func (s *ChatService) SaveAIAnswer(entityID, customerID uuid.UUID, intent string, serviceID, answerID *uuid.UUID, now time.Time) (*models.Message, bool, error) {
 	summary, ok := AIAnswerSummary(intent)
 	if !ok {
 		return nil, false, ErrAIIntent
+	}
+	off, err := s.repo.AIChatOff(entityID)
+	if err != nil {
+		return nil, false, err
+	}
+	if off {
+		return nil, false, ErrAIChatOff
+	}
+	if intent == AICustomIntent {
+		if answerID == nil {
+			return nil, false, ErrAIIntent
+		}
+		belongs, err := s.repo.AnswerBelongs(entityID, *answerID)
+		if err != nil {
+			return nil, false, err
+		}
+		if !belongs {
+			return nil, false, ErrAIIntent
+		}
+	} else {
+		answerID = nil
 	}
 	wrote, err := s.repo.CustomerHasWritten(entityID, customerID)
 	if err != nil {
@@ -113,7 +140,7 @@ func (s *ChatService) SaveAIAnswer(entityID, customerID uuid.UUID, intent string
 			serviceID = nil
 		}
 	}
-	prev, err := s.repo.FindRecentAIAnswer(entityID, customerID, intent, serviceID, now.Add(-AIAnswerWindow))
+	prev, err := s.repo.FindRecentAIAnswer(entityID, customerID, intent, serviceID, answerID, now.Add(-AIAnswerWindow))
 	if err != nil {
 		return nil, false, err
 	}
@@ -128,6 +155,7 @@ func (s *ChatService) SaveAIAnswer(entityID, customerID uuid.UUID, intent string
 		Kind:         "ai_answer",
 		AIIntent:     intent,
 		AIServiceID:  serviceID,
+		AIAnswerID:   answerID,
 		Content:      summary,
 		IsRead:       true,
 	}
@@ -135,4 +163,19 @@ func (s *ChatService) SaveAIAnswer(entityID, customerID uuid.UUID, intent string
 		return nil, false, err
 	}
 	return msg, true, nil
+}
+
+// ErrMessageNotFound: el mensaje no existe o no es una pregunta del cliente en esa conversación.
+var ErrMessageNotFound = errors.New("mensaje no encontrado")
+
+// MarkUnanswered: Empre AI no supo responder esta pregunta del cliente; el dueño la ve para enseñarle (3.62, F3).
+func (s *ChatService) MarkUnanswered(entityID, customerID, messageID uuid.UUID) error {
+	ok, err := s.repo.MarkUnanswered(entityID, customerID, messageID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrMessageNotFound
+	}
+	return nil
 }

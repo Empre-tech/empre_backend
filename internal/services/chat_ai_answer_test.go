@@ -74,37 +74,37 @@ func TestSaveAIAnswer(t *testing.T) {
 	db.Create(&foreign)
 	now := time.Now()
 
-	if _, _, err := svc.SaveAIAnswer(ent.ID, client.ID, "hours", nil, now); err != ErrNoConversation {
+	if _, _, err := svc.SaveAIAnswer(ent.ID, client.ID, "hours", nil, nil, now); err != ErrNoConversation {
 		t.Fatalf("sin conversación no responde, got %v", err)
 	}
 	if err := svc.SendMessage(&models.Message{SenderID: client.ID, EntityID: ent.ID, UserID: client.ID, Content: "¿A qué hora abren?"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := svc.SaveAIAnswer(ent.ID, client.ID, "unknown", nil, now); err != ErrAIIntent {
+	if _, _, err := svc.SaveAIAnswer(ent.ID, client.ID, "unknown", nil, nil, now); err != ErrAIIntent {
 		t.Fatalf("intención inválida, got %v", err)
 	}
 
-	msg, created, err := svc.SaveAIAnswer(ent.ID, client.ID, "hours", nil, now)
+	msg, created, err := svc.SaveAIAnswer(ent.ID, client.ID, "hours", nil, nil, now)
 	if err != nil || !created {
 		t.Fatalf("debía crear la respuesta: %v %v", created, err)
 	}
 	if msg.Kind != "ai_answer" || msg.SenderID != uuid.Nil || !msg.IsRead || msg.SentByEntity {
 		t.Fatalf("mensaje mal armado: %+v", msg)
 	}
-	again, created, err := svc.SaveAIAnswer(ent.ID, client.ID, "hours", nil, now.Add(time.Hour))
+	again, created, err := svc.SaveAIAnswer(ent.ID, client.ID, "hours", nil, nil, now.Add(time.Hour))
 	if err != nil || created || again.ID != msg.ID {
 		t.Fatal("la misma pregunta en 24 h no se repite")
 	}
-	if _, created, _ := svc.SaveAIAnswer(ent.ID, client.ID, "hours", nil, now.Add(25*time.Hour)); !created {
+	if _, created, _ := svc.SaveAIAnswer(ent.ID, client.ID, "hours", nil, nil, now.Add(25*time.Hour)); !created {
 		t.Fatal("pasadas 24 h sí se puede volver a responder")
 	}
 
 	// Un servicio de otro negocio no se guarda: queda la respuesta general.
-	m, _, err := svc.SaveAIAnswer(ent.ID, client.ID, "price", &foreign.ID, now)
+	m, _, err := svc.SaveAIAnswer(ent.ID, client.ID, "price", &foreign.ID, nil, now)
 	if err != nil || m.AIServiceID != nil {
 		t.Fatalf("un servicio ajeno no se acepta: %v %v", m.AIServiceID, err)
 	}
-	m, _, err = svc.SaveAIAnswer(ent.ID, client.ID, "price", &own.ID, now)
+	m, _, err = svc.SaveAIAnswer(ent.ID, client.ID, "price", &own.ID, nil, now)
 	if err != nil || m.AIServiceID == nil || *m.AIServiceID != own.ID {
 		t.Fatalf("el servicio propio sí: %v %v", m.AIServiceID, err)
 	}

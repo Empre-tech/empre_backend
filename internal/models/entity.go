@@ -28,11 +28,11 @@ type Entity struct {
 	// Tagline es la frase corta que la tarjeta de «Descubre» muestra bajo el nombre.
 	Tagline string `gorm:"size:80" json:"tagline"`
 	// AttendantName es quien atiende («Ana»), para que el cliente sepa con quién va a hablar (3.48). Opcional.
-	AttendantName string `gorm:"size:40" json:"attendant_name"`
-	CategoryID  uuid.UUID `gorm:"type:uuid;not null;index" json:"category_id"` // e.g., "Food", "Services"
-	Address     string    `json:"address"`
-	City        string    `json:"city"`
-	ContactInfo string    `json:"contact_info"`
+	AttendantName string    `gorm:"size:40" json:"attendant_name"`
+	CategoryID    uuid.UUID `gorm:"type:uuid;not null;index" json:"category_id"` // e.g., "Food", "Services"
+	Address       string    `json:"address"`
+	City          string    `json:"city"`
+	ContactInfo   string    `json:"contact_info"`
 
 	BannerMediaID  *uuid.UUID `gorm:"type:uuid" json:"banner_media_id,omitempty"`
 	ProfileMediaID *uuid.UUID `gorm:"type:uuid" json:"profile_media_id,omitempty"`
@@ -57,6 +57,8 @@ type Entity struct {
 	// Cómo atiende: en el lugar, a domicilio, o ambos. Vacío = sin especificar (negocios
 	// creados antes de este campo).
 	ServiceMode ServiceMode `gorm:"type:varchar(20)" json:"service_mode"`
+	// AIChatOff: el dueño apagó las respuestas de Empre AI en su chat (3.62, F3). Por defecto están encendidas.
+	AIChatOff bool `gorm:"default:false" json:"ai_chat_off"`
 	// BusinessProfile es el tipo de negocio (shop, food, service, valuable, other). Arranca con el que sugiere su
 	// categoría y el dueño lo puede cambiar («¿Qué vendes principalmente?»).
 	BusinessProfile string         `gorm:"type:varchar(10);not null;default:''" json:"business_profile"`

@@ -28,10 +28,15 @@ type Message struct {
 	// (AIIntent, de la lista cerrada de services.AIIntents, y el servicio si aplica); cada app arma la respuesta con
 	// los datos publicados, así nadie puede escribir un texto falso a nombre de Empre AI. SenderID queda en cero
 	// (lo dijo Empre, no una persona) y nace leído: no suma a los no leídos ni dispara avisos.
-	AIIntent    string         `gorm:"type:varchar(20)" json:"ai_intent,omitempty"`
-	AIServiceID *uuid.UUID     `gorm:"type:uuid" json:"ai_service_id,omitempty"`
-	CreatedAt   time.Time      `gorm:"index:idx_conversation,priority:3" json:"created_at"`
-	DeletedAt   gorm.DeletedAt `gorm:"index:idx_conversation,priority:4" json:"-"`
+	AIIntent    string     `gorm:"type:varchar(20)" json:"ai_intent,omitempty"`
+	AIServiceID *uuid.UUID `gorm:"type:uuid" json:"ai_service_id,omitempty"`
+	// AIAnswerID: con AIIntent "custom", cuál de las respuestas que enseñó el dueño se usó (3.62, F3).
+	AIAnswerID *uuid.UUID `gorm:"type:uuid" json:"ai_answer_id,omitempty"`
+	// AIUnanswered: en una pregunta del cliente, Empre AI no supo responderla. El dueño la ve en «Enséñale a
+	// Empre AI» para enseñarle la respuesta.
+	AIUnanswered bool           `gorm:"default:false" json:"ai_unanswered,omitempty"`
+	CreatedAt    time.Time      `gorm:"index:idx_conversation,priority:3" json:"created_at"`
+	DeletedAt    gorm.DeletedAt `gorm:"index:idx_conversation,priority:4" json:"-"`
 
 	// Associations
 	Entity Entity `gorm:"foreignKey:EntityID" json:"entity,omitempty"`

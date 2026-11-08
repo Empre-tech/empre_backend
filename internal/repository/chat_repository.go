@@ -77,12 +77,15 @@ func (r *ChatRepository) CustomerHasWritten(entityID, customerID uuid.UUID) (boo
 
 // FindRecentAIAnswer devuelve la respuesta de Empre AI a la misma pregunta (intención y servicio) desde `since`, o
 // nil: así no se repite.
-func (r *ChatRepository) FindRecentAIAnswer(entityID, customerID uuid.UUID, intent string, serviceID *uuid.UUID, since time.Time) (*models.Message, error) {
+func (r *ChatRepository) FindRecentAIAnswer(entityID, customerID uuid.UUID, intent string, serviceID, answerID *uuid.UUID, since time.Time) (*models.Message, error) {
 	q := r.DB.Where("entity_id = ? AND user_id = ? AND kind = ? AND ai_intent = ? AND created_at >= ?", entityID, customerID, "ai_answer", intent, since)
 	if serviceID != nil {
 		q = q.Where("ai_service_id = ?", *serviceID)
 	} else {
 		q = q.Where("ai_service_id IS NULL")
+	}
+	if answerID != nil {
+		q = q.Where("ai_answer_id = ?", *answerID)
 	}
 	var m models.Message
 	err := q.Order("created_at DESC").First(&m).Error
@@ -93,6 +96,31 @@ func (r *ChatRepository) FindRecentAIAnswer(entityID, customerID uuid.UUID, inte
 		return nil, err
 	}
 	return &m, nil
+}
+
+// AnswerBelongs dice si la respuesta enseñada es de este negocio.
+func (r *ChatRepository) AnswerBelongs(entityID, answerID uuid.UUID) (bool, error) {
+	var n int64
+	err := r.DB.Model(&models.BusinessAnswer{}).Where("id = ? AND entity_id = ?", answerID, entityID).Count(&n).Error
+	return n > 0, err
+}
+
+// AIChatOff dice si el dueño apagó las respuestas de Empre AI en su chat.
+func (r *ChatRepository) AIChatOff(entityID uuid.UUID) (bool, error) {
+	var e models.Entity
+	if err := r.DB.Select("id", "ai_chat_off").First(&e, "id = ?", entityID).Error; err != nil {
+		return false, err
+	}
+	return e.AIChatOff, nil
+}
+
+// MarkUnanswered marca una pregunta del cliente como «Empre AI no supo responder». Solo su autor, solo un mensaje de
+// texto suyo en esa conversación. Devuelve si encontró el mensaje.
+func (r *ChatRepository) MarkUnanswered(entityID, customerID, messageID uuid.UUID) (bool, error) {
+	res := r.DB.Model(&models.Message{}).
+		Where("id = ? AND entity_id = ? AND user_id = ? AND sender_id = ? AND sent_by_entity = false AND coalesce(kind, 'text') = 'text'", messageID, entityID, customerID, customerID).
+		Update("ai_unanswered", true)
+	return res.RowsAffected > 0, res.Error
 }
 
 // ServiceBelongs dice si el servicio del catálogo es de este negocio.

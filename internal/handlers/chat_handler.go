@@ -304,6 +304,7 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 type aiAnswerInput struct {
 	Intent    string     `json:"intent" binding:"required"`
 	ServiceID *uuid.UUID `json:"service_id"`
+	AnswerID  *uuid.UUID `json:"answer_id"`
 }
 
 // AIAnswer guarda que Empre AI respondió una pregunta del cliente con lo que publicó el negocio (3.62, F2) y se la
@@ -326,8 +327,11 @@ func (h *ChatHandler) AIAnswer(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	msg, created, err := h.service.SaveAIAnswer(entityID, userID, in.Intent, in.ServiceID, time.Now())
+	msg, created, err := h.service.SaveAIAnswer(entityID, userID, in.Intent, in.ServiceID, in.AnswerID, time.Now())
 	switch {
+	case errors.Is(err, services.ErrAIChatOff):
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		return
 	case errors.Is(err, services.ErrAIIntent):
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -345,4 +349,35 @@ func (h *ChatHandler) AIAnswer(c *gin.Context) {
 	jsonData, _ := json.Marshal(msg)
 	h.Hub.RouteMessage(msg, jsonData, userID)
 	c.JSON(http.StatusCreated, msg)
+}
+
+type aiUnknownInput struct {
+	MessageID uuid.UUID `json:"message_id" binding:"required"`
+}
+
+// AIUnknown marca que Empre AI no supo responder una pregunta del cliente (3.62, F3). Solo el autor de la pregunta.
+func (h *ChatHandler) AIUnknown(c *gin.Context) {
+	userIDVal, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+	entityID, err := uuid.Parse(c.Param("entity_id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "entity_id inválido"})
+		return
+	}
+	var in aiUnknownInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	switch err := h.service.MarkUnanswered(entityID, userIDVal.(uuid.UUID), in.MessageID); {
+	case errors.Is(err, services.ErrMessageNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+	case err != nil:
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "No pudimos guardarlo"})
+	default:
+		c.Status(http.StatusNoContent)
+	}
 }

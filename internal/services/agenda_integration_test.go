@@ -35,7 +35,7 @@ func testDB(t *testing.T) *gorm.DB {
 	if err := db.AutoMigrate(&models.User{}, &models.Entity{}, &models.Message{}, &models.Category{}, &models.Media{},
 		&models.BusinessHour{}, &models.Subscription{}, &models.AgendaSettings{}, &models.ServiceItem{}, &models.Appointment{},
 		&models.Party{}, &models.Sale{}, &models.SaleLine{}, &models.Expense{}, &models.DebtPayment{}, &models.StockItem{}, &models.StockMovement{}, &models.ExpenseLine{}, &models.ProductSupply{}, &models.OpenTab{}, &models.OpenTabLine{}, &models.VoiceDraft{},
-		&models.Subcategory{}, &models.Section{}, &models.SubcategorySection{}, &models.EntitySection{}, &models.SectionRequest{}); err != nil {
+		&models.Subcategory{}, &models.Section{}, &models.SubcategorySection{}, &models.EntitySection{}, &models.SectionRequest{}, &models.BusinessAnswer{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := database.EnsureAgendaConstraints(db); err != nil {
