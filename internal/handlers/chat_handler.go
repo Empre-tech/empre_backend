@@ -307,6 +307,8 @@ type aiAnswerInput struct {
 	Intent    string     `json:"intent" binding:"required"`
 	ServiceID *uuid.UUID `json:"service_id"`
 	AnswerID  *uuid.UUID `json:"answer_id"`
+	// ReplyTo: la pregunta del cliente que se responde (3.71). Opcional.
+	ReplyTo *uuid.UUID `json:"reply_to"`
 }
 
 // AIAnswer guarda que Empre AI respondió una pregunta del cliente con lo que publicó el negocio (3.62, F2) y se la
@@ -329,7 +331,7 @@ func (h *ChatHandler) AIAnswer(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	msg, created, err := h.service.SaveAIAnswer(entityID, userID, in.Intent, in.ServiceID, in.AnswerID, time.Now())
+	msg, created, err := h.service.SaveAIAnswer(entityID, userID, in.Intent, in.ServiceID, in.AnswerID, in.ReplyTo, time.Now())
 	switch {
 	case errors.Is(err, services.ErrAIChatOff):
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})

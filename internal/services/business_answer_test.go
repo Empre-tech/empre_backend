@@ -115,16 +115,16 @@ func TestBusinessAnswersFlow(t *testing.T) {
 	}
 
 	// Respuesta propia en el chat y el interruptor.
-	if _, created, err := chat.SaveAIAnswer(ent.ID, client.ID, AICustomIntent, nil, &custom.ID, time.Now()); err != nil || !created {
+	if _, created, err := chat.SaveAIAnswer(ent.ID, client.ID, AICustomIntent, nil, &custom.ID, nil, time.Now()); err != nil || !created {
 		t.Fatalf("respuesta enseñada: %v %v", created, err)
 	}
-	if _, _, err := chat.SaveAIAnswer(ent.ID, client.ID, AICustomIntent, nil, nil, time.Now()); err != ErrAIIntent {
+	if _, _, err := chat.SaveAIAnswer(ent.ID, client.ID, AICustomIntent, nil, nil, nil, time.Now()); err != ErrAIIntent {
 		t.Fatalf("custom sin respuesta no vale, got %v", err)
 	}
 	if err := svc.SetChatOff(ent.ID, owner.ID, true); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := chat.SaveAIAnswer(ent.ID, client.ID, "hours", nil, nil, time.Now()); err != ErrAIChatOff {
+	if _, _, err := chat.SaveAIAnswer(ent.ID, client.ID, "hours", nil, nil, nil, time.Now()); err != ErrAIChatOff {
 		t.Fatalf("apagado no responde, got %v", err)
 	}
 	if err := svc.Delete(ent.ID, owner.ID, custom.ID); err != nil {
