@@ -56,6 +56,9 @@ var EventSpecs = map[string]EventSpec{
 	"booking_started": {NeedsEntity: true, Props: map[string]propKind{"origin": propString}},
 	// Chat (3.62): si la respuesta de Empre AI le sirvió a la persona (la intención, nunca el texto).
 	"ai_answer_feedback": {NeedsEntity: true, Props: map[string]propKind{"intent": propString, "useful": propBool}},
+	// Modelo de uso (3.64): de dónde salió cada respuesta (rule, taught, classify u owner), para medir cuánto se
+	// responde sin IA. Nunca el texto de la pregunta.
+	"ai_answer_source": {NeedsEntity: true, Props: map[string]propKind{"intent": propString, "source": propString, "businesses": propNumber}},
 	// Salud de la app (3.53): peticiones lentas o fallidas (la ruta como plantilla, sin ids), el arranque y los
 	// errores de pantalla (solo el mensaje y dónde, nunca datos de la persona).
 	"api_health": {Props: map[string]propKind{"route": propString, "status": propNumber, "ms": propNumber}},
