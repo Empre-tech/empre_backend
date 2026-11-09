@@ -68,9 +68,11 @@ type AskItem struct {
 
 type AskBusiness struct {
 	dtos.SearchBusiness
-	Minutes  int      `json:"minutes"`
-	Delivery bool     `json:"delivery"`
-	Item     *AskItem `json:"item,omitempty"` // el producto que coincide (el más barato si se pidió barato)
+	Minutes  int  `json:"minutes"`
+	Delivery bool `json:"delivery"`
+	// Verificado por Empre: la app lo usa en el filtro «Verificado» del buscador (3.66).
+	IsVerified bool     `json:"is_verified"`
+	Item       *AskItem `json:"item,omitempty"` // el producto que coincide (el más barato si se pidió barato)
 }
 
 type AskResponse struct {
@@ -285,7 +287,7 @@ func (s *AskService) find(terms string, lat, lng, radius float64, f AskFilters) 
 	for i, b := range base {
 		e := found[b.ID]
 		ab := AskBusiness{SearchBusiness: base[i], Minutes: walkMinutes(b.DistanceKM * 1000),
-			Delivery: e.ServiceMode == models.ServiceModeDelivery || e.ServiceMode == models.ServiceModeBoth, Item: byEntity[b.ID]}
+			Delivery: e.ServiceMode == models.ServiceModeDelivery || e.ServiceMode == models.ServiceModeBoth, IsVerified: e.IsVerified, Item: byEntity[b.ID]}
 		if (f.OpenNow && b.HasHours && !b.IsOpenNow) || (f.WithOffer && !b.HasActiveOffer) || (f.Delivery && !ab.Delivery) {
 			continue
 		}
