@@ -8,6 +8,32 @@ import (
 	"empre_backend/internal/services"
 )
 
+// RecordClaimSale anota lo que se cobró en un canje cuya oferta no decía el precio en pesos.
+func (h *LedgerHandler) RecordClaimSale(c *gin.Context) {
+	user, entity, ok := h.ids(c)
+	if !ok {
+		return
+	}
+	id, ok := uuidParam(c, "claimId")
+	if !ok {
+		return
+	}
+	var body struct {
+		Total  int    `json:"total"`
+		Method string `json:"method"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid", "message": "datos inválidos"})
+		return
+	}
+	sale, err := h.svc.RecordClaimSale(user, entity, id, body.Total, body.Method)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, sale)
+}
+
 // SetSaleMethod cambia cómo se pagó una venta.
 func (h *LedgerHandler) SetSaleMethod(c *gin.Context) {
 	user, entity, ok := h.ids(c)

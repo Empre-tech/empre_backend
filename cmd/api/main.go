@@ -400,6 +400,7 @@ func main() {
 				entitiesProtected.GET("/:id/ledger/sales", ledgerHandler.ListSales)
 				entitiesProtected.POST("/:id/ledger/sales/:saleId/void", ledgerHandler.VoidSale)
 				entitiesProtected.PUT("/:id/ledger/sales/:saleId/method", ledgerHandler.SetSaleMethod)
+				entitiesProtected.POST("/:id/ledger/claims/:claimId/sale", ledgerHandler.RecordClaimSale)
 				entitiesProtected.POST("/:id/ledger/expenses", ledgerHandler.CreateExpense)
 				entitiesProtected.GET("/:id/ledger/expenses", ledgerHandler.ListExpenses)
 				entitiesProtected.GET("/:id/ledger/expenses/usual", ledgerHandler.UsualExpenses)
