@@ -88,6 +88,15 @@ type Offer struct {
 	// ReferencePrice es la suma del precio habitual de los servicios incluidos, CONGELADA al publicar. Solo existe
 	// si todos los servicios tenían precio: sin ella no se calcula ni se muestra ningún ahorro.
 	ReferencePrice *int `gorm:"check:chk_offers_reference_price,reference_price IS NULL OR reference_price > 0" json:"reference_price"`
+	// Facetas, calculadas al publicar con reglas (services.fillFacets): cada dato en su campo para que Ofertas las
+	// separe sin leer el título. CategoryID es la categoría PROPIA de la oferta (la de lo ofertado; si no se sabe, la
+	// del negocio). Benefit: multi, free, percent, combo, price u other. Audience: el público de lo incluido. Tags:
+	// las palabras que describen lo ofertado.
+	CategoryID *uuid.UUID `gorm:"type:uuid;index" json:"category_id,omitempty"`
+	Benefit    string     `gorm:"type:varchar(12);not null;default:'';index" json:"benefit"`
+	Audience   []string   `gorm:"type:jsonb;serializer:json" json:"audience,omitempty"`
+	Tags       []string   `gorm:"type:jsonb;serializer:json" json:"tags,omitempty"`
+
 	// Items son los servicios del catálogo incluidos, congelados al publicar.
 	Items []OfferItem `gorm:"foreignKey:OfferID" json:"-"`
 

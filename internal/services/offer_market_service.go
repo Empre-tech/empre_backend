@@ -179,7 +179,8 @@ func (s *OfferMarketService) load(viewer *uuid.UUID, lat, long float64, hasLoc b
 		if len(ids) == 0 {
 			return b, nil
 		}
-		q = q.Where("entity_id IN (SELECT id FROM entities WHERE category_id IN ? AND deleted_at IS NULL)", ids)
+		// La categoría propia de la oferta manda; las publicadas antes de tenerla usan la del negocio.
+		q = q.Where("(offers.category_id IN ? OR (offers.category_id IS NULL AND entity_id IN (SELECT id FROM entities WHERE category_id IN ? AND deleted_at IS NULL)))", ids, ids)
 	}
 	// Las ofertas (con sus precargas) y las zonas no dependen entre sí: a la vez (3.53). Con la base remota cada
 	// consulta es una ida y vuelta de ~100 ms y el armado de Ofertas hacía unas 20 seguidas.

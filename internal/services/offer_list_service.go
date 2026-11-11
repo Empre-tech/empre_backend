@@ -68,7 +68,11 @@ func (s *OfferListService) distance(lat, long float64, e *models.Entity) float64
 func filterOffersByCategory(offers []models.Offer, categoryID uuid.UUID) []models.Offer {
 	out := offers[:0]
 	for _, o := range offers {
-		if o.Entity.CategoryID == categoryID {
+		own := o.Entity.CategoryID
+		if o.CategoryID != nil {
+			own = *o.CategoryID // la categoría propia de la oferta manda sobre la del negocio
+		}
+		if own == categoryID {
 			out = append(out, o)
 		}
 	}

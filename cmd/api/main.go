@@ -247,6 +247,12 @@ func main() {
 	}
 
 	offerService := services.NewOfferService(offerRepo, entityRepo)
+	// Facetas de las ofertas publicadas antes de que existieran. No detiene el arranque.
+	if n, err := offerService.BackfillOfferFacets(); err != nil {
+		log.Printf("facetas de ofertas: %v", err)
+	} else if n > 0 {
+		log.Printf("facetas de ofertas: %d puestas al día", n)
+	}
 	signalService := services.NewSignalService(signalRepo)
 	claimService := services.NewClaimService(claimRepo, offerRepo, entityRepo, userRepo, signalService)
 	rankingService := services.NewRankingService(entityService, reviewService, offerRepo, signalService)
