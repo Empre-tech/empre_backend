@@ -63,6 +63,9 @@ type ServiceItem struct {
 	// «<producto> · <variante>» y VariantLabel es la parte corta. Precio y costo vacíos se heredan del producto.
 	ParentID     *uuid.UUID `gorm:"type:uuid;index" json:"parent_id,omitempty"`
 	VariantLabel string     `gorm:"size:40" json:"variant_label,omitempty"`
+	// Attrs: lo que distingue a una variante (Talla: 40, Color: Vinotinto), en orden. Con ellos el catálogo filtra y
+	// la búsqueda encuentra el producto. VariantLabel se arma con sus valores si el dueño no escribe otro.
+	Attrs []ItemAttr `gorm:"type:jsonb;serializer:json" json:"attrs,omitempty"`
 	// KindChecked: el dueño confirmó el tipo. Falso solo en ítems que la migración clasificó sin una señal clara.
 	KindChecked bool `gorm:"default:false" json:"kind_checked"`
 
@@ -106,4 +109,10 @@ func (it ServiceItem) IsService() bool {
 
 func (ServiceItem) TableName() string {
 	return "service_items"
+}
+
+// ItemAttr es un atributo de una variante: su nombre (Talla, Color, Sabor…) y su valor.
+type ItemAttr struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
 }
