@@ -120,6 +120,7 @@ func main() {
 		&models.EntitySection{},
 		&models.SectionRequest{},
 		&models.BusinessAnswer{},
+		&models.OfferAlert{},
 	)
 	if err != nil {
 		log.Fatal("Migration failed: ", err)
@@ -272,6 +273,10 @@ func main() {
 	aiHandler := handlers.NewAIHandler(aiService, categoryService)
 	paymentHandler := handlers.NewPaymentHandler(subscriptionService, entityService)
 	offerHandler := handlers.NewOfferHandler(offerService)
+	// «Avísame» de Ofertas: al publicar, avisa a quien lo pidió en la zona del negocio.
+	offerAlertService := services.NewOfferAlertService(database.DB, pushService)
+	offerHandler.Alerts = offerAlertService
+	offerAlertHandler := handlers.NewOfferAlertHandler(offerAlertService)
 	claimHandler := handlers.NewClaimHandler(claimService)
 	discoveryHandler := handlers.NewDiscoveryHandler(rankingService)
 	statusHandler := handlers.NewStatusHandler(database.DB)
@@ -490,6 +495,15 @@ func main() {
 			offers.PATCH("/:id", offerHandler.QuickAction)
 			offers.POST("/:id/republish", offerHandler.Republish)
 			offers.POST("/:id/claim", middleware.RateLimit(5, time.Minute), claimHandler.Claim)
+		}
+
+		// «Avísame» de Ofertas: avisos por zona y categoría.
+		offerAlerts := api.Group("/offer-alerts")
+		offerAlerts.Use(middleware.AuthMiddleware(cfg))
+		{
+			offerAlerts.GET("", offerAlertHandler.Mine)
+			offerAlerts.POST("", middleware.RateLimit(20, time.Minute), offerAlertHandler.Create)
+			offerAlerts.DELETE("/:id", offerAlertHandler.Remove)
 		}
 
 		// Promociones: edición/estado (la publicación/listado vive bajo
