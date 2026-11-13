@@ -1089,6 +1089,8 @@ func (s *AgendaService) Cancel(userID, id uuid.UUID) (*models.Appointment, error
 	if a.CustomerID != nil {
 		s.broadcast(id, *a.CustomerID, e.OwnerID)
 	}
+	// La hora que se liberó va a la lista de espera de ese día, en orden de llegada.
+	go s.offerFreedSlot(a.EntityID, a.StartsAt)
 	return s.load(id)
 }
 

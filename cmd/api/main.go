@@ -121,6 +121,7 @@ func main() {
 		&models.SectionRequest{},
 		&models.BusinessAnswer{},
 		&models.OfferAlert{},
+		&models.WaitlistEntry{},
 	)
 	if err != nil {
 		log.Fatal("Migration failed: ", err)
@@ -405,6 +406,9 @@ func main() {
 				entitiesProtected.POST("/:id/agenda/appointments", agendaHandler.CreateOwnerAppointment)
 				entitiesProtected.POST("/:id/agenda/blocks", agendaHandler.CreateBlock)
 				entitiesProtected.DELETE("/:id/agenda/blocks/:blockId", agendaHandler.DeleteBlock)
+				// Lista de espera del día: anotarse (cliente) y verla (dueño).
+				entitiesProtected.POST("/:id/waitlist", middleware.RateLimit(10, time.Minute), agendaHandler.JoinWaitlist)
+				entitiesProtected.GET("/:id/waitlist", agendaHandler.BusinessWaitlist)
 
 				// Administración del negocio (solo el dueño)
 				entitiesProtected.POST("/:id/ledger/sales", ledgerHandler.CreateSale)
@@ -550,6 +554,15 @@ func main() {
 			appointments.POST("/:id/decline", agendaHandler.Decline)
 			appointments.POST("/:id/cancel", agendaHandler.Cancel)
 			appointments.POST("/:id/outcome", agendaHandler.Outcome)
+		}
+
+		// Lista de espera: las mías, tomar la hora que se liberó o salirme.
+		waitlist := api.Group("/waitlist")
+		waitlist.Use(middleware.AuthMiddleware(cfg))
+		{
+			waitlist.GET("/mine", agendaHandler.MyWaitlist)
+			waitlist.POST("/:id/take", agendaHandler.TakeWaitlistOffer)
+			waitlist.DELETE("/:id", agendaHandler.LeaveWaitlist)
 		}
 
 		// Images (Public Proxy for <img> tags)
