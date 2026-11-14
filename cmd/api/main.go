@@ -316,6 +316,7 @@ func main() {
 	go claimService.RunExpirySweeper(time.Minute, nil)
 	chatHandler := handlers.NewChatHandler(wsHub, chatService)
 	chatHandler.Classifier = services.NewIntentClassifier(aiService, database.DB)
+	chatHandler.Ficha = services.NewFichaAnswerer(aiService, database.DB)
 	businessAnswerHandler := handlers.NewBusinessAnswerHandler(services.NewBusinessAnswerService(database.DB))
 
 	// La agenda empuja cambios por WebSocket y corre su proceso de fondo
@@ -541,6 +542,9 @@ func main() {
 			chatGroup.POST("/ai-answer/:entity_id", chatHandler.AIAnswer)
 			chatGroup.POST("/ai-unknown/:entity_id", chatHandler.AIUnknown)
 			chatGroup.POST("/classify/:entity_id", chatHandler.Classify)
+			// Empre AI lee la ficha publicada (nivel 3): en un chat y en «Pregúntales a los N».
+			chatGroup.POST("/ai-ficha/:entity_id", middleware.RateLimit(12, time.Minute), chatHandler.AIFicha)
+			chatGroup.POST("/ficha", middleware.RateLimit(12, time.Minute), chatHandler.FichaMany)
 		}
 
 		// Citas (cliente y negocio; la autorización se resuelve por cita)
