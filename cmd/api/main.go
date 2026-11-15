@@ -122,6 +122,7 @@ func main() {
 		&models.BusinessAnswer{},
 		&models.OfferAlert{},
 		&models.WaitlistEntry{},
+		&models.EntityGoal{},
 	)
 	if err != nil {
 		log.Fatal("Migration failed: ", err)
@@ -358,6 +359,11 @@ func main() {
 			{
 				entitiesProtected.POST("", entityHandler.Create)
 				entitiesProtected.GET("/mine", entityHandler.FindAllByOwner)
+				// La meta del mes (tablero «Actividad y meta»): solo el dueño.
+				goalHandler := &handlers.GoalHandler{DB: database.DB}
+				entitiesProtected.GET("/:id/goal", goalHandler.Get)
+				entitiesProtected.PUT("/:id/goal", goalHandler.Put)
+				entitiesProtected.DELETE("/:id/goal", goalHandler.Delete)
 				entitiesProtected.PUT("/:id", entityHandler.Update)
 				// Catálogo de servicios (solo el dueño; la lectura es pública, arriba).
 				entitiesProtected.POST("/:id/catalog", catalogHandler.Create)
