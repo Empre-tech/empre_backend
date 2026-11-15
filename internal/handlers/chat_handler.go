@@ -106,6 +106,7 @@ func (h *ChatHandler) FindAllConversations(c *gin.Context) {
 			IsRead:       msg.IsRead,
 			SentByEntity: msg.SentByEntity,
 			UnreadCount:  unreadByConversation[fmt.Sprintf("%s|%s", msg.EntityID, msg.UserID)],
+			Kind:         msg.Kind,
 		}
 
 		// Determine "Other Party"
