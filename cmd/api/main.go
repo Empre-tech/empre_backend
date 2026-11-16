@@ -441,6 +441,8 @@ func main() {
 				entitiesProtected.GET("/:id/ledger/analytics", ledgerHandler.Analytics)
 				entitiesProtected.GET("/:id/ledger/export", ledgerHandler.Export)
 				entitiesProtected.GET("/:id/ledger/inventory", ledgerHandler.Inventory)
+				entitiesProtected.GET("/:id/ledger/inventory/page", ledgerHandler.InventoryPage)
+				entitiesProtected.GET("/:id/ledger/inventory/counts", ledgerHandler.InventoryCounts)
 				entitiesProtected.POST("/:id/ledger/inventory/setup", ledgerHandler.InventorySetup)
 				entitiesProtected.PUT("/:id/ledger/inventory/:ref/settings", ledgerHandler.InventorySettings)
 				entitiesProtected.PUT("/:id/ledger/inventory/:ref/level", ledgerHandler.InventoryLevel)

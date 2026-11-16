@@ -239,7 +239,11 @@ func TestCatalog_LimitAndDatabaseConstraint(t *testing.T) {
 	svc := NewCatalogService(db)
 	now := time.Now()
 	var first *models.ServiceItem
-	for i := 0; i < MaxActiveServices; i++ {
+	// El tope real es de seguridad (5.000); aquí se baja para probar la regla sin crear miles.
+	old := MaxActiveServices
+	MaxActiveServices = 4
+	defer func() { MaxActiveServices = old }()
+	for i := 0; i < int(MaxActiveServices); i++ {
 		it, err := svc.Create(shop.ID, owner, ServiceInput{Name: "Servicio " + strings.Repeat("a", i%5+2)}, now)
 		if err != nil {
 			t.Fatalf("servicio %d: %v", i, err)

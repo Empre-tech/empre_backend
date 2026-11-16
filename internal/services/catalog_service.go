@@ -17,12 +17,15 @@ import (
 // Catálogo del negocio (E2): los servicios que ofrece habitualmente, con su precio habitual. Las reglas
 // viven aquí y en la base de datos, no en la pantalla.
 
+// MaxActiveServices es el tope de ítems activos por negocio (variantes incluidas). Era 30 («un catálogo corto se
+// mantiene vivo»), pero una tienda o una ferretería tiene cientos: ahora es un tope de seguridad (2026-11-16, Inventario
+// por páginas). Variable solo para que las pruebas lo bajen.
+var MaxActiveServices int64 = 5000
+
 const (
-	// MaxActiveServices es el tope de servicios activos por negocio: un catálogo corto se mantiene vivo.
-	MaxActiveServices = 30
-	maxServiceName    = 80
-	maxServiceDesc    = 600
-	minServiceName    = 2
+	maxServiceName = 80
+	maxServiceDesc = 600
+	minServiceName = 2
 	// MaxServicePrice es el tope razonable de un precio habitual (pesos).
 	MaxServicePrice = 10_000_000
 	// CatalogFreshDays es cuántos días un precio se considera vigente sin confirmar de nuevo.

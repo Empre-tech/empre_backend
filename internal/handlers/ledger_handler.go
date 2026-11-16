@@ -442,6 +442,40 @@ func (h *LedgerHandler) Inventory(c *gin.Context) {
 	c.JSON(http.StatusOK, out)
 }
 
+// InventoryPage: una página de una pestaña del inventario (tablero «Inventario»): ?tab=product|service|supply&q=&section=
+// &state=low|out|nophoto&sort=az|stock|sales&cursor=&limit=. Las variantes de los productos de la página van aparte.
+func (h *LedgerHandler) InventoryPage(c *gin.Context) {
+	user, entity, ok := h.ids(c)
+	if !ok {
+		return
+	}
+	q, err := services.ParseInventoryPageQuery(c.Query("tab"), c.Query("q"), c.Query("section"), c.Query("state"), c.Query("sort"), c.Query("cursor"), c.Query("limit"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid", "message": "consulta inválida"})
+		return
+	}
+	out, err := h.svc.InventoryPage(user, entity, q)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+// InventoryCounts: los números de las tres pestañas y del filtro, sin las filas.
+func (h *LedgerHandler) InventoryCounts(c *gin.Context) {
+	user, entity, ok := h.ids(c)
+	if !ok {
+		return
+	}
+	out, err := h.svc.InventoryCountsFor(user, entity)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
+}
+
 // InventorySetup: un toque para arrancar. choice = recommended | simple | none.
 func (h *LedgerHandler) InventorySetup(c *gin.Context) {
 	user, entity, ok := h.ids(c)
