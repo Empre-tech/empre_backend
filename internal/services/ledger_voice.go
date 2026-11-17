@@ -191,6 +191,25 @@ func capNames(names []string) []string {
 }
 
 // ParseVoice interpreta un dictado y guarda un borrador. No crea ninguna venta ni gasto.
+// VoiceUsage: cuántos dictados lleva el negocio este mes y su tope (0 = sin tope). Empre AI es de pago: el botón Empre
+// lo dice antes de correr («quedan 29 este mes»). Solo el dueño.
+type VoiceUsage struct {
+	Used  int `json:"used"`
+	Limit int `json:"limit"`
+}
+
+func (s *LedgerService) VoiceUsageFor(ownerID, entityID uuid.UUID) (VoiceUsage, error) {
+	if err := s.requireOwner(ownerID, entityID); err != nil {
+		return VoiceUsage{}, err
+	}
+	monthStart, _, _ := PeriodRange("month", nowCO())
+	var used int64
+	if err := s.db.Model(&models.VoiceDraft{}).Where("entity_id = ? AND created_at >= ?", entityID, monthStart).Count(&used).Error; err != nil {
+		return VoiceUsage{}, err
+	}
+	return VoiceUsage{Used: int(used), Limit: s.VoiceMonthlyLimit}, nil
+}
+
 func (s *LedgerService) ParseVoice(ownerID, entityID uuid.UUID, text string) (VoiceResult, error) {
 	return s.ParseVoiceIn(ownerID, entityID, text, nil)
 }

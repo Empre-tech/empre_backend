@@ -464,6 +464,7 @@ func main() {
 				entitiesProtected.DELETE("/:id/ledger/supplies/:ref", ledgerHandler.ArchiveSupply)
 				entitiesProtected.GET("/:id/ledger/insights", ledgerHandler.Insights)
 				entitiesProtected.POST("/:id/ledger/voice/parse", ledgerHandler.VoiceParse)
+				entitiesProtected.GET("/:id/ledger/voice/usage", ledgerHandler.VoiceUsage)
 				entitiesProtected.POST("/:id/ledger/voice/:draftId/confirm", ledgerHandler.VoiceConfirm)
 				entitiesProtected.POST("/:id/ledger/voice/:draftId/discard", ledgerHandler.VoiceDiscard)
 			}

@@ -366,6 +366,20 @@ func (h *LedgerHandler) Export(c *gin.Context) {
 
 // ---- voz ----
 
+// VoiceUsage: cuántos dictados lleva el negocio este mes y su tope (para decirlo antes de usar Empre AI).
+func (h *LedgerHandler) VoiceUsage(c *gin.Context) {
+	user, entity, ok := h.ids(c)
+	if !ok {
+		return
+	}
+	out, err := h.svc.VoiceUsageFor(user, entity)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
+}
+
 func (h *LedgerHandler) VoiceParse(c *gin.Context) {
 	user, entity, ok := h.ids(c)
 	if !ok {
