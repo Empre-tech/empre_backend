@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"golang.org/x/text/unicode/norm"
@@ -71,6 +72,8 @@ type SectionCount struct {
 	Count int    `json:"count"`
 	Low   int    `json:"low"`
 	Out   int    `json:"out"`
+	// CountedAt: la última vez que se contó esta sección (vacío si nunca).
+	CountedAt *time.Time `json:"counted_at,omitempty"`
 }
 
 // TabCounts son los números de una pestaña: el total, los de cada estado y sus secciones.
@@ -366,5 +369,11 @@ func (s *LedgerService) InventoryCountsFor(ownerID, entityID uuid.UUID) (Invento
 	if err != nil {
 		return InventoryCounts{}, err
 	}
-	return CountInventory(ov.Items), nil
+	c := CountInventory(ov.Items)
+	last, err := s.lastCounts(entityID)
+	if err != nil {
+		return InventoryCounts{}, err
+	}
+	AttachCountDates(&c, last)
+	return c, nil
 }

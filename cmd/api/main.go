@@ -110,6 +110,7 @@ func main() {
 		&models.DebtPayment{},
 		&models.StockItem{},
 		&models.StockMovement{},
+		&models.InventoryCount{},
 		&models.ExpenseLine{},
 		&models.ProductSupply{},
 		&models.OpenTab{},
@@ -458,6 +459,7 @@ func main() {
 				entitiesProtected.POST("/:id/ledger/tabs/:tabId/pay", ledgerHandler.PayTab)
 				entitiesProtected.POST("/:id/ledger/tabs/:tabId/cancel", ledgerHandler.CancelTab)
 				entitiesProtected.POST("/:id/ledger/inventory/adjust", ledgerHandler.InventoryAdjust)
+				entitiesProtected.POST("/:id/ledger/inventory/count", ledgerHandler.InventoryCount)
 				entitiesProtected.POST("/:id/ledger/supplies", ledgerHandler.CreateSupply)
 				entitiesProtected.DELETE("/:id/ledger/supplies/:ref", ledgerHandler.ArchiveSupply)
 				entitiesProtected.GET("/:id/ledger/insights", ledgerHandler.Insights)

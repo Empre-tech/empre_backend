@@ -533,6 +533,26 @@ func (h *LedgerHandler) InventoryNames(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"names": out})
 }
 
+// InventoryCount: guarda el conteo de una sección de una vez (tablero «Inventario», teléfonos 9–12). Reenviar el mismo
+// client_id devuelve lo guardado sin aplicar nada otra vez.
+func (h *LedgerHandler) InventoryCount(c *gin.Context) {
+	user, entity, ok := h.ids(c)
+	if !ok {
+		return
+	}
+	var in services.CountInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid", "message": "conteo inválido"})
+		return
+	}
+	out, err := h.svc.CountSection(user, entity, in)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
+}
+
 // InventorySetup: un toque para arrancar. choice = recommended | simple | none.
 func (h *LedgerHandler) InventorySetup(c *gin.Context) {
 	user, entity, ok := h.ids(c)
