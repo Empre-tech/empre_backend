@@ -60,8 +60,6 @@ func (h *AgendaHandler) fail(c *gin.Context, err error) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "not_found"})
 	case errors.Is(err, services.ErrApptForbidden):
 		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
-	case errors.Is(err, services.ErrEntityHidden):
-		c.JSON(http.StatusForbidden, gin.H{"error": "entity_hidden"})
 	case errors.Is(err, services.ErrAgendaDisabled):
 		c.JSON(http.StatusConflict, gin.H{"error": "agenda_disabled"})
 	case errors.Is(err, services.ErrBadState):

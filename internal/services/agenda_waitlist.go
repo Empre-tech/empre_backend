@@ -62,9 +62,6 @@ func (s *AgendaService) JoinWaitlist(userID, entityID uuid.UUID, day time.Time, 
 	if e.OwnerID == userID {
 		return nil, ErrOwnBusiness
 	}
-	if s.entityHidden(entityID) {
-		return nil, ErrEntityHidden
-	}
 	key := DayKey(day)
 	if key < DayKey(time.Now()) {
 		return nil, &InvalidError{Msg: "Ese día ya pasó"}
