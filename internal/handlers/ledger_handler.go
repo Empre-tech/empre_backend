@@ -31,6 +31,8 @@ func (h *LedgerHandler) fail(c *gin.Context, err error) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 	case errors.Is(err, services.ErrVoiceDisabled):
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "ai_disabled"})
+	case errors.Is(err, services.ErrProRequired):
+		c.JSON(http.StatusPaymentRequired, gin.H{"error": "pro_required", "message": "Esto es de Empre Pro."})
 	case errors.Is(err, services.ErrVoiceLimit):
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": "voice_limit", "message": "Llegaste al límite de dictados de este mes. Puedes seguir registrando a mano."})
 	default:

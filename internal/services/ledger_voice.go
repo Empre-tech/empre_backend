@@ -196,6 +196,8 @@ func capNames(names []string) []string {
 type VoiceUsage struct {
 	Used  int `json:"used"`
 	Limit int `json:"limit"`
+	// Pro: el negocio tiene Empre Pro (sin él, Empre AI va en gris con la corona).
+	Pro bool `json:"pro"`
 }
 
 func (s *LedgerService) VoiceUsageFor(ownerID, entityID uuid.UUID) (VoiceUsage, error) {
@@ -207,7 +209,15 @@ func (s *LedgerService) VoiceUsageFor(ownerID, entityID uuid.UUID) (VoiceUsage, 
 	if err := s.db.Model(&models.VoiceDraft{}).Where("entity_id = ? AND created_at >= ?", entityID, monthStart).Count(&used).Error; err != nil {
 		return VoiceUsage{}, err
 	}
-	return VoiceUsage{Used: int(used), Limit: s.VoiceMonthlyLimit}, nil
+	pro := true
+	if s.PlansEnforced {
+		p, err := s.IsPro(entityID)
+		if err != nil {
+			return VoiceUsage{}, err
+		}
+		pro = p
+	}
+	return VoiceUsage{Used: int(used), Limit: s.VoiceMonthlyLimit, Pro: pro}, nil
 }
 
 func (s *LedgerService) ParseVoice(ownerID, entityID uuid.UUID, text string) (VoiceResult, error) {
@@ -221,6 +231,10 @@ func (s *LedgerService) ParseVoiceIn(ownerID, entityID uuid.UUID, text string, t
 	}
 	if s.model == nil || !s.model.Enabled() {
 		return VoiceResult{}, ErrVoiceDisabled
+	}
+	// Empre AI es de Empre Pro (tablero «Base y Empre Pro»): en Base la app lo muestra en gris con la corona.
+	if err := s.requirePro(entityID); err != nil {
+		return VoiceResult{}, err
 	}
 	text = strings.TrimSpace(text)
 	if text == "" {
