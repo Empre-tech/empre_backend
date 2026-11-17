@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"empre_backend/internal/services"
@@ -474,6 +475,62 @@ func (h *LedgerHandler) InventoryCounts(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, out)
+}
+
+// InventorySummary: lo de arriba de Inventario (avisos, empezar a llevar inventario, revisar qué es cada cosa y la
+// nota de precios) ya contado, sin las filas.
+func (h *LedgerHandler) InventorySummary(c *gin.Context) {
+	user, entity, ok := h.ids(c)
+	if !ok {
+		return
+	}
+	out, err := h.svc.InventorySummaryFor(user, entity, time.Now())
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+// InventoryItems: solo las filas pedidas, ?ids=a,b,c (de la fila o de su ítem del catálogo; hasta 100). Para el aviso
+// de lo que se vendió hoy.
+func (h *LedgerHandler) InventoryItems(c *gin.Context) {
+	user, entity, ok := h.ids(c)
+	if !ok {
+		return
+	}
+	var ids []uuid.UUID
+	for _, raw := range strings.Split(c.Query("ids"), ",") {
+		if raw = strings.TrimSpace(raw); raw == "" {
+			continue
+		}
+		id, err := uuid.Parse(raw)
+		if err != nil || len(ids) >= 100 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid", "message": "ids inválidos"})
+			return
+		}
+		ids = append(ids, id)
+	}
+	out, err := h.svc.InventoryItemsByIDs(user, entity, ids)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"items": out})
+}
+
+// InventoryNames: el nombre y el tipo de cada fila (para que Empre AI entienda lo que se dicta). Se pide al abrirlo.
+func (h *LedgerHandler) InventoryNames(c *gin.Context) {
+	user, entity, ok := h.ids(c)
+	if !ok {
+		return
+	}
+	out, err := h.svc.InventoryNamesFor(user, entity)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"names": out})
 }
 
 // InventorySetup: un toque para arrancar. choice = recommended | simple | none.
