@@ -128,6 +128,13 @@ func TestCountInventory(t *testing.T) {
 	if len(c.Products.Sections) != 3 || c.Products.Sections[1].Name != "Bowls" || c.Products.Sections[1].Count != 2 {
 		t.Fatalf("secciones: %+v", c.Products.Sections)
 	}
+	// Cada sección dice cuántos se acaban y cuántos se acabaron (la variante agotada cuenta en su producto)
+	if h := c.Products.Sections[0]; h.Name != "Hamburguesas" || h.Out != 1 || h.Low != 0 {
+		t.Fatalf("hamburguesas: %+v", h)
+	}
+	if b := c.Products.Sections[1]; b.Low != 1 || b.Out != 0 {
+		t.Fatalf("bowls: %+v", b)
+	}
 	if c.Services.Total != 1 || c.Supplies.Total != 2 {
 		t.Fatalf("servicios %d, insumos %d", c.Services.Total, c.Supplies.Total)
 	}

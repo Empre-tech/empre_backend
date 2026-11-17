@@ -64,10 +64,13 @@ type InventoryPage struct {
 	NextCursor string          `json:"next_cursor,omitempty"`
 }
 
-// SectionCount es una sección de una pestaña con cuántas filas tiene.
+// SectionCount es una sección de una pestaña con cuántas filas tiene y cuántas se acaban o se acabaron (el punto rojo de
+// la fila de secciones: ir directo a donde algo falta).
 type SectionCount struct {
 	Name  string `json:"name"`
 	Count int    `json:"count"`
+	Low   int    `json:"low"`
+	Out   int    `json:"out"`
 }
 
 // TabCounts son los números de una pestaña: el total, los de cada estado y sus secciones.
@@ -313,20 +316,27 @@ func CountInventory(rows []InventoryItem) InventoryCounts {
 			}
 			k := kids[it.Ref]
 			tc.Total++
-			if hasStatus(it, k, ledger.StatusOut) {
+			out, low := hasStatus(it, k, ledger.StatusOut), false
+			if out {
 				tc.Out++
-			} else if hasStatus(it, k, ledger.StatusLow) {
+			} else if low = hasStatus(it, k, ledger.StatusLow); low {
 				tc.Low++
 			}
 			if it.Photo == "" && tab != TabSupply {
 				tc.NoPhoto++
 			}
 			if name := sectionOf(it, tab); name != "" {
-				if i, ok := idx[name]; ok {
-					tc.Sections[i].Count++
-				} else {
-					idx[name] = len(tc.Sections)
-					tc.Sections = append(tc.Sections, SectionCount{Name: name, Count: 1})
+				i, ok := idx[name]
+				if !ok {
+					i = len(tc.Sections)
+					idx[name] = i
+					tc.Sections = append(tc.Sections, SectionCount{Name: name})
+				}
+				tc.Sections[i].Count++
+				if out {
+					tc.Sections[i].Out++
+				} else if low {
+					tc.Sections[i].Low++
 				}
 			}
 		}
