@@ -391,12 +391,14 @@ func (h *LedgerHandler) VoiceParse(c *gin.Context) {
 		Text string `json:"text"`
 		// TabID: se dicta desde dentro de una cuenta abierta; lo pedido va a esa cuenta.
 		TabID *uuid.UUID `json:"tab_id"`
+		// Module: dónde se abrió la hoja (finance, inventory, debts). Solo desempata lo que tiene dos lecturas.
+		Module string `json:"module"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid", "message": "datos inválidos"})
 		return
 	}
-	out, err := h.svc.ParseVoiceIn(user, entity, body.Text, body.TabID)
+	out, err := h.svc.ParseVoiceAt(user, entity, body.Text, body.TabID, body.Module)
 	if err != nil {
 		h.fail(c, err)
 		return

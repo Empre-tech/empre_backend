@@ -226,6 +226,33 @@ func (s *LedgerService) ParseVoice(ownerID, entityID uuid.UUID, text string) (Vo
 
 // ParseVoiceIn interpreta un dictado hecho desde dentro de una cuenta abierta (tabID): lo vendido va a esa cuenta.
 func (s *LedgerService) ParseVoiceIn(ownerID, entityID uuid.UUID, text string, tabID *uuid.UUID) (VoiceResult, error) {
+	return s.ParseVoiceAt(ownerID, entityID, text, tabID, "")
+}
+
+// Módulos desde donde se dicta (tablero «Empre AI · un asistente por trabajo», 2026-11-17). El módulo no limita lo
+// que se entiende: solo desempata lo que tiene dos lecturas («30 pollos» en Inventario es cuántos hay).
+const (
+	VoiceAtFinance   = "finance"
+	VoiceAtInventory = "inventory"
+	VoiceAtDebts     = "debts"
+)
+
+// voiceModuleLine es la línea que se suma al prompt según el módulo; vacía sin módulo (el botón Empre en otra pantalla)
+// o con uno que no se conoce.
+func voiceModuleLine(module string) string {
+	switch module {
+	case VoiceAtInventory:
+		return "El dueño está en Inventario. Si una frase tiene dos lecturas, prefiere el inventario: un producto con un número y sin precio ni verbo de venta («30 pollos») es cuántos hay (type=stock con stock_counted); «llegaron» es entrada. Si dijo que vendió, cobró o gastó, regístralo igual como venta o gasto.\n"
+	case VoiceAtFinance:
+		return "El dueño está en Finance. Si una frase tiene dos lecturas, prefiere la plata: un producto con un monto es una venta; «pagué» o «compré» es un gasto. Si habla del inventario sin vender ni gastar, regístralo igual como stock.\n"
+	case VoiceAtDebts:
+		return "El dueño está en Cuentas (quién le debe y a quién le debe). Si una frase tiene dos lecturas, prefiere un abono (payment) o un fiado (credit).\n"
+	}
+	return ""
+}
+
+// ParseVoiceAt es ParseVoiceIn con el módulo donde se abrió la hoja (VoiceAt*); un módulo desconocido se ignora.
+func (s *LedgerService) ParseVoiceAt(ownerID, entityID uuid.UUID, text string, tabID *uuid.UUID, module string) (VoiceResult, error) {
 	if err := s.requireOwner(ownerID, entityID); err != nil {
 		return VoiceResult{}, err
 	}
@@ -298,6 +325,8 @@ func (s *LedgerService) ParseVoiceIn(ownerID, entityID uuid.UUID, text string, t
 	prompt := voiceSystemPrompt(now, capNames(itemNames), capNames(custNames), capNames(suppNames), capNames(supplyNames), capNames(tabNames)...)
 	if here != nil {
 		prompt += "El dueño está dentro de la cuenta «" + here.Name + "»: lo que diga que pidieron o vendió va a esa cuenta (tab_add con tab = «" + here.Name + "»).\n"
+	} else {
+		prompt += voiceModuleLine(module)
 	}
 	reply, err := s.model.ChatTool(prompt,
 		[]AIMessage{{Role: AIRoleUser, Content: text}},
