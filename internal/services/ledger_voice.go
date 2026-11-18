@@ -204,9 +204,9 @@ func (s *LedgerService) VoiceUsageFor(ownerID, entityID uuid.UUID) (VoiceUsage, 
 	if err := s.requireOwner(ownerID, entityID); err != nil {
 		return VoiceUsage{}, err
 	}
-	monthStart, _, _ := PeriodRange("month", nowCO())
-	var used int64
-	if err := s.db.Model(&models.VoiceDraft{}).Where("entity_id = ? AND created_at >= ?", entityID, monthStart).Count(&used).Error; err != nil {
+	// Dictados y textos de Redactar comparten el tope del mes.
+	used, err := s.aiUsedThisMonth(entityID)
+	if err != nil {
 		return VoiceUsage{}, err
 	}
 	pro := true
@@ -272,9 +272,9 @@ func (s *LedgerService) ParseVoiceAt(ownerID, entityID uuid.UUID, text string, t
 	}
 
 	now := nowCO()
-	monthStart, _, _ := PeriodRange("month", now)
-	var used int64
-	if err := s.db.Model(&models.VoiceDraft{}).Where("entity_id = ? AND created_at >= ?", entityID, monthStart).Count(&used).Error; err != nil {
+	// El tope del mes es de Empre AI entero: dictados y textos de Redactar.
+	used, err := s.aiUsedThisMonth(entityID)
+	if err != nil {
 		return VoiceResult{}, err
 	}
 	if s.VoiceMonthlyLimit > 0 && int(used) >= s.VoiceMonthlyLimit {

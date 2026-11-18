@@ -116,6 +116,7 @@ func main() {
 		&models.OpenTab{},
 		&models.OpenTabLine{},
 		&models.VoiceDraft{},
+		&models.AIWrite{},
 		&models.Section{},
 		&models.SubcategorySection{},
 		&models.EntitySection{},
@@ -310,6 +311,8 @@ func main() {
 	ledgerService.SetVoiceModel(aiService)
 	// Los planes (Base y Empre Pro) se cumplen también en el servidor; EMPRE_PLANS=off los apaga para desarrollo.
 	ledgerService.PlansEnforced = os.Getenv("EMPRE_PLANS") != "off"
+	// Redactar con Empre AI es de Pro y cuenta en el mismo tope del mes (decisión del usuario, 2026-11-17).
+	aiHandler.Ledger = ledgerService
 	claimService.Sales = ledgerService
 	ledgerHandler := handlers.NewLedgerHandler(ledgerService)
 	inboxHandler := handlers.NewInboxHandler(services.NewInboxService(database.DB))
