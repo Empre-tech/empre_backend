@@ -182,7 +182,7 @@ func (s *AskService) intent(q string) (string, AskFilters, bool) {
 		}
 	}
 	if s.AI != nil && s.AI.Enabled() {
-		reply, err := s.AI.ChatTool(askSystemPrompt, []AIMessage{{Role: AIRoleUser, Content: q}}, askIntentTool)
+		reply, err := s.AI.For(AIUsageMeta{Feature: AIFeaturePregunta}).ChatTool(askSystemPrompt, []AIMessage{{Role: AIRoleUser, Content: q}}, askIntentTool)
 		if err == nil {
 			for _, call := range reply.ToolCalls {
 				var in struct {

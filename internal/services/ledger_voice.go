@@ -328,7 +328,11 @@ func (s *LedgerService) ParseVoiceAt(ownerID, entityID uuid.UUID, text string, t
 	} else {
 		prompt += voiceModuleLine(module)
 	}
-	reply, err := s.model.ChatTool(prompt,
+	var model VoiceModel = s.model
+	if tagged, ok := s.model.(interface{ For(AIUsageMeta) *AICall }); ok {
+		model = tagged.For(AIUsageMeta{Feature: AIFeatureDictado, EntityID: &entityID, UserID: &ownerID})
+	}
+	reply, err := model.ChatTool(prompt,
 		[]AIMessage{{Role: AIRoleUser, Content: text}},
 		AITool{Name: voiceToolName, Description: "Registra lo que el dueño dictó.", InputSchema: voiceToolSchema})
 	if err != nil {

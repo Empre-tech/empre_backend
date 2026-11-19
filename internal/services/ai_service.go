@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // AIService is a thin client for OpenCode Zen (https://opencode.ai/zen), a
@@ -21,6 +23,50 @@ type AIService struct {
 	BaseURL string
 	Model   string
 	Client  *http.Client
+	// Recorder recibe los tokens de cada llamada que salió bien (nil = no se registra). En main guarda en ai_usage.
+	Recorder func(AIUsageRecord)
+}
+
+// AIUsage son los tokens que la IA dice haber usado en una llamada (el campo "usage" de la respuesta).
+type AIUsage struct {
+	InputTokens      int `json:"input_tokens"`
+	OutputTokens     int `json:"output_tokens"`
+	CacheReadTokens  int `json:"cache_read_input_tokens"`
+	CacheWriteTokens int `json:"cache_creation_input_tokens"`
+}
+
+// AIUsageMeta dice de qué es una llamada: la función de la app y, si se sabe, el negocio y el usuario.
+type AIUsageMeta struct {
+	Feature  string
+	EntityID *uuid.UUID
+	UserID   *uuid.UUID
+}
+
+// AIUsageRecord es lo que se registra de cada llamada.
+type AIUsageRecord struct {
+	Meta      AIUsageMeta
+	Model     string
+	Usage     AIUsage
+	LatencyMS int64
+}
+
+// AICall es el AIService con la etiqueta de una llamada (función, negocio, usuario) para registrar sus tokens.
+type AICall struct {
+	s    *AIService
+	meta AIUsageMeta
+}
+
+// For etiqueta las llamadas que siguen: s.AI.For(AIUsageMeta{Feature: "dictado", EntityID: &id}).ChatTool(...).
+func (s *AIService) For(meta AIUsageMeta) *AICall { return &AICall{s: s, meta: meta} }
+
+func (c *AICall) Enabled() bool { return c.s != nil && c.s.Enabled() }
+
+func (c *AICall) Chat(systemPrompt string, messages []AIMessage, tools []AITool) (*AIReply, error) {
+	return c.s.send(c.meta, systemPrompt, messages, tools, nil)
+}
+
+func (c *AICall) ChatTool(systemPrompt string, messages []AIMessage, tool AITool) (*AIReply, error) {
+	return c.s.send(c.meta, systemPrompt, messages, []AITool{tool}, &anthropicToolChoice{Type: "tool", Name: tool.Name})
 }
 
 func NewAIService(apiKey, baseURL, model string) *AIService {
@@ -71,6 +117,7 @@ type AIToolCall struct {
 type AIReply struct {
 	Text      string
 	ToolCalls []AIToolCall
+	Usage     AIUsage
 }
 
 type anthropicMessage struct {
@@ -107,6 +154,7 @@ type anthropicContentBlock struct {
 
 type anthropicResponse struct {
 	Content []anthropicContentBlock `json:"content"`
+	Usage   AIUsage                 `json:"usage"`
 	Error   *struct {
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
@@ -117,16 +165,16 @@ type anthropicResponse struct {
 // this is NOT fire-and-forget: the person is waiting on this to answer them,
 // so errors are returned to the caller instead of only logged.
 func (s *AIService) Chat(systemPrompt string, messages []AIMessage, tools []AITool) (*AIReply, error) {
-	return s.send(systemPrompt, messages, tools, nil)
+	return s.send(AIUsageMeta{}, systemPrompt, messages, tools, nil)
 }
 
 // ChatTool obliga al modelo a responder llamando a `tool` (sin texto libre ni razonamiento previo). Es lo que usa el
 // dictado: siempre hay que devolver datos, y así cada dictado cuesta lo mínimo.
 func (s *AIService) ChatTool(systemPrompt string, messages []AIMessage, tool AITool) (*AIReply, error) {
-	return s.send(systemPrompt, messages, []AITool{tool}, &anthropicToolChoice{Type: "tool", Name: tool.Name})
+	return s.send(AIUsageMeta{}, systemPrompt, messages, []AITool{tool}, &anthropicToolChoice{Type: "tool", Name: tool.Name})
 }
 
-func (s *AIService) send(systemPrompt string, messages []AIMessage, tools []AITool, choice *anthropicToolChoice) (*AIReply, error) {
+func (s *AIService) send(meta AIUsageMeta, systemPrompt string, messages []AIMessage, tools []AITool, choice *anthropicToolChoice) (*AIReply, error) {
 	if !s.Enabled() {
 		return nil, errors.New("ai: no hay una API key de IA configurada (AI_API_KEY)")
 	}
@@ -159,6 +207,7 @@ func (s *AIService) send(systemPrompt string, messages []AIMessage, tools []AITo
 	req.Header.Set("x-api-key", s.APIKey)
 	req.Header.Set("anthropic-version", "2023-06-01")
 
+	started := time.Now()
 	resp, err := s.Client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("ai: la petición falló: %w", err)
@@ -194,7 +243,10 @@ func (s *AIService) send(systemPrompt string, messages []AIMessage, tools []AITo
 		return nil, fmt.Errorf("ai: no pudimos interpretar la respuesta: %w", unmarshalErr)
 	}
 
-	reply := &AIReply{}
+	reply := &AIReply{Usage: parsed.Usage}
+	if s.Recorder != nil {
+		s.Recorder(AIUsageRecord{Meta: meta, Model: s.Model, Usage: parsed.Usage, LatencyMS: time.Since(started).Milliseconds()})
+	}
 	for _, block := range parsed.Content {
 		switch block.Type {
 		case "text":

@@ -179,7 +179,7 @@ func (c *IntentClassifier) Classify(entityID, userID uuid.UUID, text string, now
 		"required":   []string{"intent"},
 	})
 	tool := AITool{Name: "elegir_intencion", Description: "Elige la opción que corresponde a la pregunta del cliente.", InputSchema: schema}
-	reply, err := c.ai.ChatTool(ClassifyPrompt(taught, custom), []AIMessage{{Role: AIRoleUser, Content: text}}, tool)
+	reply, err := c.ai.For(AIUsageMeta{Feature: AIFeatureChatClasifica, EntityID: &entityID, UserID: &userID}).ChatTool(ClassifyPrompt(taught, custom), []AIMessage{{Role: AIRoleUser, Content: text}}, tool)
 	if err != nil {
 		return ClassifyResult{}, err
 	}

@@ -132,6 +132,16 @@ NO preguntes por dirección, ubicación en el mapa, fotos, ni datos de contacto:
 
 En CADA turno llama a la herramienta "propose_business_draft": en "reply" va tu mensaje para el dueño (es lo único que él lee) y en los demás campos lo que ya tengas claro (deja vacíos los que aún no sepas). Cuando ya tengas categoría, horario y modalidad, marca "ready": true y dile en "reply" que puede revisar el formulario.`
 
+// optionalUser es el usuario de la sesión, o nil si no hay (sin responder 401).
+func optionalUser(c *gin.Context) *uuid.UUID {
+	if v, ok := c.Get("userID"); ok {
+		if id, ok := v.(uuid.UUID); ok {
+			return &id
+		}
+	}
+	return nil
+}
+
 func (h *AIHandler) BusinessAssistant(c *gin.Context) {
 	if h.AI == nil || !h.AI.Enabled() {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "El asistente de IA no está disponible en este momento."})
@@ -189,7 +199,7 @@ func (h *AIHandler) BusinessAssistant(c *gin.Context) {
 	}}
 
 	// Herramienta forzada: así el mensaje para el dueño llega siempre (en "reply") y el borrador se actualiza en cada turno.
-	reply, err := h.AI.ChatTool(systemPrompt, req.Messages, tools[0])
+	reply, err := h.AI.For(services.AIUsageMeta{Feature: services.AIFeatureAsistente, UserID: optionalUser(c)}).ChatTool(systemPrompt, req.Messages, tools[0])
 	if err != nil {
 		// El detalle real (401 de API key inválida, endpoint/modelo mal escrito,
 		// etc.) solo importa para depurar desde la consola del backend; al
@@ -400,7 +410,11 @@ func (h *AIHandler) ImproveText(c *gin.Context) {
 		InputSchema: textSuggestionsToolSchema,
 	}}
 
-	reply, err := h.AI.Chat(systemPrompt, messages, tools)
+	meta := services.AIUsageMeta{Feature: services.AIFeatureRedactar, EntityID: entityID}
+	if userID != uuid.Nil {
+		meta.UserID = &userID
+	}
+	reply, err := h.AI.For(meta).Chat(systemPrompt, messages, tools)
 	if err != nil {
 		log.Println("ai: improve-text error:", err)
 		c.JSON(http.StatusBadGateway, gin.H{"error": "No pudimos generar sugerencias. Intenta de nuevo en un momento."})

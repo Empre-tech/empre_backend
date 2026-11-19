@@ -117,6 +117,7 @@ func main() {
 		&models.OpenTabLine{},
 		&models.VoiceDraft{},
 		&models.AIWrite{},
+		&models.AIUsage{},
 		&models.Section{},
 		&models.SubcategorySection{},
 		&models.EntitySection{},
@@ -245,6 +246,9 @@ func main() {
 	}
 	agendaService := services.NewAgendaService(database.DB, pushService)
 	aiService := services.NewAIService(cfg.AIAPIKey, cfg.AIBaseURL, cfg.AIModel)
+	// Los tokens de cada llamada a la IA quedan en ai_usage (resumen en GET /api/admin/ai-usage).
+	aiUsageService := services.NewAIUsageService(database.DB, services.AIPricesFromEnv())
+	aiService.Recorder = aiUsageService.Async()
 	if aiService.Enabled() {
 		log.Println("AI Assistant: enabled (model " + cfg.AIModel + ")")
 	} else {
@@ -631,6 +635,7 @@ func main() {
 			adminGroup.GET("/entities", entityHandler.FindAllByStatus)
 			adminGroup.GET("/events/summary", eventHandler.Summary)
 			adminGroup.GET("/health", healthHandler.AdminHealth)
+			adminGroup.GET("/ai-usage", (&handlers.AIUsageHandler{Usage: aiUsageService}).Summary)
 			adminGroup.PATCH("/entities/:id/verify", entityHandler.VerifyEntity)
 
 			adminGroup.POST("/categories", categoryHandler.Create)

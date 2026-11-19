@@ -337,7 +337,11 @@ func (f *FichaAnswerer) Answer(ids []uuid.UUID, userID uuid.UUID, text string, n
 			"required": []string{"answers"},
 		})
 		tool := AITool{Name: "responder", Description: "Devuelve, por cada negocio, si su ficha responde la pregunta y la respuesta.", InputSchema: schema}
-		reply, err := f.ai.ChatTool(prompt, []AIMessage{{Role: AIRoleUser, Content: text}}, tool)
+		meta := AIUsageMeta{Feature: AIFeatureChatFicha, UserID: &userID}
+		if len(ids) == 1 {
+			meta.EntityID = &ids[0]
+		}
+		reply, err := f.ai.For(meta).ChatTool(prompt, []AIMessage{{Role: AIRoleUser, Content: text}}, tool)
 		if err != nil {
 			return nil, err
 		}
