@@ -231,20 +231,20 @@ func (h *EntityHandler) Create(c *gin.Context) {
 	}
 
 	if err := h.Service.CreateEntity(&entity); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err)
 		return
 	}
 
 	if len(req.SubcategoryIDs) > 0 {
 		if err := h.Service.SetEntitySubcategories(&entity, parseSubcategoryIDs(req.SubcategoryIDs)); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			internalError(c, err)
 			return
 		}
 	}
 
 	if len(req.Hours) > 0 {
 		if err := h.Service.SetEntityHours(&entity, hoursFromRequest(req.Hours)); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			internalError(c, err)
 			return
 		}
 	}
@@ -429,7 +429,7 @@ func (h *EntityHandler) FindAll(c *gin.Context) {
 
 	entities, total, err := h.Service.FindAll(lat, long, radius, categoryID, subcategoryID, query, openNow, page, pageSize)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err)
 		return
 	}
 
@@ -485,7 +485,7 @@ func (h *EntityHandler) FindAllByOwner(c *gin.Context) {
 
 	entities, total, err := h.Service.FindAllByOwner(userID.(uuid.UUID), page, pageSize)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err)
 		return
 	}
 
@@ -630,20 +630,20 @@ func (h *EntityHandler) Update(c *gin.Context) {
 	}
 
 	if err := h.Service.UpdateEntity(existing); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err)
 		return
 	}
 
 	if req.SubcategoryIDs != nil {
 		if err := h.Service.SetEntitySubcategories(existing, parseSubcategoryIDs(req.SubcategoryIDs)); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			internalError(c, err)
 			return
 		}
 	}
 
 	if req.Hours != nil {
 		if err := h.Service.SetEntityHours(existing, hoursFromRequest(req.Hours)); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			internalError(c, err)
 			return
 		}
 	}
@@ -688,7 +688,7 @@ func (h *EntityHandler) Delete(c *gin.Context) {
 	}
 
 	if err := h.Service.DeleteEntity(existing); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err)
 		return
 	}
 
@@ -775,7 +775,7 @@ func (h *EntityHandler) UploadImage(c *gin.Context) {
 	folder := fmt.Sprintf("entities/%s/%s", entityID.String(), imageType)
 	media, err := h.MediaService.UploadAndMap(folder, file.Filename, f, contentType, file.Size)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload to S3", "details": err.Error()})
+		internalErrorMsg(c, err, "No pudimos subir la imagen. Intenta de nuevo.")
 		return
 	}
 
@@ -973,7 +973,7 @@ func (h *EntityHandler) FindAllByStatus(c *gin.Context) {
 
 	entities, total, err := h.Service.FindAllByStatus(status, page, pageSize)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err)
 		return
 	}
 

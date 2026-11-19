@@ -64,18 +64,18 @@ func (h *StatusHandler) Update(c *gin.Context) {
 			UpdatedAt:    utils.NowInCartagena(),
 		}
 		if err := h.DB.Create(&status).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			internalError(c, err)
 			return
 		}
 	case err == nil:
 		status.Availability = req.Availability
 		status.UpdatedAt = utils.NowInCartagena()
 		if err := h.DB.Save(&status).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			internalError(c, err)
 			return
 		}
 	default:
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err)
 		return
 	}
 

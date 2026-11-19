@@ -45,7 +45,7 @@ func (h *FavoriteHandler) Add(c *gin.Context) {
 	userID := userIDVal.(uuid.UUID)
 
 	if err := h.Service.Add(userID, entityID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err)
 		return
 	}
 
@@ -82,7 +82,7 @@ func (h *FavoriteHandler) Remove(c *gin.Context) {
 	userID := userIDVal.(uuid.UUID)
 
 	if err := h.Service.Remove(userID, entityID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "Quitado de favoritos"})
@@ -106,7 +106,7 @@ func (h *FavoriteHandler) FindMine(c *gin.Context) {
 
 	entities, total, err := h.Service.FindEntitiesByUser(userID, page, pageSize)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err)
 		return
 	}
 	h.EntityService.PopulateMediaURLs(entities)
@@ -149,14 +149,14 @@ func (h *FavoriteHandler) Novedades(c *gin.Context) {
 
 	items, err := h.Service.Novedades(userID, time.Now())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err)
 		return
 	}
 
 	// Datos de los negocios seguidos para mostrar nombre y foto en cada novedad.
 	entities, _, err := h.Service.FindEntitiesByUser(userID, 1, 1000)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err)
 		return
 	}
 	h.EntityService.PopulateMediaURLs(entities)
@@ -212,7 +212,7 @@ func (h *FavoriteHandler) MarkNovedadesSeen(c *gin.Context) {
 		entityID = &id
 	}
 	if err := h.Service.MarkNovedadesSeen(userID, entityID, utils.NowInCartagena()); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "Novedades vistas"})
@@ -239,7 +239,7 @@ func (h *FavoriteHandler) FollowerCount(c *gin.Context) {
 	}
 	count, err := h.Service.CountFollowers(entityID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"followers": count})

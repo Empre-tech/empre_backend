@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 
 	"empre_backend/internal/services"
 
@@ -144,6 +145,10 @@ func (h *AIHandler) BusinessAssistant(c *gin.Context) {
 	}
 	if len(req.Messages) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "messages no puede estar vacío"})
+		return
+	}
+	if msg := assistantTooBig(req.Messages); msg != "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": msg})
 		return
 	}
 
@@ -460,4 +465,32 @@ func validAIHours(rows []HourRequest) []HourRequest {
 		out = append(out, r)
 	}
 	return out
+}
+
+// Topes de tamaño del asistente para crear el negocio: cada turno manda la conversación completa a la IA, así que
+// sin tope alguien podría mandar textos enormes (y la IA cobra por cada palabra que lee). Una conversación normal
+// son 6 a 12 mensajes cortos.
+const (
+	assistantMaxMessages     = 40
+	assistantMaxMessageRunes = 2000
+	assistantMaxTotalRunes   = 20000
+)
+
+// assistantTooBig devuelve por qué la conversación es demasiado grande, o "" si cabe.
+func assistantTooBig(msgs []services.AIMessage) string {
+	if len(msgs) > assistantMaxMessages {
+		return "La conversación es muy larga. Empieza de nuevo el asistente."
+	}
+	total := 0
+	for _, m := range msgs {
+		n := utf8.RuneCountInString(m.Content)
+		if n > assistantMaxMessageRunes {
+			return "Ese mensaje es muy largo. Escríbelo más corto."
+		}
+		total += n
+	}
+	if total > assistantMaxTotalRunes {
+		return "La conversación es muy larga. Empieza de nuevo el asistente."
+	}
+	return ""
 }

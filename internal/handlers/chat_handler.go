@@ -78,7 +78,7 @@ func (h *ChatHandler) FindAllConversations(c *gin.Context) {
 
 	conversations, total, err := h.service.FindAllConversations(userID, page, pageSize)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err)
 		return
 	}
 
@@ -211,7 +211,7 @@ func (h *ChatHandler) FindMessagesHistory(c *gin.Context) {
 
 	messages, total, err := h.service.FindMessagesHistory(entityID, targetUserID, page, pageSize)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err)
 		return
 	}
 
@@ -308,7 +308,7 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 
 	// Save to DB
 	if err := h.service.SendMessage(&msg); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err)
 		return
 	}
 

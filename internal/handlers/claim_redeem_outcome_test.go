@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -154,6 +155,10 @@ func TestRedeemOutcome_SystemFailureIs500(t *testing.T) {
 	got := asJSON(t, body)
 	if got["error"] == nil || got["valid"] != nil {
 		t.Errorf("cuerpo = %v, se esperaba solo {error}", got)
+	}
+	// El detalle interno (la base, S3...) va al log, nunca al cliente.
+	if msg, _ := got["error"].(string); strings.Contains(msg, "base de datos") {
+		t.Errorf("el error interno se filtró al cliente: %q", msg)
 	}
 }
 

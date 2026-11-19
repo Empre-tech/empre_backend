@@ -171,7 +171,7 @@ func (h *PromotionHandler) Active(c *gin.Context) {
 
 	ps, err := h.Service.ActiveForEntity(entityID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err)
 		return
 	}
 

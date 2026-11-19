@@ -13,6 +13,9 @@ type TTLCache[K comparable, V any] struct {
 	now  func() time.Time
 	mu   sync.RWMutex
 	data map[K]ttlEntry[V]
+	// max: cuántas entradas guarda como mucho (0 = sin tope). Para claves que vienen del usuario (preguntas), así
+	// nadie llena la memoria mandando textos distintos.
+	max int
 }
 
 type ttlEntry[V any] struct {
@@ -22,6 +25,14 @@ type ttlEntry[V any] struct {
 
 func NewTTLCache[K comparable, V any](ttl time.Duration) *TTLCache[K, V] {
 	return &TTLCache[K, V]{ttl: ttl, now: time.Now, data: map[K]ttlEntry[V]{}}
+}
+
+// NewTTLCacheMax es NewTTLCache con un tope de entradas: al llenarse borra las vencidas y, si sigue lleno, empieza
+// de cero (es una caché: perderla solo cuesta volver a calcular).
+func NewTTLCacheMax[K comparable, V any](ttl time.Duration, max int) *TTLCache[K, V] {
+	c := NewTTLCache[K, V](ttl)
+	c.max = max
+	return c
 }
 
 // Get devuelve el valor guardado si no venció.
@@ -38,8 +49,26 @@ func (c *TTLCache[K, V]) Get(key K) (V, bool) {
 
 func (c *TTLCache[K, V]) Set(key K, value V) {
 	c.mu.Lock()
-	c.data[key] = ttlEntry[V]{value: value, until: c.now().Add(c.ttl)}
+	now := c.now()
+	if c.max > 0 && len(c.data) >= c.max {
+		for k, e := range c.data {
+			if now.After(e.until) {
+				delete(c.data, k)
+			}
+		}
+		if len(c.data) >= c.max {
+			c.data = map[K]ttlEntry[V]{}
+		}
+	}
+	c.data[key] = ttlEntry[V]{value: value, until: now.Add(c.ttl)}
 	c.mu.Unlock()
+}
+
+// Len cuántas entradas hay guardadas (vencidas incluidas hasta la próxima limpieza).
+func (c *TTLCache[K, V]) Len() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return len(c.data)
 }
 
 // Clear olvida todo (al crear, editar o borrar lo que se guarda).

@@ -71,7 +71,7 @@ func (h *ClaimHandler) Mine(c *gin.Context) {
 	}
 	results, err := h.Service.ListMine(userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err)
 		return
 	}
 	out := make([]dtos.ClaimResponse, 0, len(results))
@@ -158,7 +158,7 @@ func (h *ClaimHandler) Activity(c *gin.Context) {
 	}
 	count, err := h.Service.ClaimRepo.CountVerifiedRedemptionsSince(entityID, time.Now().Add(-activityWindow))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"verified_redemptions_week": count})
@@ -199,6 +199,9 @@ func (h *ClaimHandler) Redeem(c *gin.Context) {
 
 	res, err := h.Service.RedeemByID(c.Param("id"), userID, req.Device)
 	status, body := redeemOutcome(res, err)
+	if status == http.StatusInternalServerError {
+		_ = c.Error(err) // el detalle queda en el log, no en la respuesta
+	}
 	c.JSON(status, body)
 }
 
@@ -219,6 +222,9 @@ func (h *ClaimHandler) RedeemCode(c *gin.Context) {
 
 	res, err := h.Service.RedeemByShortCode(req.Code, userID, req.Device)
 	status, body := redeemOutcome(res, err)
+	if status == http.StatusInternalServerError {
+		_ = c.Error(err) // el detalle queda en el log, no en la respuesta
+	}
 	c.JSON(status, body)
 }
 
@@ -232,7 +238,7 @@ func redeemOutcome(res *services.ClaimResult, err error) (int, any) {
 		return http.StatusOK, redeemRejectedResponse(rej)
 	}
 	if err != nil {
-		return http.StatusInternalServerError, gin.H{"error": err.Error()}
+		return http.StatusInternalServerError, gin.H{"error": "No pudimos validar el reclamo. Intenta de nuevo en un momento."}
 	}
 	return http.StatusOK, redeemValidResponse(res)
 }

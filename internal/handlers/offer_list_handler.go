@@ -30,7 +30,7 @@ func (h *OfferListHandler) List(c *gin.Context) {
 
 	offers, promotions, err := h.Service.List(lat, long, categoryID, order)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err)
 		return
 	}
 

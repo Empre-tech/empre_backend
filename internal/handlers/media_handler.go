@@ -121,7 +121,7 @@ func (h *MediaHandler) Upload(c *gin.Context) {
 
 	media, err := h.Service.UploadAndMap("uploads", file.Filename, f, contentType, file.Size)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload to S3", "details": err.Error()})
+		internalErrorMsg(c, err, "No pudimos subir la imagen. Intenta de nuevo.")
 		return
 	}
 

@@ -74,7 +74,7 @@ func (h *CategoryHandler) Create(c *gin.Context) {
 	}
 
 	if err := h.categoryService.Create(&category); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err)
 		return
 	}
 
@@ -97,7 +97,7 @@ func (h *CategoryHandler) FindAll(c *gin.Context) {
 
 	categories, total, err := h.categoryService.FindAll(page, pageSize)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err)
 		return
 	}
 
@@ -214,7 +214,7 @@ func (h *CategoryHandler) Update(c *gin.Context) {
 	}
 
 	if err := h.categoryService.Update(category); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err)
 		return
 	}
 
@@ -245,7 +245,7 @@ func (h *CategoryHandler) Delete(c *gin.Context) {
 	}
 
 	if err := h.categoryService.Delete(&category); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err)
 		return
 	}
 
@@ -288,7 +288,7 @@ func (h *CategoryHandler) CreateSubcategory(c *gin.Context) {
 
 	sub := models.Subcategory{Name: req.Name, CategoryID: categoryID}
 	if err := h.categoryService.CreateSubcategory(&sub); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err)
 		return
 	}
 
@@ -330,7 +330,7 @@ func (h *CategoryHandler) UpdateSubcategory(c *gin.Context) {
 	sub.Name = req.Name
 
 	if err := h.categoryService.UpdateSubcategory(sub); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err)
 		return
 	}
 
@@ -358,7 +358,7 @@ func (h *CategoryHandler) DeleteSubcategory(c *gin.Context) {
 
 	sub := models.Subcategory{ID: id}
 	if err := h.categoryService.DeleteSubcategory(&sub); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err)
 		return
 	}
 

@@ -37,7 +37,7 @@ func (h *SearchHandler) Search(c *gin.Context) {
 
 	res, err := h.Service.Search(q, minLat, maxLat, minLng, maxLng, lat, lng)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err)
 		return
 	}
 
@@ -56,7 +56,7 @@ func (h *SearchHandler) Chips(c *gin.Context) {
 
 	chips, err := h.Service.Chips(minLat, maxLat, minLng, maxLng, hour)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err)
 		return
 	}
 	if chips == nil {

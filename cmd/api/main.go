@@ -506,7 +506,9 @@ func main() {
 
 		// Búsqueda por niveles + chips dinámicos (público).
 		api.GET("/search", searchHandler.Search)
-		api.GET("/ask", askHandler.Ask)
+		// Pregúntale a Empre llama a la IA (lo que ya entendió se guarda unas horas): tope por IP para que nadie gaste
+		// los créditos en bucle. Con sesión, el tope va por usuario.
+		api.GET("/ask", middleware.OptionalAuth(cfg), middleware.RateLimit(20, time.Minute), middleware.RateLimit(300, 24*time.Hour), askHandler.Ask)
 		api.GET("/categories/chips", searchHandler.Chips)
 
 		// Ofertas: acciones del negocio (quick actions, republish) y reclamo
@@ -617,7 +619,8 @@ func main() {
 		aiGroup := api.Group("/ai")
 		aiGroup.Use(middleware.AuthMiddleware(cfg))
 		{
-			aiGroup.POST("/business-assistant", aiHandler.BusinessAssistant)
+			// El asistente manda toda la conversación en cada turno: tope por usuario (además del tamaño, en el handler).
+			aiGroup.POST("/business-assistant", middleware.RateLimit(20, time.Minute), middleware.RateLimit(150, 24*time.Hour), aiHandler.BusinessAssistant)
 			aiGroup.POST("/writing-assistant", aiHandler.ImproveText)
 		}
 

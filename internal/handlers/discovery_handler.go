@@ -42,7 +42,7 @@ func (h *DiscoveryHandler) Discover(c *gin.Context) {
 
 	items, total, err := h.Service.Discover(minLat, maxLat, minLng, maxLng, refLat, refLng, categoryID, subcategoryID, query, offerFilter, limit)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err)
 		return
 	}
 
@@ -112,7 +112,7 @@ func (h *DiscoveryHandler) Sections(c *gin.Context) {
 	}
 	sections, err := h.Service.SectionsN(minLat, maxLat, minLng, maxLng, refLat, refLng, c.Query("category"), c.Query("subcategory"), limit)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err)
 		return
 	}
 	if only := c.Query("section"); only != "" {

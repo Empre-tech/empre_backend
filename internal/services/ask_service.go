@@ -6,6 +6,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"empre_backend/internal/dtos"
@@ -34,10 +35,30 @@ type AskService struct {
 	DB     *gorm.DB
 	Search *SearchService
 	AI     *AIService
+	// intents guarda lo que la IA entendió de cada pregunta: la misma pregunta («almorzar cerca») no vuelve a llamar
+	// a la IA durante unas horas. Ahorra plata y frena a quien repite preguntas para gastar los créditos.
+	intents *TTLCache[string, askIntent]
 }
 
+// askIntent es lo que la IA saca de una pregunta.
+type askIntent struct {
+	terms   string
+	filters AskFilters
+}
+
+const (
+	askIntentTTL        = 6 * time.Hour
+	askIntentMaxEntries = 5000
+)
+
 func NewAskService(db *gorm.DB, search *SearchService, ai *AIService) *AskService {
-	return &AskService{DB: db, Search: search, AI: ai}
+	return &AskService{DB: db, Search: search, AI: ai, intents: NewTTLCacheMax[string, askIntent](askIntentTTL, askIntentMaxEntries)}
+}
+
+// askCacheKey normaliza la pregunta para la caché: minúsculas, sin signos de los extremos y con un solo espacio.
+func askCacheKey(q string) string {
+	q = strings.ToLower(strings.Trim(strings.TrimSpace(q), "¿?¡!.,"))
+	return strings.Join(strings.Fields(q), " ")
 }
 
 // AskFilters son las condiciones que se apilan («que esté abierto», «con oferta», «a domicilio»).
@@ -154,6 +175,12 @@ const (
 // que se reconocen por palabras clave.
 func (s *AskService) intent(q string) (string, AskFilters, bool) {
 	f := keywordFilters(q)
+	key := askCacheKey(q)
+	if s.intents != nil {
+		if hit, ok := s.intents.Get(key); ok {
+			return hit.terms, hit.filters, true
+		}
+	}
 	if s.AI != nil && s.AI.Enabled() {
 		reply, err := s.AI.ChatTool(askSystemPrompt, []AIMessage{{Role: AIRoleUser, Content: q}}, askIntentTool)
 		if err == nil {
@@ -166,10 +193,14 @@ func (s *AskService) intent(q string) (string, AskFilters, bool) {
 					Cheapest  bool   `json:"cheapest"`
 				}
 				if json.Unmarshal(call.Input, &in) == nil && strings.TrimSpace(in.Terms) != "" {
-					return cleanTerms(in.Terms), AskFilters{
+					got := askIntent{terms: cleanTerms(in.Terms), filters: AskFilters{
 						OpenNow: in.OpenNow || f.OpenNow, WithOffer: in.WithOffer || f.WithOffer,
 						Delivery: in.Delivery || f.Delivery, Cheapest: in.Cheapest || f.Cheapest,
-					}, true
+					}}
+					if s.intents != nil {
+						s.intents.Set(key, got)
+					}
+					return got.terms, got.filters, true
 				}
 			}
 		}

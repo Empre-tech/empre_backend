@@ -146,7 +146,7 @@ func (h *OfferHandler) Active(c *gin.Context) {
 	}
 	offer, err := h.Service.ActiveForEntity(entityID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err)
 		return
 	}
 	if offer == nil {
@@ -168,7 +168,7 @@ func (h *OfferHandler) ActiveList(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	offers, total, err := h.Service.ActivePageForEntity(entityID, limit)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err)
 		return
 	}
 	out := make([]dtos.OfferResponse, 0, len(offers))

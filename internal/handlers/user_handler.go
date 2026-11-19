@@ -105,7 +105,7 @@ func (h *UserHandler) UploadProfileImage(c *gin.Context) {
 	folder := fmt.Sprintf("users/%s/profile", userID.String())
 	media, err := h.MediaService.UploadAndMap(folder, file.Filename, f, contentType, file.Size)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload to S3", "details": err.Error()})
+		internalErrorMsg(c, err, "No pudimos subir la imagen. Intenta de nuevo.")
 		return
 	}
 

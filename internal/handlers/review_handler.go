@@ -128,7 +128,7 @@ func (h *ReviewHandler) FindByEntity(c *gin.Context) {
 	filter := repository.ReviewFilter{Stars: stars, Verified: truthy(c.Query("verified")), WithComment: truthy(c.Query("with_comment"))}
 	reviews, total, err := h.Service.FindByEntityFiltered(entityID, page, pageSize, filter)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err)
 		return
 	}
 
@@ -218,7 +218,7 @@ func (h *ReviewHandler) Delete(c *gin.Context) {
 	userID := userIDVal.(uuid.UUID)
 
 	if err := h.Service.Delete(entityID, userID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		internalError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "Reseña eliminada"})
