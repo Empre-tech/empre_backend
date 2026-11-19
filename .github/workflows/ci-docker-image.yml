@@ -1,9 +1,14 @@
 name: CI - Build & Push Docker Image
 
-# En cada push a main construye la imagen para ARM (la EC2 t4g) y la sube a Docker Hub con dos etiquetas:
-# el sha del commit (la que despliega el CD) y latest.
+# Cuando las pruebas (CI - Tests) pasan en un push a main, construye la imagen para ARM (la EC2 t4g) y la sube a
+# Docker Hub con dos etiquetas: el sha del commit (la que despliega el CD) y latest. Si las pruebas fallan, no hay
+# imagen y no se despliega: Tests -> Build -> CD.
 on:
-  push:
+  workflow_run:
+    workflows:
+      - CI - Tests
+    types:
+      - completed
     branches:
       - main
 
@@ -15,11 +20,15 @@ env:
 
 jobs:
   dockerhub:
+    # Solo pruebas que pasaron, y de un push (no de un PR que apunta a main).
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' }}
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       # La etapa final de la imagen corre `apk add` para ARM: necesita emulación en el runner (x86).
       - name: Set up QEMU
@@ -41,7 +50,7 @@ jobs:
           platforms: linux/arm64
           push: true
           tags: |
-            ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ github.event.workflow_run.head_sha }}
             ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max

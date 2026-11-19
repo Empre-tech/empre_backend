@@ -43,3 +43,21 @@ jobs:
 
       - name: Test
         run: go test ./... -count=1
+
+  # En los PR también se construye la imagen (sin subirla) para que un Dockerfile roto no llegue a main.
+  docker-build:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build (sin subir)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          cache-from: type=gha
