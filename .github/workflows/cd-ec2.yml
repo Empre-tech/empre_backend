@@ -1,46 +1,75 @@
 name: CD - Deploy to EC2
 
+# Cuando el CI sube la imagen, copia los archivos de deploy/ al servidor y corre deploy.sh con el sha.
+# Los secretos de la app NO pasan por aquí: viven en /opt/empre/.env del servidor.
 on:
   workflow_run:
     workflows:
       - CI - Build & Push Docker Image
     types:
       - completed
+  # Para volver a desplegar a mano desde la pestaña Actions (por ejemplo, tras cambiar el .env).
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Sha completo del commit (40 caracteres). Vacío = el último commit de main."
+        required: false
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
 
 jobs:
   deploy:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
 
     steps:
+      - name: Elegir la versión
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            echo "sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ github.event.inputs.tag }}" ]; then
+            echo "sha=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Revisar la etiqueta
+        run: |
+          echo "${{ steps.version.outputs.sha }}" | grep -Eq '^[0-9a-f]{40}$' \
+            || { echo "La etiqueta debe ser un sha de commit." >&2; exit 1; }
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.version.outputs.sha }}
+
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
 
-      - name: Deploy container
+      - name: Copiar los archivos de despliegue
         run: |
-          ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
-            IMAGE_TAG=${{ github.event.workflow_run.head_sha }}
+          scp deploy/docker-compose.prod.yml deploy/Caddyfile deploy/deploy.sh \
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/opt/empre/"
 
-            sudo docker pull gioleonp/empre-backend:$IMAGE_TAG
+      - name: Desplegar
+        run: |
+          ssh "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            "chmod +x /opt/empre/deploy.sh && /opt/empre/deploy.sh ${{ steps.version.outputs.sha }}"
 
-            sudo docker stop empre-back || true
-            sudo docker rm empre-back || true
-
-            sudo docker run -d \
-              --name empre-back \
-              -p 8080:8080 \
-              -e DB_HOST=${{ secrets.DB_HOST }} \
-              -e DB_USER=${{ secrets.DB_USER }} \
-              -e DB_PASSWORD=${{ secrets.DB_PASSWORD }} \
-              -e DB_NAME=${{ secrets.DB_NAME }} \
-              -e DB_PORT=${{ secrets.DB_PORT }} \
-              -e JWT_SECRET=${{ secrets.JWT_SECRET }} \
-              -e S3_BUCKET=${{ secrets.S3_BUCKET }} \
-              -e S3_REGION=${{ secrets.S3_REGION }} \
-              -e APP_URL=${{ secrets.APP_URL }} \
-              gioleonp/empre-backend:$IMAGE_TAG
-          EOF
+      - name: Probar el HTTPS público
+        run: |
+          for i in $(seq 1 12); do
+            if curl -fsS "https://${{ vars.API_DOMAIN }}/health" > /dev/null; then
+              echo "https://${{ vars.API_DOMAIN }} responde."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "El backend quedó sano en el servidor, pero https://${{ vars.API_DOMAIN }}/health no responde." >&2
+          exit 1

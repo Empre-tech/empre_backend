@@ -1,0 +1,20 @@
+# Caddy recibe todo en 80/443, saca y renueva el certificado HTTPS del dominio y le pasa las peticiones al backend.
+# El chat (websocket, /ws) pasa igual: reverse_proxy lo maneja sin configuración extra.
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	reverse_proxy api:8080 {
+		# Si el backend se está reiniciando (un despliegue), espera unos segundos antes de responder con error.
+		lb_try_duration 10s
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

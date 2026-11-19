@@ -1,0 +1,228 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Empre - backend en produccion: EC2 t4g.micro (Ubuntu 24.04 ARM) con IP fija, security group, llave SSH,
+  rol para Session Manager, alarmas de CPU/estado y presupuesto mensual. Region: us-east-2.
+
+Parameters:
+  AlertEmail:
+    Type: String
+    Description: Correo que recibe las alarmas y el aviso del presupuesto.
+  InstanceType:
+    Type: String
+    Default: t4g.micro
+    AllowedValues: [t4g.micro, t4g.small, t4g.medium]
+  ImageId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/canonical/ubuntu/server/24.04/stable/current/arm64/hvm/ebs-gp3/ami-id
+    Description: Ubuntu 24.04 LTS ARM (parametro publico de Canonical).
+  MonthlyBudgetUSD:
+    Type: Number
+    Default: 15
+
+Resources:
+  KeyPair:
+    Type: AWS::EC2::KeyPair
+    Properties:
+      KeyName: empre-deploy
+      KeyType: ed25519
+      Tags:
+        - { Key: Project, Value: empre }
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: empre-api
+      GroupDescription: Empre API - SSH con llave, HTTP para Lets Encrypt, HTTPS para la app
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 22, ToPort: 22, CidrIp: 0.0.0.0/0, Description: SSH (solo con llave) }
+        - { IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0, Description: HTTP (Lets Encrypt y redireccion) }
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: HTTPS }
+        - { IpProtocol: udp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: HTTP/3 }
+      Tags:
+        - { Key: Project, Value: empre }
+
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ec2.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        # Session Manager: entrar a la maquina desde la consola sin SSH, por si la llave se pierde.
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Tags:
+        - { Key: Project, Value: empre }
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref InstanceRole]
+
+  Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref ImageId
+      KeyName: !Ref KeyPair
+      IamInstanceProfile: !Ref InstanceProfile
+      SecurityGroupIds: [!GetAtt SecurityGroup.GroupId]
+      CreditSpecification:
+        CPUCredits: unlimited
+      MetadataOptions:
+        HttpTokens: required
+        HttpEndpoint: enabled
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: 8
+            VolumeType: gp3
+            Encrypted: true
+            DeleteOnTermination: true
+      Tags:
+        - { Key: Name, Value: empre-api }
+        - { Key: Project, Value: empre }
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          # Lo mismo que deploy/bootstrap.sh, al crear la maquina.
+          set -euxo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -y
+          apt-get upgrade -y
+          apt-get install -y docker.io docker-compose-v2 unattended-upgrades curl
+          systemctl enable --now docker
+          usermod -aG docker ubuntu
+          if ! swapon --show | grep -q /swapfile; then
+            fallocate -l 1G /swapfile
+            chmod 600 /swapfile
+            mkswap /swapfile
+            swapon /swapfile
+            echo "/swapfile none swap sw 0 0" >> /etc/fstab
+          fi
+          echo "vm.swappiness=10" > /etc/sysctl.d/99-empre.conf
+          sysctl --system
+          dpkg-reconfigure -f noninteractive unattended-upgrades
+          mkdir -p /opt/empre
+          chown ubuntu:ubuntu /opt/empre
+          touch /var/lib/empre-bootstrap-done
+
+  ElasticIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      InstanceId: !Ref Instance
+      Tags:
+        - { Key: Name, Value: empre-api }
+        - { Key: Project, Value: empre }
+
+  AlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: empre-alertas
+      Subscription:
+        - { Protocol: email, Endpoint: !Ref AlertEmail }
+
+  CpuCreditsLowAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: empre-creditos-cpu-bajos
+      AlarmDescription: La maquina lleva rato usando mas CPU de la que tiene asegurada. Si pasa seguido, subir a t4g.small.
+      Namespace: AWS/EC2
+      MetricName: CPUCreditBalance
+      Dimensions: [{ Name: InstanceId, Value: !Ref Instance }]
+      Statistic: Minimum
+      Period: 300
+      EvaluationPeriods: 3
+      Threshold: 50
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+
+  CpuSurplusChargedAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: empre-cpu-extra-cobrada
+      AlarmDescription: AWS empezo a cobrar CPU extra (modo Unlimited).
+      Namespace: AWS/EC2
+      MetricName: CPUSurplusCreditsCharged
+      Dimensions: [{ Name: InstanceId, Value: !Ref Instance }]
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+
+  StatusCheckAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: empre-maquina-caida
+      AlarmDescription: La maquina no pasa los chequeos de estado. AWS intenta recuperarla sola.
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed_System
+      Dimensions: [{ Name: InstanceId, Value: !Ref Instance }]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 3
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions:
+        - !Ref AlertsTopic
+        - !Sub arn:aws:automate:${AWS::Region}:ec2:recover
+
+  InstanceCheckAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: empre-maquina-no-responde
+      AlarmDescription: El sistema operativo de la maquina no responde (memoria, disco o arranque).
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed_Instance
+      Dimensions: [{ Name: InstanceId, Value: !Ref Instance }]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 3
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions: [!Ref AlertsTopic]
+
+  MonthlyBudget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetName: empre-mensual
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: !Ref MonthlyBudgetUSD
+          Unit: USD
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 80
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - { SubscriptionType: EMAIL, Address: !Ref AlertEmail }
+        - Notification:
+            NotificationType: FORECASTED
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - { SubscriptionType: EMAIL, Address: !Ref AlertEmail }
+
+Outputs:
+  PublicIP:
+    Description: IP fija. Va en el registro A de api.empre.com.co y en el secreto EC2_HOST de GitHub.
+    Value: !Ref ElasticIP
+  InstanceId:
+    Value: !Ref Instance
+  KeyPairId:
+    Description: >-
+      La llave privada queda en Parameter Store: aws ssm get-parameter --name /ec2/keypair/<KeyPairId>
+      --with-decryption --query Parameter.Value --output text
+    Value: !GetAtt KeyPair.KeyPairId

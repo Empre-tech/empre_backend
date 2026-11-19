@@ -9,3 +9,6 @@ docs/swagger.json.metadata.json
 docker-compose*
 Dockerfile
 .dockerignore
+
+# Archivos de despliegue del servidor (no van dentro de la imagen)
+deploy/

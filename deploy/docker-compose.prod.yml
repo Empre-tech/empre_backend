@@ -1,0 +1,51 @@
+# Producción de Empre en la EC2: el backend detrás de Caddy, que pone el HTTPS (Let's Encrypt) solo.
+#
+# Vive en /opt/empre del servidor junto con el Caddyfile y el .env. No se corre a mano: lo maneja deploy.sh,
+# que elige la versión de la imagen (TAG, en el .env) y revisa que el backend arranque sano.
+
+services:
+  api:
+    image: ${IMAGE:-gioleonp/empre-backend}:${TAG:?Falta TAG en el .env}
+    container_name: empre-api
+    env_file: .env
+    environment:
+      APP_ENV: production
+      GIN_MODE: release
+    # Solo Caddy le habla al backend: el puerto 8080 no se publica hacia afuera.
+    expose:
+      - "8080"
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  caddy:
+    image: caddy:2.8.4-alpine
+    container_name: empre-caddy
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:?Falta DOMAIN en el .env}
+      ACME_EMAIL: ${ACME_EMAIL:?Falta ACME_EMAIL en el .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Los certificados se guardan aquí: si se borran, Caddy los pide de nuevo (Let's Encrypt limita cuántos).
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  caddy_data:
+  caddy_config:
