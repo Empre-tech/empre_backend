@@ -8,6 +8,7 @@ import (
 	"empre_backend/internal/repository"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 type ChatService struct {
@@ -26,6 +27,32 @@ func (s *ChatService) FindAllConversations(userID uuid.UUID, page, pageSize int)
 		pageSize = 20
 	}
 	return s.repo.FindAllConversations(userID, page, pageSize)
+}
+
+// ErrChatForbidden: quien pide la conversación no es el cliente de esa conversación ni el dueño del negocio.
+var ErrChatForbidden = errors.New("chat_forbidden")
+
+// ErrChatEntityNotFound: el negocio de la conversación no existe.
+var ErrChatEntityNotFound = errors.New("chat_entity_not_found")
+
+// AuthorizeHistory dice si viewerID puede leer la conversación del negocio entityID con el cliente customerID: solo
+// el propio cliente o el dueño del negocio. Antes, cualquier usuario con sesión que conociera el id de otro cliente
+// podía leer su chat con el negocio pasando ?user_id=.
+func (s *ChatService) AuthorizeHistory(entityID, customerID, viewerID uuid.UUID) error {
+	if customerID == viewerID {
+		return nil
+	}
+	var e models.Entity
+	if err := s.repo.DB.Select("id", "owner_id").First(&e, "id = ?", entityID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrChatEntityNotFound
+		}
+		return err
+	}
+	if e.OwnerID != viewerID {
+		return ErrChatForbidden
+	}
+	return nil
 }
 
 func (s *ChatService) FindMessagesHistory(entityID, userID uuid.UUID, page, pageSize int) ([]models.Message, int64, error) {

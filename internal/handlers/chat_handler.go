@@ -182,6 +182,19 @@ func (h *ChatHandler) FindMessagesHistory(c *gin.Context) {
 		targetUserID = currentUserID
 	}
 
+	// Solo el cliente de la conversación o el dueño del negocio la pueden leer (y marcar como leída).
+	if err := h.service.AuthorizeHistory(entityID, targetUserID, currentUserID); err != nil {
+		switch {
+		case errors.Is(err, services.ErrChatForbidden):
+			c.JSON(http.StatusForbidden, gin.H{"error": "No tienes acceso a esta conversación"})
+		case errors.Is(err, services.ErrChatEntityNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": "Entity not found"})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "No pudimos abrir la conversación"})
+		}
+		return
+	}
+
 	// Al abrir esta conversación, se marcan como leídos los mensajes del OTRO
 	// lado: si soy el dueño, los del cliente; si soy el cliente, los del
 	// negocio. Best-effort: si falla, igual devolvemos el historial (no tiene

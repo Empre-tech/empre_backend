@@ -38,9 +38,10 @@ func GenerateRefreshToken() string {
 }
 
 func ValidateToken(tokenString string, secret string) (*Claims, error) {
+	// Solo HS256, el algoritmo con el que se firman: un token con otro "alg" se rechaza antes de mirar la firma.
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
 		return []byte(secret), nil
-	})
+	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
 
 	if err != nil {
 		return nil, err

@@ -73,6 +73,9 @@ if wait_healthy; then
   if [ -n "$previous" ] && [ "$previous" != "$target" ]; then
     echo "$previous" >"$PREV_FILE"
   fi
+  # Si el Caddyfile cambió (lo copia el CD), Caddy lo recarga sin cortar conexiones. Si no cambió, no pasa nada.
+  docker exec empre-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1 \
+    || echo "Aviso: Caddy no recargó el Caddyfile; sigue con la configuración anterior." >&2
   echo "==> Listo: $target está sano."
   # Borra imágenes viejas que ya no usa ningún contenedor (el disco es de 8 GB).
   docker image prune -af --filter "until=168h" >/dev/null || true

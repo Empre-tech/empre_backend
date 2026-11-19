@@ -13,8 +13,17 @@
 		lb_try_duration 10s
 	}
 
+	# El chat manda el token de sesión en la URL (/api/chat/ws?token=...): se borra del log para que no quede
+	# guardado donde cualquiera con acceso al servidor lo pueda leer. Authorization ya lo oculta Caddy solo.
 	log {
 		output stdout
-		format console
+		format filter {
+			wrap console
+			fields {
+				request>uri query {
+					delete token
+				}
+			}
+		}
 	}
 }

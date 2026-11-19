@@ -336,11 +336,13 @@ func main() {
 	{
 		auth := api.Group("/auth")
 		{
-			auth.POST("/register", authHandler.Register)
-			auth.POST("/login", authHandler.Login)
-			auth.POST("/refresh", authHandler.RefreshToken)
-			auth.POST("/password-reset/request", authHandler.RequestPasswordReset)
-			auth.POST("/password-reset/reset", authHandler.ResetPassword)
+			// Límite de intentos por IP (fuerza bruta de contraseñas y correos de recuperación en masa). Una app
+			// normal no se acerca: entrar es 1 intento, y el refresco va cada ~hora.
+			auth.POST("/register", middleware.RateLimit(5, 10*time.Minute), authHandler.Register)
+			auth.POST("/login", middleware.RateLimit(10, 5*time.Minute), authHandler.Login)
+			auth.POST("/refresh", middleware.RateLimit(30, time.Minute), authHandler.RefreshToken)
+			auth.POST("/password-reset/request", middleware.RateLimit(3, 15*time.Minute), authHandler.RequestPasswordReset)
+			auth.POST("/password-reset/reset", middleware.RateLimit(10, 15*time.Minute), authHandler.ResetPassword)
 		}
 
 		entities := api.Group("/entities")
@@ -655,7 +657,10 @@ func main() {
 		}
 
 		// Swagger Documentation
-		api.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler, ginSwagger.DefaultModelsExpandDepth(2), ginSwagger.PersistAuthorization(true)))
+		// Swagger muestra el mapa completo de la API: en producción solo con ENABLE_SWAGGER=1.
+		if !cfg.IsProduction() || os.Getenv("ENABLE_SWAGGER") == "1" {
+			api.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler, ginSwagger.DefaultModelsExpandDepth(2), ginSwagger.PersistAuthorization(true)))
+		}
 	}
 
 	// Salud y métricas (3.53): /health (vive), /ready (la base responde), /metrics (Prometheus, protegido).
