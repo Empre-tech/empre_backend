@@ -98,7 +98,7 @@ En el repo `Empre-tech/empre_backend` → Settings → Secrets and variables →
 | Secret | `EC2_USER` | `ubuntu` |
 | Secret | `EC2_SSH_KEY` | Todo el contenido de `empre-deploy.pem` |
 | Secret | `DOCKER_USERNAME`, `DOCKER_TOKEN` | Ya existen; déjalos |
-| Variable | `API_DOMAIN` | `empre-api.duckdns.org` (sin https) |
+| (ya no hace falta) | `API_DOMAIN` | El CD toma el dominio de `/opt/empre/.env` |
 
 Los secretos `DB_*`, `JWT_SECRET`, `S3_*` y `APP_URL` del despliegue anterior ya no se usan: la configuración vive en
 el `.env` del servidor. Puedes borrarlos.

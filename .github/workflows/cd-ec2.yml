@@ -68,12 +68,18 @@ jobs:
 
       - name: Probar el HTTPS público
         run: |
+          # El dominio sale del .env del servidor: así no hay que repetirlo en GitHub y cambia solo con él.
+          DOMAIN=$(ssh "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" "grep -E '^DOMAIN=' /opt/empre/.env | tail -n1 | cut -d= -f2-")
+          if [ -z "$DOMAIN" ]; then
+            echo "No se encontró DOMAIN en /opt/empre/.env del servidor." >&2
+            exit 1
+          fi
           for i in $(seq 1 12); do
-            if curl -fsS "https://${{ vars.API_DOMAIN }}/health" > /dev/null; then
-              echo "https://${{ vars.API_DOMAIN }} responde."
+            if curl -fsS "https://$DOMAIN/health" > /dev/null; then
+              echo "https://$DOMAIN responde."
               exit 0
             fi
             sleep 5
           done
-          echo "El backend quedó sano en el servidor, pero https://${{ vars.API_DOMAIN }}/health no responde." >&2
+          echo "El backend quedó sano en el servidor, pero https://$DOMAIN/health no responde." >&2
           exit 1
