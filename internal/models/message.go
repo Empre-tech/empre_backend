@@ -34,9 +34,12 @@ type Message struct {
 	AIAnswerID *uuid.UUID `gorm:"type:uuid" json:"ai_answer_id,omitempty"`
 	// AIUnanswered: en una pregunta del cliente, Empre AI no supo responderla. El dueño la ve en «Enséñale a
 	// Empre AI» para enseñarle la respuesta.
-	AIUnanswered bool           `gorm:"default:false" json:"ai_unanswered,omitempty"`
-	CreatedAt    time.Time      `gorm:"index:idx_conversation,priority:3" json:"created_at"`
-	DeletedAt    gorm.DeletedAt `gorm:"index:idx_conversation,priority:4" json:"-"`
+	AIUnanswered bool `gorm:"default:false" json:"ai_unanswered,omitempty"`
+	// ReplyToID: en una respuesta de Empre AI, la pregunta del cliente que responde (3.71). Las apps la dibujan justo
+	// debajo de esa pregunta aunque se haya guardado después, y no se responde dos veces la misma pregunta.
+	ReplyToID *uuid.UUID     `gorm:"type:uuid;index" json:"reply_to_id,omitempty"`
+	CreatedAt time.Time      `gorm:"index:idx_conversation,priority:3" json:"created_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index:idx_conversation,priority:4" json:"-"`
 
 	// Associations
 	Entity Entity `gorm:"foreignKey:EntityID" json:"entity,omitempty"`

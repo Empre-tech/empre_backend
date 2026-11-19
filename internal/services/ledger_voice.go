@@ -191,17 +191,77 @@ func capNames(names []string) []string {
 }
 
 // ParseVoice interpreta un dictado y guarda un borrador. No crea ninguna venta ni gasto.
+// VoiceUsage: cuántos dictados lleva el negocio este mes y su tope (0 = sin tope). Empre AI es de pago: el botón Empre
+// lo dice antes de correr («quedan 29 este mes»). Solo el dueño.
+type VoiceUsage struct {
+	Used  int `json:"used"`
+	Limit int `json:"limit"`
+	// Pro: el negocio tiene Empre Pro (sin él, Empre AI va en gris con la corona).
+	Pro bool `json:"pro"`
+}
+
+func (s *LedgerService) VoiceUsageFor(ownerID, entityID uuid.UUID) (VoiceUsage, error) {
+	if err := s.requireOwner(ownerID, entityID); err != nil {
+		return VoiceUsage{}, err
+	}
+	// Dictados y textos de Redactar comparten el tope del mes.
+	used, err := s.aiUsedThisMonth(entityID)
+	if err != nil {
+		return VoiceUsage{}, err
+	}
+	pro := true
+	if s.PlansEnforced {
+		p, err := s.IsPro(entityID)
+		if err != nil {
+			return VoiceUsage{}, err
+		}
+		pro = p
+	}
+	return VoiceUsage{Used: int(used), Limit: s.VoiceMonthlyLimit, Pro: pro}, nil
+}
+
 func (s *LedgerService) ParseVoice(ownerID, entityID uuid.UUID, text string) (VoiceResult, error) {
 	return s.ParseVoiceIn(ownerID, entityID, text, nil)
 }
 
 // ParseVoiceIn interpreta un dictado hecho desde dentro de una cuenta abierta (tabID): lo vendido va a esa cuenta.
 func (s *LedgerService) ParseVoiceIn(ownerID, entityID uuid.UUID, text string, tabID *uuid.UUID) (VoiceResult, error) {
+	return s.ParseVoiceAt(ownerID, entityID, text, tabID, "")
+}
+
+// Módulos desde donde se dicta (tablero «Empre AI · un asistente por trabajo», 2026-11-17). El módulo no limita lo
+// que se entiende: solo desempata lo que tiene dos lecturas («30 pollos» en Inventario es cuántos hay).
+const (
+	VoiceAtFinance   = "finance"
+	VoiceAtInventory = "inventory"
+	VoiceAtDebts     = "debts"
+)
+
+// voiceModuleLine es la línea que se suma al prompt según el módulo; vacía sin módulo (el botón Empre en otra pantalla)
+// o con uno que no se conoce.
+func voiceModuleLine(module string) string {
+	switch module {
+	case VoiceAtInventory:
+		return "El dueño está en Inventario. Si una frase tiene dos lecturas, prefiere el inventario: un producto con un número y sin precio ni verbo de venta («30 pollos») es cuántos hay (type=stock con stock_counted); «llegaron» es entrada. Si dijo que vendió, cobró o gastó, regístralo igual como venta o gasto.\n"
+	case VoiceAtFinance:
+		return "El dueño está en Finance. Si una frase tiene dos lecturas, prefiere la plata: un producto con un monto es una venta; «pagué» o «compré» es un gasto. Si habla del inventario sin vender ni gastar, regístralo igual como stock.\n"
+	case VoiceAtDebts:
+		return "El dueño está en Cuentas (quién le debe y a quién le debe). Si una frase tiene dos lecturas, prefiere un abono (payment) o un fiado (credit).\n"
+	}
+	return ""
+}
+
+// ParseVoiceAt es ParseVoiceIn con el módulo donde se abrió la hoja (VoiceAt*); un módulo desconocido se ignora.
+func (s *LedgerService) ParseVoiceAt(ownerID, entityID uuid.UUID, text string, tabID *uuid.UUID, module string) (VoiceResult, error) {
 	if err := s.requireOwner(ownerID, entityID); err != nil {
 		return VoiceResult{}, err
 	}
 	if s.model == nil || !s.model.Enabled() {
 		return VoiceResult{}, ErrVoiceDisabled
+	}
+	// Empre AI es de Empre Pro (tablero «Base y Empre Pro»): en Base la app lo muestra en gris con la corona.
+	if err := s.requirePro(entityID); err != nil {
+		return VoiceResult{}, err
 	}
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -212,9 +272,9 @@ func (s *LedgerService) ParseVoiceIn(ownerID, entityID uuid.UUID, text string, t
 	}
 
 	now := nowCO()
-	monthStart, _, _ := PeriodRange("month", now)
-	var used int64
-	if err := s.db.Model(&models.VoiceDraft{}).Where("entity_id = ? AND created_at >= ?", entityID, monthStart).Count(&used).Error; err != nil {
+	// El tope del mes es de Empre AI entero: dictados y textos de Redactar.
+	used, err := s.aiUsedThisMonth(entityID)
+	if err != nil {
 		return VoiceResult{}, err
 	}
 	if s.VoiceMonthlyLimit > 0 && int(used) >= s.VoiceMonthlyLimit {
@@ -265,6 +325,8 @@ func (s *LedgerService) ParseVoiceIn(ownerID, entityID uuid.UUID, text string, t
 	prompt := voiceSystemPrompt(now, capNames(itemNames), capNames(custNames), capNames(suppNames), capNames(supplyNames), capNames(tabNames)...)
 	if here != nil {
 		prompt += "El dueño está dentro de la cuenta «" + here.Name + "»: lo que diga que pidieron o vendió va a esa cuenta (tab_add con tab = «" + here.Name + "»).\n"
+	} else {
+		prompt += voiceModuleLine(module)
 	}
 	reply, err := s.model.ChatTool(prompt,
 		[]AIMessage{{Role: AIRoleUser, Content: text}},

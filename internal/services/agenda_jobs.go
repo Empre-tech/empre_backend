@@ -49,6 +49,7 @@ func (s *AgendaService) Tick(now time.Time) {
 	s.remindUpcoming(now)
 	s.promptClosing(now)
 	s.closeOverdue(now)
+	s.passExpiredOffers(now)
 }
 
 func (s *AgendaService) expireRequests(now time.Time) {

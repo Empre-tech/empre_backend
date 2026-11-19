@@ -110,16 +110,21 @@ func main() {
 		&models.DebtPayment{},
 		&models.StockItem{},
 		&models.StockMovement{},
+		&models.InventoryCount{},
 		&models.ExpenseLine{},
 		&models.ProductSupply{},
 		&models.OpenTab{},
 		&models.OpenTabLine{},
 		&models.VoiceDraft{},
+		&models.AIWrite{},
 		&models.Section{},
 		&models.SubcategorySection{},
 		&models.EntitySection{},
 		&models.SectionRequest{},
 		&models.BusinessAnswer{},
+		&models.OfferAlert{},
+		&models.WaitlistEntry{},
+		&models.EntityGoal{},
 	)
 	if err != nil {
 		log.Fatal("Migration failed: ", err)
@@ -247,6 +252,12 @@ func main() {
 	}
 
 	offerService := services.NewOfferService(offerRepo, entityRepo)
+	// Facetas de las ofertas publicadas antes de que existieran. No detiene el arranque.
+	if n, err := offerService.BackfillOfferFacets(); err != nil {
+		log.Printf("facetas de ofertas: %v", err)
+	} else if n > 0 {
+		log.Printf("facetas de ofertas: %d puestas al día", n)
+	}
 	signalService := services.NewSignalService(signalRepo)
 	claimService := services.NewClaimService(claimRepo, offerRepo, entityRepo, userRepo, signalService)
 	rankingService := services.NewRankingService(entityService, reviewService, offerRepo, signalService)
@@ -266,6 +277,10 @@ func main() {
 	aiHandler := handlers.NewAIHandler(aiService, categoryService)
 	paymentHandler := handlers.NewPaymentHandler(subscriptionService, entityService)
 	offerHandler := handlers.NewOfferHandler(offerService)
+	// «Avísame» de Ofertas: al publicar, avisa a quien lo pidió en la zona del negocio.
+	offerAlertService := services.NewOfferAlertService(database.DB, pushService)
+	offerHandler.Alerts = offerAlertService
+	offerAlertHandler := handlers.NewOfferAlertHandler(offerAlertService)
 	claimHandler := handlers.NewClaimHandler(claimService)
 	discoveryHandler := handlers.NewDiscoveryHandler(rankingService)
 	statusHandler := handlers.NewStatusHandler(database.DB)
@@ -294,6 +309,10 @@ func main() {
 	agendaHandler := handlers.NewAgendaHandler(agendaService)
 	ledgerService := services.NewLedgerService(database.DB)
 	ledgerService.SetVoiceModel(aiService)
+	// Los planes (Base y Empre Pro) se cumplen también en el servidor; EMPRE_PLANS=off los apaga para desarrollo.
+	ledgerService.PlansEnforced = os.Getenv("EMPRE_PLANS") != "off"
+	// Redactar con Empre AI es de Pro y cuenta en el mismo tope del mes (decisión del usuario, 2026-11-17).
+	aiHandler.Ledger = ledgerService
 	claimService.Sales = ledgerService
 	ledgerHandler := handlers.NewLedgerHandler(ledgerService)
 	inboxHandler := handlers.NewInboxHandler(services.NewInboxService(database.DB))
@@ -304,6 +323,7 @@ func main() {
 	go claimService.RunExpirySweeper(time.Minute, nil)
 	chatHandler := handlers.NewChatHandler(wsHub, chatService)
 	chatHandler.Classifier = services.NewIntentClassifier(aiService, database.DB)
+	chatHandler.Ficha = services.NewFichaAnswerer(aiService, database.DB)
 	businessAnswerHandler := handlers.NewBusinessAnswerHandler(services.NewBusinessAnswerService(database.DB))
 
 	// La agenda empuja cambios por WebSocket y corre su proceso de fondo
@@ -345,6 +365,11 @@ func main() {
 			{
 				entitiesProtected.POST("", entityHandler.Create)
 				entitiesProtected.GET("/mine", entityHandler.FindAllByOwner)
+				// La meta del mes (tablero «Actividad y meta»): solo el dueño.
+				goalHandler := &handlers.GoalHandler{DB: database.DB}
+				entitiesProtected.GET("/:id/goal", goalHandler.Get)
+				entitiesProtected.PUT("/:id/goal", goalHandler.Put)
+				entitiesProtected.DELETE("/:id/goal", goalHandler.Delete)
 				entitiesProtected.PUT("/:id", entityHandler.Update)
 				// Catálogo de servicios (solo el dueño; la lectura es pública, arriba).
 				entitiesProtected.POST("/:id/catalog", catalogHandler.Create)
@@ -394,12 +419,16 @@ func main() {
 				entitiesProtected.POST("/:id/agenda/appointments", agendaHandler.CreateOwnerAppointment)
 				entitiesProtected.POST("/:id/agenda/blocks", agendaHandler.CreateBlock)
 				entitiesProtected.DELETE("/:id/agenda/blocks/:blockId", agendaHandler.DeleteBlock)
+				// Lista de espera del día: anotarse (cliente) y verla (dueño).
+				entitiesProtected.POST("/:id/waitlist", middleware.RateLimit(10, time.Minute), agendaHandler.JoinWaitlist)
+				entitiesProtected.GET("/:id/waitlist", agendaHandler.BusinessWaitlist)
 
 				// Administración del negocio (solo el dueño)
 				entitiesProtected.POST("/:id/ledger/sales", ledgerHandler.CreateSale)
 				entitiesProtected.GET("/:id/ledger/sales", ledgerHandler.ListSales)
 				entitiesProtected.POST("/:id/ledger/sales/:saleId/void", ledgerHandler.VoidSale)
 				entitiesProtected.PUT("/:id/ledger/sales/:saleId/method", ledgerHandler.SetSaleMethod)
+				entitiesProtected.POST("/:id/ledger/claims/:claimId/sale", ledgerHandler.RecordClaimSale)
 				entitiesProtected.POST("/:id/ledger/expenses", ledgerHandler.CreateExpense)
 				entitiesProtected.GET("/:id/ledger/expenses", ledgerHandler.ListExpenses)
 				entitiesProtected.GET("/:id/ledger/expenses/usual", ledgerHandler.UsualExpenses)
@@ -418,6 +447,11 @@ func main() {
 				entitiesProtected.GET("/:id/ledger/analytics", ledgerHandler.Analytics)
 				entitiesProtected.GET("/:id/ledger/export", ledgerHandler.Export)
 				entitiesProtected.GET("/:id/ledger/inventory", ledgerHandler.Inventory)
+				entitiesProtected.GET("/:id/ledger/inventory/page", ledgerHandler.InventoryPage)
+				entitiesProtected.GET("/:id/ledger/inventory/counts", ledgerHandler.InventoryCounts)
+				entitiesProtected.GET("/:id/ledger/inventory/summary", ledgerHandler.InventorySummary)
+				entitiesProtected.GET("/:id/ledger/inventory/items", ledgerHandler.InventoryItems)
+				entitiesProtected.GET("/:id/ledger/inventory/names", ledgerHandler.InventoryNames)
 				entitiesProtected.POST("/:id/ledger/inventory/setup", ledgerHandler.InventorySetup)
 				entitiesProtected.PUT("/:id/ledger/inventory/:ref/settings", ledgerHandler.InventorySettings)
 				entitiesProtected.PUT("/:id/ledger/inventory/:ref/level", ledgerHandler.InventoryLevel)
@@ -430,10 +464,12 @@ func main() {
 				entitiesProtected.POST("/:id/ledger/tabs/:tabId/pay", ledgerHandler.PayTab)
 				entitiesProtected.POST("/:id/ledger/tabs/:tabId/cancel", ledgerHandler.CancelTab)
 				entitiesProtected.POST("/:id/ledger/inventory/adjust", ledgerHandler.InventoryAdjust)
+				entitiesProtected.POST("/:id/ledger/inventory/count", ledgerHandler.InventoryCount)
 				entitiesProtected.POST("/:id/ledger/supplies", ledgerHandler.CreateSupply)
 				entitiesProtected.DELETE("/:id/ledger/supplies/:ref", ledgerHandler.ArchiveSupply)
 				entitiesProtected.GET("/:id/ledger/insights", ledgerHandler.Insights)
 				entitiesProtected.POST("/:id/ledger/voice/parse", ledgerHandler.VoiceParse)
+				entitiesProtected.GET("/:id/ledger/voice/usage", ledgerHandler.VoiceUsage)
 				entitiesProtected.POST("/:id/ledger/voice/:draftId/confirm", ledgerHandler.VoiceConfirm)
 				entitiesProtected.POST("/:id/ledger/voice/:draftId/discard", ledgerHandler.VoiceDiscard)
 			}
@@ -485,6 +521,15 @@ func main() {
 			offers.POST("/:id/claim", middleware.RateLimit(5, time.Minute), claimHandler.Claim)
 		}
 
+		// «Avísame» de Ofertas: avisos por zona y categoría.
+		offerAlerts := api.Group("/offer-alerts")
+		offerAlerts.Use(middleware.AuthMiddleware(cfg))
+		{
+			offerAlerts.GET("", offerAlertHandler.Mine)
+			offerAlerts.POST("", middleware.RateLimit(20, time.Minute), offerAlertHandler.Create)
+			offerAlerts.DELETE("/:id", offerAlertHandler.Remove)
+		}
+
 		// Promociones: edición/estado (la publicación/listado vive bajo
 		// /entities/:id/promotions).
 		promotions := api.Group("/promotions")
@@ -516,6 +561,9 @@ func main() {
 			chatGroup.POST("/ai-answer/:entity_id", chatHandler.AIAnswer)
 			chatGroup.POST("/ai-unknown/:entity_id", chatHandler.AIUnknown)
 			chatGroup.POST("/classify/:entity_id", chatHandler.Classify)
+			// Empre AI lee la ficha publicada (nivel 3): en un chat y en «Pregúntales a los N».
+			chatGroup.POST("/ai-ficha/:entity_id", middleware.RateLimit(12, time.Minute), chatHandler.AIFicha)
+			chatGroup.POST("/ficha", middleware.RateLimit(12, time.Minute), chatHandler.FichaMany)
 		}
 
 		// Citas (cliente y negocio; la autorización se resuelve por cita)
@@ -529,6 +577,15 @@ func main() {
 			appointments.POST("/:id/decline", agendaHandler.Decline)
 			appointments.POST("/:id/cancel", agendaHandler.Cancel)
 			appointments.POST("/:id/outcome", agendaHandler.Outcome)
+		}
+
+		// Lista de espera: las mías, tomar la hora que se liberó o salirme.
+		waitlist := api.Group("/waitlist")
+		waitlist.Use(middleware.AuthMiddleware(cfg))
+		{
+			waitlist.GET("/mine", agendaHandler.MyWaitlist)
+			waitlist.POST("/:id/take", agendaHandler.TakeWaitlistOffer)
+			waitlist.DELETE("/:id", agendaHandler.LeaveWaitlist)
 		}
 
 		// Images (Public Proxy for <img> tags)

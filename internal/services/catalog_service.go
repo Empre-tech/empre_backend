@@ -17,12 +17,15 @@ import (
 // Catálogo del negocio (E2): los servicios que ofrece habitualmente, con su precio habitual. Las reglas
 // viven aquí y en la base de datos, no en la pantalla.
 
+// MaxActiveServices es el tope de ítems activos por negocio (variantes incluidas). Era 30 («un catálogo corto se
+// mantiene vivo»), pero una tienda o una ferretería tiene cientos: ahora es un tope de seguridad (2026-11-16, Inventario
+// por páginas). Variable solo para que las pruebas lo bajen.
+var MaxActiveServices int64 = 5000
+
 const (
-	// MaxActiveServices es el tope de servicios activos por negocio: un catálogo corto se mantiene vivo.
-	MaxActiveServices = 30
-	maxServiceName    = 80
-	maxServiceDesc    = 600
-	minServiceName    = 2
+	maxServiceName = 80
+	maxServiceDesc = 600
+	minServiceName = 2
 	// MaxServicePrice es el tope razonable de un precio habitual (pesos).
 	MaxServicePrice = 10_000_000
 	// CatalogFreshDays es cuántos días un precio se considera vigente sin confirmar de nuevo.
@@ -61,6 +64,9 @@ type ServiceInput struct {
 	// ParentID + VariantLabel crean una variante (sabor, talla) de un producto. El nombre completo lo arma el servidor.
 	ParentID     *uuid.UUID `json:"parent_id"`
 	VariantLabel string     `json:"variant_label"`
+	// Attrs: los atributos de una variante (Talla: 40, Color: Vinotinto). nil deja lo que había. Sin VariantLabel, la
+	// parte corta del nombre se arma con sus valores.
+	Attrs *[]models.ItemAttr `json:"attrs"`
 }
 
 // ValidateServiceInput limpia y valida un servicio. El precio es opcional; «desde» sin precio no tiene sentido y se
@@ -185,6 +191,20 @@ func (s *CatalogService) Create(entityID, userID uuid.UUID, in ServiceInput, now
 		return nil, err
 	}
 	var parent *models.ServiceItem
+	var attrs []models.ItemAttr
+	if in.Attrs != nil {
+		if in.ParentID == nil {
+			return nil, invalidService("los atributos (talla, color…) van en las variantes de un producto")
+		}
+		clean, err := CleanItemAttrs(*in.Attrs)
+		if err != nil {
+			return nil, err
+		}
+		attrs = clean
+		if strings.TrimSpace(in.VariantLabel) == "" {
+			in.VariantLabel = AttrLabel(attrs)
+		}
+	}
 	if in.ParentID != nil {
 		p, label, err := s.variantParent(entityID, *in.ParentID, in.VariantLabel)
 		if err != nil {
@@ -229,7 +249,7 @@ func (s *CatalogService) Create(entityID, userID uuid.UUID, in ServiceInput, now
 		Kind: kind, KindChecked: true,
 	}
 	if parent != nil {
-		item.ParentID, item.VariantLabel = &parent.ID, in.VariantLabel
+		item.ParentID, item.VariantLabel, item.Attrs = &parent.ID, in.VariantLabel, attrs
 	}
 	if in.Audience != nil {
 		item.Audience = *in.Audience
@@ -336,6 +356,19 @@ func (s *CatalogService) Update(entityID, itemID, userID uuid.UUID, in ServiceIn
 		}
 		return nil, err
 	}
+	if in.Attrs != nil {
+		if item.ParentID == nil {
+			return nil, invalidService("los atributos (talla, color…) van en las variantes de un producto")
+		}
+		clean, err := CleanItemAttrs(*in.Attrs)
+		if err != nil {
+			return nil, err
+		}
+		item.Attrs = clean
+		if strings.TrimSpace(in.VariantLabel) == "" && len(clean) > 0 {
+			in.VariantLabel = AttrLabel(clean)
+		}
+	}
 	if item.ParentID != nil {
 		// Una variante: se edita su parte corta; el nombre completo se arma con el del producto.
 		_, label, err := s.variantParent(entityID, *item.ParentID, firstNonEmpty(in.VariantLabel, item.VariantLabel))
@@ -380,7 +413,7 @@ func (s *CatalogService) Update(entityID, itemID, userID uuid.UUID, in ServiceIn
 		return nil, err
 	}
 	// Se guarda todo explícitamente: un precio o una duración nulos deben poder quedar nulos.
-	if err := s.DB.Model(&item).Select("name", "description", "section", "section_id", "audience", "price", "price_from", "price_updated_at", "duration_min", "bookable", "variant_label").Updates(&item).Error; err != nil {
+	if err := s.DB.Model(&item).Select("name", "description", "section", "section_id", "audience", "price", "price_from", "price_updated_at", "duration_min", "bookable", "variant_label", "attrs").Updates(&item).Error; err != nil {
 		return nil, err
 	}
 	if audienceChanged {

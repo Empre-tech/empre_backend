@@ -60,8 +60,6 @@ func (h *AgendaHandler) fail(c *gin.Context, err error) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "not_found"})
 	case errors.Is(err, services.ErrApptForbidden):
 		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
-	case errors.Is(err, services.ErrEntityHidden):
-		c.JSON(http.StatusForbidden, gin.H{"error": "entity_hidden"})
 	case errors.Is(err, services.ErrAgendaDisabled):
 		c.JSON(http.StatusConflict, gin.H{"error": "agenda_disabled"})
 	case errors.Is(err, services.ErrBadState):
@@ -70,6 +68,8 @@ func (h *AgendaHandler) fail(c *gin.Context, err error) {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": "too_many_pending"})
 	case errors.Is(err, services.ErrCustomerBusy):
 		c.JSON(http.StatusConflict, gin.H{"error": "customer_busy"})
+	case errors.Is(err, services.ErrOfferGone):
+		c.JSON(http.StatusConflict, gin.H{"error": "offer_gone"})
 	case errors.Is(err, services.ErrOwnBusiness):
 		c.JSON(http.StatusBadRequest, gin.H{"error": "own_business"})
 	default:
@@ -493,6 +493,131 @@ func (h *AgendaHandler) DeleteBlock(c *gin.Context) {
 		return
 	}
 	if err := h.service.DeleteBlock(user, entityID, blockID); err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+// ---------- lista de espera ----------
+
+// JoinWaitlist: POST /entities/:id/waitlist  {"date": "2026-11-14", "service_id": "…"}
+func (h *AgendaHandler) JoinWaitlist(c *gin.Context) {
+	user, ok := currentUser(c)
+	if !ok {
+		return
+	}
+	entityID, ok := uuidParam(c, "id")
+	if !ok {
+		return
+	}
+	var in struct {
+		Date      string `json:"date" binding:"required"`
+		ServiceID string `json:"service_id"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid", "message": "Falta el día"})
+		return
+	}
+	loc := services.ColombiaLocation()
+	day, err := time.ParseInLocation("2006-01-02", in.Date, loc)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid", "message": "Día inválido"})
+		return
+	}
+	var serviceID *uuid.UUID
+	if in.ServiceID != "" {
+		id, err := uuid.Parse(in.ServiceID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid service_id"})
+			return
+		}
+		serviceID = &id
+	}
+	w, err := h.service.JoinWaitlist(user, entityID, day, serviceID)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, w)
+}
+
+// BusinessWaitlist: GET /entities/:id/waitlist?date=YYYY-MM-DD (dueño)
+func (h *AgendaHandler) BusinessWaitlist(c *gin.Context) {
+	user, ok := currentUser(c)
+	if !ok {
+		return
+	}
+	entityID, ok := uuidParam(c, "id")
+	if !ok {
+		return
+	}
+	day := time.Now()
+	if raw := c.Query("date"); raw != "" {
+		d, err := time.ParseInLocation("2006-01-02", raw, services.ColombiaLocation())
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid date"})
+			return
+		}
+		day = d
+	}
+	list, err := h.service.BusinessWaitlist(user, entityID, day)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	if list == nil {
+		list = []services.WaitlistView{}
+	}
+	c.JSON(http.StatusOK, gin.H{"data": list})
+}
+
+// MyWaitlist: GET /waitlist/mine
+func (h *AgendaHandler) MyWaitlist(c *gin.Context) {
+	user, ok := currentUser(c)
+	if !ok {
+		return
+	}
+	list, err := h.service.MyWaitlist(user)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	if list == nil {
+		list = []services.WaitlistView{}
+	}
+	c.JSON(http.StatusOK, gin.H{"data": list})
+}
+
+// TakeWaitlistOffer: POST /waitlist/:id/take
+func (h *AgendaHandler) TakeWaitlistOffer(c *gin.Context) {
+	user, ok := currentUser(c)
+	if !ok {
+		return
+	}
+	id, ok := uuidParam(c, "id")
+	if !ok {
+		return
+	}
+	a, err := h.service.TakeWaitlistOffer(user, id)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, a)
+}
+
+// LeaveWaitlist: DELETE /waitlist/:id
+func (h *AgendaHandler) LeaveWaitlist(c *gin.Context) {
+	user, ok := currentUser(c)
+	if !ok {
+		return
+	}
+	id, ok := uuidParam(c, "id")
+	if !ok {
+		return
+	}
+	if err := h.service.LeaveWaitlist(user, id); err != nil {
 		h.fail(c, err)
 		return
 	}

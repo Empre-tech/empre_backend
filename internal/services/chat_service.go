@@ -97,8 +97,9 @@ func AIAnswerSummary(intent string) (string, bool) {
 }
 
 // SaveAIAnswer guarda que Empre AI respondió `intent` en la conversación del cliente con el negocio. Devuelve el
-// mensaje y si es nuevo (false = esa misma pregunta ya se respondió en las últimas 24 h y se devuelve esa).
-func (s *ChatService) SaveAIAnswer(entityID, customerID uuid.UUID, intent string, serviceID, answerID *uuid.UUID, now time.Time) (*models.Message, bool, error) {
+// mensaje y si es nuevo. Con `replyTo` (la pregunta que responde, 3.71) no se repite para esa pregunta; sin él, la
+// misma intención no se repite en 24 h. Un `replyTo` que no es una pregunta del cliente en esta conversación se ignora.
+func (s *ChatService) SaveAIAnswer(entityID, customerID uuid.UUID, intent string, serviceID, answerID, replyTo *uuid.UUID, now time.Time) (*models.Message, bool, error) {
 	summary, ok := AIAnswerSummary(intent)
 	if !ok {
 		return nil, false, ErrAIIntent
@@ -140,7 +141,21 @@ func (s *ChatService) SaveAIAnswer(entityID, customerID uuid.UUID, intent string
 			serviceID = nil
 		}
 	}
-	prev, err := s.repo.FindRecentAIAnswer(entityID, customerID, intent, serviceID, answerID, now.Add(-AIAnswerWindow))
+	if replyTo != nil {
+		isQuestion, err := s.repo.IsCustomerQuestion(entityID, customerID, *replyTo)
+		if err != nil {
+			return nil, false, err
+		}
+		if !isQuestion {
+			replyTo = nil
+		}
+	}
+	var prev *models.Message
+	if replyTo != nil {
+		prev, err = s.repo.FindAIAnswerFor(entityID, customerID, *replyTo, intent)
+	} else {
+		prev, err = s.repo.FindRecentAIAnswer(entityID, customerID, intent, serviceID, answerID, now.Add(-AIAnswerWindow))
+	}
 	if err != nil {
 		return nil, false, err
 	}
@@ -156,6 +171,7 @@ func (s *ChatService) SaveAIAnswer(entityID, customerID uuid.UUID, intent string
 		AIIntent:     intent,
 		AIServiceID:  serviceID,
 		AIAnswerID:   answerID,
+		ReplyToID:    replyTo,
 		Content:      summary,
 		IsRead:       true,
 	}
@@ -178,4 +194,54 @@ func (s *ChatService) MarkUnanswered(entityID, customerID, messageID uuid.UUID) 
 		return ErrMessageNotFound
 	}
 	return nil
+}
+
+// SaveFichaAnswer guarda lo que Empre AI respondió leyendo la ficha del negocio (nivel 3, 2026-11-14). El texto lo
+// escribió el modelo en el servidor con lo publicado (nunca un texto que mande el cliente); la intención dice dónde lo
+// leyó («ficha_carta»…). Atada a su pregunta: si ya se respondió esa pregunta, devuelve la de antes.
+func (s *ChatService) SaveFichaAnswer(entityID, customerID uuid.UUID, a FichaAnswer, replyTo *uuid.UUID) (*models.Message, bool, error) {
+	intent, ok := FichaIntent(a.Source)
+	if !ok || !a.Known || a.Text == "" {
+		return nil, false, ErrAIIntent
+	}
+	wrote, err := s.repo.CustomerHasWritten(entityID, customerID)
+	if err != nil {
+		return nil, false, err
+	}
+	if !wrote {
+		return nil, false, ErrNoConversation
+	}
+	if replyTo != nil {
+		isQuestion, err := s.repo.IsCustomerQuestion(entityID, customerID, *replyTo)
+		if err != nil {
+			return nil, false, err
+		}
+		if !isQuestion {
+			replyTo = nil
+		}
+	}
+	if replyTo != nil {
+		prev, err := s.repo.FindAIAnswerFor(entityID, customerID, *replyTo, intent)
+		if err != nil {
+			return nil, false, err
+		}
+		if prev != nil {
+			return prev, false, nil
+		}
+	}
+	msg := &models.Message{
+		SenderID:     uuid.Nil,
+		EntityID:     entityID,
+		UserID:       customerID,
+		SentByEntity: false,
+		Kind:         "ai_answer",
+		AIIntent:     intent,
+		ReplyToID:    replyTo,
+		Content:      a.Text,
+		IsRead:       true,
+	}
+	if err := s.repo.CreateMessage(msg); err != nil {
+		return nil, false, err
+	}
+	return msg, true, nil
 }

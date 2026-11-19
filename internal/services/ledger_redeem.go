@@ -46,6 +46,45 @@ func (s *LedgerService) RecordRedemption(claim *models.OfferClaim, offer *models
 	if err := checkAmount(total, "el total"); err != nil {
 		return nil, nil
 	}
+	return s.recordClaimSale(claim, offer, total, models.PayCash)
+}
+
+// RecordClaimSale: el dueño dice cuánto cobró en un canje cuya oferta no lo decía en pesos («2x1», «15%»). La venta
+// queda con el canje como origen, igual que las automáticas. El id de la venta es el del reclamo: repetir no duplica.
+func (s *LedgerService) RecordClaimSale(ownerID, entityID, claimID uuid.UUID, total int, method string) (*models.Sale, error) {
+	if err := s.requireOwner(ownerID, entityID); err != nil {
+		return nil, err
+	}
+	if err := checkAmount(total, "el total"); err != nil {
+		return nil, err
+	}
+	if total <= 0 {
+		return nil, &InvalidError{"di cuánto cobraste"}
+	}
+	if method == "" {
+		method = models.PayCash
+	}
+	if method == models.PayCredit || !models.ValidPayMethod(method) {
+		return nil, &InvalidError{"medio de pago inválido"}
+	}
+	var claim models.OfferClaim
+	if err := s.db.Where("id = ? AND entity_id = ?", claimID, entityID).First(&claim).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrLedgerNotFound
+		}
+		return nil, err
+	}
+	if claim.Status != models.ClaimRedeemed {
+		return nil, &InvalidError{"ese reclamo no se ha canjeado"}
+	}
+	var offer models.Offer
+	if err := s.db.Where("id = ?", claim.OfferID).First(&offer).Error; err != nil {
+		return nil, err
+	}
+	return s.recordClaimSale(&claim, &offer, total, method)
+}
+
+func (s *LedgerService) recordClaimSale(claim *models.OfferClaim, offer *models.Offer, total int, method string) (*models.Sale, error) {
 	var items []models.OfferItem
 	if err := s.db.Where("offer_id = ?", offer.ID).Order("position ASC, created_at ASC").Find(&items).Error; err != nil {
 		return nil, err
@@ -54,7 +93,7 @@ func (s *LedgerService) RecordRedemption(claim *models.OfferClaim, offer *models
 	for _, it := range items {
 		lines = append(lines, LineInput{ItemID: it.ServiceItemID, Name: it.Name, Qty: 1, UnitPrice: it.Price})
 	}
-	in := SaleInput{ClientID: claim.ID, OccurredAt: claim.RedeemedAt, Total: &total, Method: models.PayCash, Note: "Canje " + claim.ShortCode, Lines: lines}
+	in := SaleInput{ClientID: claim.ID, OccurredAt: claim.RedeemedAt, Total: &total, Method: method, Note: "Canje " + claim.ShortCode, Lines: lines}
 	var sale models.Sale
 	record := func(input SaleInput) error {
 		return s.db.Transaction(func(tx *gorm.DB) error {

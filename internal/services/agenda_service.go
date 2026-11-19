@@ -19,7 +19,6 @@ import (
 // Errors the handlers translate into HTTP responses.
 var (
 	ErrAgendaDisabled = errors.New("agenda_disabled")
-	ErrEntityHidden   = errors.New("entity_hidden")
 	ErrApptNotFound   = errors.New("appointment_not_found")
 	ErrApptForbidden  = errors.New("forbidden")
 	ErrBadState       = errors.New("bad_state")
@@ -444,36 +443,6 @@ func (s *AgendaService) durationFor(entityID uuid.UUID, serviceID *uuid.UUID, st
 
 // ---------- availability ----------
 
-// entityHidden mirrors the discovery rule: a business over the free-trial
-// threshold, unpaid and past the grace period is hidden from NEW customers.
-func (s *AgendaService) entityHidden(entityID uuid.UUID) bool {
-	var n int64
-	s.db.Raw(`SELECT COUNT(*) FROM subscriptions sub
-		WHERE sub.entity_id = ? AND sub.status != 'active'
-		AND sub.trial_threshold_notified_at IS NOT NULL
-		AND sub.trial_threshold_notified_at < NOW() - INTERVAL '7 days'`, entityID).Scan(&n)
-	return n > 0
-}
-
-func (s *AgendaService) hasHistory(userID, entityID uuid.UUID) bool {
-	var n int64
-	s.db.Model(&models.Message{}).Where("entity_id = ? AND user_id = ?", entityID, userID).Limit(1).Count(&n)
-	if n > 0 {
-		return true
-	}
-	s.db.Model(&models.Appointment{}).Where("entity_id = ? AND customer_id = ?", entityID, userID).Limit(1).Count(&n)
-	return n > 0
-}
-
-// canSee: the owner always; anyone else unless the business is hidden and
-// they have no prior conversation or appointment with it.
-func (s *AgendaService) canSee(userID uuid.UUID, e entityRef) bool {
-	if e.OwnerID == userID {
-		return true
-	}
-	return !s.entityHidden(e.ID) || s.hasHistory(userID, e.ID)
-}
-
 func (s *AgendaService) busy(entityID uuid.UUID, from, to time.Time) ([]agenda.Interval, error) {
 	var rows []models.Appointment
 	err := s.db.Select("starts_at", "blocks_until").
@@ -505,8 +474,7 @@ func (s *AgendaService) slotsForDay(st models.AgendaSettings, hrs []agenda.Hours
 
 // Availability returns the free start times of one day for the viewer.
 func (s *AgendaService) Availability(viewerID, entityID uuid.UUID, day time.Time, serviceID *uuid.UUID) ([]time.Time, error) {
-	e, err := s.entity(entityID)
-	if err != nil {
+	if _, err := s.entity(entityID); err != nil {
 		return nil, ErrApptNotFound
 	}
 	st, err := s.settings(entityID)
@@ -515,9 +483,6 @@ func (s *AgendaService) Availability(viewerID, entityID uuid.UUID, day time.Time
 	}
 	if !st.Enabled {
 		return nil, ErrAgendaDisabled
-	}
-	if !s.canSee(viewerID, e) {
-		return nil, ErrEntityHidden
 	}
 	dur, err := s.durationFor(entityID, serviceID, st)
 	if err != nil {
@@ -543,15 +508,14 @@ type Summary struct {
 
 func (s *AgendaService) Summary(viewerID, entityID uuid.UUID) (Summary, error) {
 	out := Summary{Services: []BookableService{}}
-	e, err := s.entity(entityID)
-	if err != nil {
+	if _, err := s.entity(entityID); err != nil {
 		return out, ErrApptNotFound
 	}
 	st, err := s.settings(entityID)
 	if err != nil {
 		return out, err
 	}
-	if !st.Enabled || !s.canSee(viewerID, e) {
+	if !st.Enabled {
 		return out, nil
 	}
 	out.Enabled = true
@@ -760,9 +724,6 @@ func (s *AgendaService) createAppointment(customerID, entityID uuid.UUID, servic
 	}
 	if !st.Enabled {
 		return nil, ErrAgendaDisabled
-	}
-	if !s.canSee(customerID, e) {
-		return nil, ErrEntityHidden
 	}
 	dur, err := s.durationFor(entityID, serviceID, st)
 	if err != nil {
@@ -1089,6 +1050,8 @@ func (s *AgendaService) Cancel(userID, id uuid.UUID) (*models.Appointment, error
 	if a.CustomerID != nil {
 		s.broadcast(id, *a.CustomerID, e.OwnerID)
 	}
+	// La hora que se liberó va a la lista de espera de ese día, en orden de llegada.
+	go s.offerFreedSlot(a.EntityID, a.StartsAt)
 	return s.load(id)
 }
 

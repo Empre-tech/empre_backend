@@ -32,6 +32,11 @@ type OfferResponse struct {
 	SpecialPrice   *int `json:"special_price,omitempty"`
 	ReferencePrice *int `json:"reference_price,omitempty"`
 	Saving         *int `json:"saving,omitempty"`
+	// Facetas: la categoría propia de la oferta, el tipo de beneficio, el público y sus etiquetas.
+	CategoryID *uuid.UUID `json:"category_id,omitempty"`
+	Benefit    string     `json:"benefit,omitempty"`
+	Audience   []string   `json:"audience,omitempty"`
+	Tags       []string   `json:"tags,omitempty"`
 	// Items son los servicios del catálogo incluidos, tal como estaban al publicar.
 	Items []OfferItemResponse `json:"items,omitempty"`
 }
@@ -83,6 +88,10 @@ func OfferResponseFrom(o *models.Offer) OfferResponse {
 		ReferencePrice:     o.ReferencePrice,
 		Saving:             OfferSaving(o.SpecialPrice, o.ReferencePrice),
 		Items:              offerItems(o.Items),
+		CategoryID:         o.CategoryID,
+		Benefit:            o.Benefit,
+		Audience:           o.Audience,
+		Tags:               o.Tags,
 	}
 }
 

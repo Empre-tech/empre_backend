@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strings"
 	"testing"
-	"time"
 
 	"empre_backend/internal/models"
 	"empre_backend/internal/observability"
@@ -112,13 +111,10 @@ func entityListFixture(t *testing.T) (*gorm.DB, *gin.Engine, map[string]uuid.UUI
 	_ = plain
 	// Categoría borrada: lo que haga hoy el listado con ella queda fijado por la prueba.
 	near("gonecat", "Negocio De Categoría Borrada", gone.ID, nil)
-	// Fuera de la respuesta: lejos, borrado, oculto por la suscripción.
+	// Fuera de la respuesta: lejos y borrado. (Desde Base y Empre Pro ningún negocio se oculta por no pagar.)
 	near("far", "Lejos", food.ID, func(e *models.Entity) { e.Latitude, e.Longitude = 4.7110, -74.0721 })
 	del := near("deleted", "Borrado", food.ID, nil)
 	must(db.Delete(&del).Error)
-	hidden := near("hidden", "Oculto Por Plan", food.ID, nil)
-	old := time.Now().AddDate(0, 0, -10)
-	must(db.Create(&models.Subscription{EntityID: hidden.ID, Status: models.SubscriptionStatus("trial"), TrialThresholdNotifiedAt: &old}).Error)
 
 	// Firma de S3 sin red: credenciales falsas, la firma es un cálculo local.
 	s3c := s3.New(s3.Options{Region: "us-east-2", Credentials: aws.NewCredentialsCache(credentials.NewStaticCredentialsProvider("AKIDPRUEBA", "secretoprueba", ""))})

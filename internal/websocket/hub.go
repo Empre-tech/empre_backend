@@ -178,9 +178,9 @@ func (h *Hub) handleIncoming(envelope MessageEnvelope) {
 	h.notifyOffline(&msg, &entity, senderID, pushText)
 
 	// Solo un mensaje de un cliente hacia el negocio puede sumar un cliente
-	// distinto nuevo; revisamos aquí si eso acaba de cruzar el umbral gratis.
+	// distinto nuevo; revisamos aquí si ya toca contarle al dueño qué suma Pro.
 	if !msg.SentByEntity && h.SubscriptionService != nil {
-		go h.SubscriptionService.CheckTrialThreshold(msg.EntityID)
+		go h.SubscriptionService.CheckProInvite(msg.EntityID)
 	}
 }
 

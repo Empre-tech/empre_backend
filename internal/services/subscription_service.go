@@ -23,18 +23,10 @@ const (
 	ProMonthlyPriceCOP    = 39900 // pesos colombianos
 	SubscriptionPeriodDays = 30
 
-	// Gratis hasta que el negocio reciba mensajes de este número de clientes
-	// DISTINTOS (no de mensajes totales: un mismo cliente escribiendo varias
-	// veces no cuenta más de una vez). Así el que paga es el que ya está
-	// recibiendo demanda real, no una fecha en el calendario.
-	FreeTrialCustomerThreshold = 10
-
-	// Días de margen entre el push de "ya te están contactando, activa tu
-	// plan" y que el negocio se oculte del mapa/búsqueda por no pagar. Debe
-	// coincidir con el INTERVAL '7 days' hardcodeado en
-	// EntityRepository.FindAll (no hay una sola fuente de verdad entre Go y
-	// SQL crudo; si cambia este número, hay que cambiarlo también allá).
-	TrialGracePeriodDays = 7
+	// Base y Empre Pro (2026-11-17): el plan Base es gratis y nunca oculta el negocio. Cuando le escriben clientes
+	// DISTINTOS por primera vez en este número (un mismo cliente no cuenta dos veces), Empre le cuenta una sola vez
+	// al dueño qué suma Pro: es el momento en que ya hay demanda real. No hay plazo ni castigo.
+	ProInviteCustomerThreshold = 10
 )
 
 type SubscriptionService struct {
@@ -71,22 +63,14 @@ func (s *SubscriptionService) Enabled() bool {
 	return s.WompiPublicKey != "" && s.IntegritySecret != ""
 }
 
-// StatusView is what the app actually needs to show: the raw subscription
-// plus how close the business is to the free-trial threshold and whether it
-// should be asked to pay.
+// StatusView is what the app needs to show the plan: the subscription (Pro when active and not expired; Base
+// otherwise). There is no trial and nothing to pay to stay visible.
 type StatusView struct {
-	Subscription      *models.Subscription `json:"subscription"`
-	DistinctCustomers int64                `json:"distinct_customers"`
-	TrialThreshold    int                  `json:"trial_threshold"`
-	// true cuando el negocio ya superó el umbral gratis y no tiene un plan
-	// activo — momento en el que le pedimos que pague.
-	RequiresPayment bool `json:"requires_payment"`
+	Subscription *models.Subscription `json:"subscription"`
 }
 
 // Status returns the entity's subscription, self-healing an expired "active"
-// row to "inactive" so callers never have to special-case CurrentPeriodEnd,
-// plus how many distinct customers have contacted it so the app can show
-// progress toward the free-trial threshold.
+// row to "inactive" so callers never have to special-case CurrentPeriodEnd.
 func (s *SubscriptionService) Status(entityID uuid.UUID) (*StatusView, error) {
 	sub, err := s.Repo.FindOrCreateByEntity(entityID)
 	if err != nil {
@@ -96,24 +80,13 @@ func (s *SubscriptionService) Status(entityID uuid.UUID) (*StatusView, error) {
 		sub.Status = models.SubscriptionInactive
 	}
 
-	var distinctCustomers int64
-	if s.ChatService != nil {
-		distinctCustomers, _ = s.ChatService.DistinctCustomerCount(entityID)
-	}
-
-	return &StatusView{
-		Subscription:      sub,
-		DistinctCustomers: distinctCustomers,
-		TrialThreshold:    FreeTrialCustomerThreshold,
-		RequiresPayment:   sub.Status != models.SubscriptionActive && distinctCustomers >= FreeTrialCustomerThreshold,
-	}, nil
+	return &StatusView{Subscription: sub}, nil
 }
 
-// CheckTrialThreshold is called right after a customer's message to a
-// business is saved. If that business just crossed the free-trial threshold
-// and doesn't have an active plan yet, it pushes a one-time notice to the
-// owner (never repeats it — TrialThresholdNotifiedAt guards that).
-func (s *SubscriptionService) CheckTrialThreshold(entityID uuid.UUID) {
+// CheckProInvite is called right after a customer's message to a business is saved. When a Base business reaches
+// ProInviteCustomerThreshold distinct customers, the owner gets one notice about what Pro adds (never repeated:
+// TrialThresholdNotifiedAt, a column kept from the old trial, guards that). It never hides the business.
+func (s *SubscriptionService) CheckProInvite(entityID uuid.UUID) {
 	if s.ChatService == nil || s.PushService == nil || s.EntityService == nil {
 		return
 	}
@@ -122,7 +95,7 @@ func (s *SubscriptionService) CheckTrialThreshold(entityID uuid.UUID) {
 		return
 	}
 	count, err := s.ChatService.DistinctCustomerCount(entityID)
-	if err != nil || count < FreeTrialCustomerThreshold {
+	if err != nil || count < ProInviteCustomerThreshold {
 		return
 	}
 	entity, err := s.EntityService.FindByID(entityID)
@@ -137,8 +110,8 @@ func (s *SubscriptionService) CheckTrialThreshold(entityID uuid.UUID) {
 		entity.OwnerID,
 		"¡Ya te están contactando en Empre!",
 		fmt.Sprintf(
-			"%d clientes distintos ya te escribieron. Activa tu plan Pro en los próximos %d días o tu negocio se ocultará del mapa y las búsquedas.",
-			count, TrialGracePeriodDays,
+			"%d clientes distintos ya te escribieron. Tu plan Base sigue gratis; con Empre Pro anotas con tu voz y las citas se apartan solas.",
+			count,
 		),
 		map[string]string{"type": "subscription", "entity_id": entityID.String()},
 	)

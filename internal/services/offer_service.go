@@ -138,6 +138,7 @@ func (s *OfferService) publish(entityID uuid.UUID, in PublishOfferInput) (*model
 		RadiusMeters:   radius,
 		RepeatPolicy:   repeat,
 	}
+	fillFacets(s.OfferRepo.DB, offer)
 	if err := s.OfferRepo.Create(offer); err != nil {
 		return nil, err
 	}

@@ -106,16 +106,6 @@ func (s *CellService) Cells(q CellQuery) ([]Cell, float64, bool, error) {
 			q.SubcategoryID,
 		)
 	}
-	// Mismo criterio que el listado: no se cuentan los negocios que superaron el umbral gratis.
-	db = db.Where(
-		`NOT EXISTS (
-			SELECT 1 FROM subscriptions sub
-			WHERE sub.entity_id = entities.id
-				AND sub.status != 'active'
-				AND sub.trial_threshold_notified_at IS NOT NULL
-				AND sub.trial_threshold_notified_at < NOW() - INTERVAL '7 days'
-		)`,
-	)
 
 	var cells []Cell
 	err := db.

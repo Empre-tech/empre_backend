@@ -46,9 +46,13 @@ type serviceItemDTO struct {
 	Kind        string `json:"kind"`
 	KindChecked bool   `json:"kind_checked"`
 	// Variantes: ParentID/VariantLabel en una variante; PriceInherited = su precio es el del producto.
-	ParentID       *uuid.UUID `json:"parent_id,omitempty"`
-	VariantLabel   string     `json:"variant_label,omitempty"`
-	PriceInherited bool       `json:"price_inherited,omitempty"`
+	ParentID     *uuid.UUID `json:"parent_id,omitempty"`
+	VariantLabel string     `json:"variant_label,omitempty"`
+	// Attrs: los atributos de una variante (Talla: 40, Color: Vinotinto).
+	Attrs []models.ItemAttr `json:"attrs,omitempty"`
+	// Options: en un producto con variantes, cada atributo con sus valores y si queda alguno (para elegir talla, color).
+	Options        []services.AttrOption `json:"options,omitempty"`
+	PriceInherited bool                  `json:"price_inherited,omitempty"`
 }
 
 func toServiceDTO(it models.ServiceItem, now time.Time) serviceItemDTO {
@@ -56,7 +60,7 @@ func toServiceDTO(it models.ServiceItem, now time.Time) serviceItemDTO {
 		ID: it.ID, Name: it.Name, Description: it.Description, Section: it.Section, SectionID: it.SectionID, Audience: it.Audience, Photos: it.Photos, Price: it.Price, PriceFrom: it.PriceFrom,
 		PriceUpdatedAt: it.PriceUpdatedAt, ConfirmedAt: it.ConfirmedAt, Fresh: services.PriceFreshness(it, now),
 		DurationMin: it.DurationMin, Bookable: it.Bookable, SoldOut: it.SoldOut,
-		Kind: itemKind(it), KindChecked: it.KindChecked, ParentID: it.ParentID, VariantLabel: it.VariantLabel,
+		Kind: itemKind(it), KindChecked: it.KindChecked, ParentID: it.ParentID, VariantLabel: it.VariantLabel, Attrs: it.Attrs,
 	}
 }
 
@@ -99,8 +103,14 @@ func (h *CatalogHandler) List(c *gin.Context) {
 	}
 	now := time.Now()
 	parents := make(map[uuid.UUID]models.ServiceItem, len(items))
+	children := map[uuid.UUID][]models.ServiceItem{}
+	var allVariants []models.ServiceItem
 	for _, it := range items {
 		parents[it.ID] = it
+		if it.ParentID != nil {
+			children[*it.ParentID] = append(children[*it.ParentID], it)
+			allVariants = append(allVariants, it)
+		}
 	}
 	out := make([]serviceItemDTO, 0, len(items))
 	for _, it := range items {
@@ -117,8 +127,13 @@ func (h *CatalogHandler) List(c *gin.Context) {
 				d.Price, d.PriceFrom, d.PriceInherited = p.Price, p.PriceFrom, true
 			}
 		}
+		if it.ParentID == nil {
+			d.Options = services.VariantOptions(children[it.ID])
+		}
 		out = append(out, d)
 	}
+	// attr_filters: los atributos de todo el catálogo (todas las tallas, todos los colores) para filtrar el perfil.
+	attrFilters := services.VariantOptions(allVariants)
 	// sections: las secciones con productos, en el orden en que el negocio las muestra (el perfil agrupa con ellas).
 	sections := []services.SectionView{}
 	audience := false
@@ -129,7 +144,7 @@ func (h *CatalogHandler) List(c *gin.Context) {
 		audience = services.AudienceEnabled(h.Sections.DB(), entityID)
 	}
 	// audience: el negocio dice para quién es cada producto; el perfil muestra el filtro «Para».
-	c.JSON(http.StatusOK, gin.H{"items": out, "sections": sections, "audience": audience, "fresh_days": services.CatalogFreshDays})
+	c.JSON(http.StatusOK, gin.H{"items": out, "sections": sections, "audience": audience, "attr_filters": attrFilters, "fresh_days": services.CatalogFreshDays})
 }
 
 // Create añade un servicio (solo el dueño).

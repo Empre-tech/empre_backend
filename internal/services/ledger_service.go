@@ -61,13 +61,15 @@ type LedgerService struct {
 	model VoiceModel
 	// VoiceMonthlyLimit son los dictados que se pueden interpretar por negocio y mes (la IA cuesta).
 	VoiceMonthlyLimit int
+	// PlansEnforced: lo de Empre Pro (Empre AI) solo para negocios con Pro activo. EMPRE_PLANS=off lo apaga.
+	PlansEnforced bool
 }
 
 // SetVoiceModel conecta el modelo de IA que interpreta el dictado. Sin él, la voz responde ErrVoiceDisabled.
 func (s *LedgerService) SetVoiceModel(m VoiceModel) { s.model = m }
 
 func NewLedgerService(db *gorm.DB) *LedgerService {
-	return &LedgerService{db: db, VoiceMonthlyLimit: 1000}
+	return &LedgerService{db: db, VoiceMonthlyLimit: 1000, PlansEnforced: true}
 }
 
 func (s *LedgerService) requireOwner(ownerID, entityID uuid.UUID) error {

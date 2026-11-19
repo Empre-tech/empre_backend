@@ -28,6 +28,8 @@ type ChatHandler struct {
 	service *services.ChatService
 	// Classifier entiende preguntas raras para Empre AI (3.62, F4). Nil = apagado.
 	Classifier *services.IntentClassifier
+	// Ficha: Empre AI lee lo publicado del negocio cuando las reglas y lo enseñado no saben (nivel 3).
+	Ficha *services.FichaAnswerer
 }
 
 func NewChatHandler(hub *websocket.Hub, service *services.ChatService) *ChatHandler {
@@ -104,6 +106,7 @@ func (h *ChatHandler) FindAllConversations(c *gin.Context) {
 			IsRead:       msg.IsRead,
 			SentByEntity: msg.SentByEntity,
 			UnreadCount:  unreadByConversation[fmt.Sprintf("%s|%s", msg.EntityID, msg.UserID)],
+			Kind:         msg.Kind,
 		}
 
 		// Determine "Other Party"
@@ -307,6 +310,8 @@ type aiAnswerInput struct {
 	Intent    string     `json:"intent" binding:"required"`
 	ServiceID *uuid.UUID `json:"service_id"`
 	AnswerID  *uuid.UUID `json:"answer_id"`
+	// ReplyTo: la pregunta del cliente que se responde (3.71). Opcional.
+	ReplyTo *uuid.UUID `json:"reply_to"`
 }
 
 // AIAnswer guarda que Empre AI respondió una pregunta del cliente con lo que publicó el negocio (3.62, F2) y se la
@@ -329,7 +334,7 @@ func (h *ChatHandler) AIAnswer(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	msg, created, err := h.service.SaveAIAnswer(entityID, userID, in.Intent, in.ServiceID, in.AnswerID, time.Now())
+	msg, created, err := h.service.SaveAIAnswer(entityID, userID, in.Intent, in.ServiceID, in.AnswerID, in.ReplyTo, time.Now())
 	switch {
 	case errors.Is(err, services.ErrAIChatOff):
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
@@ -426,4 +431,103 @@ func (h *ChatHandler) Classify(c *gin.Context) {
 	default:
 		c.JSON(http.StatusOK, res)
 	}
+}
+
+type aiFichaInput struct {
+	Text    string     `json:"text" binding:"required"`
+	ReplyTo *uuid.UUID `json:"reply_to"`
+}
+
+func (h *ChatHandler) fichaError(c *gin.Context, err error) bool {
+	switch {
+	case err == nil:
+		return false
+	case errors.Is(err, services.ErrFichaOff):
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+	case errors.Is(err, services.ErrFichaLimit):
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
+	case errors.Is(err, services.ErrFichaInput):
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	default:
+		// Si el modelo falla, Empre AI simplemente no aparece: no es un error para la persona.
+		c.JSON(http.StatusOK, gin.H{"known": false})
+	}
+	return true
+}
+
+// AIFicha: en el chat con un negocio, cuando las reglas y lo que enseñó el dueño no saben, Empre AI lee la ficha
+// publicada del negocio (nivel 3, 2026-11-14). Si está, guarda la respuesta atada a la pregunta y se la muestra al
+// dueño en tiempo real; si no, responde «known: false» y la app no muestra a Empre AI.
+func (h *ChatHandler) AIFicha(c *gin.Context) {
+	userIDVal, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+	userID := userIDVal.(uuid.UUID)
+	entityID, err := uuid.Parse(c.Param("entity_id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "entity_id inválido"})
+		return
+	}
+	var in aiFichaInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if h.Ficha == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": services.ErrFichaOff.Error()})
+		return
+	}
+	answers, err := h.Ficha.Answer([]uuid.UUID{entityID}, userID, in.Text, time.Now())
+	if h.fichaError(c, err) {
+		return
+	}
+	if len(answers) == 0 || !answers[0].Known {
+		c.JSON(http.StatusOK, gin.H{"known": false})
+		return
+	}
+	msg, created, err := h.service.SaveFichaAnswer(entityID, userID, answers[0], in.ReplyTo)
+	switch {
+	case errors.Is(err, services.ErrNoConversation):
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	case err != nil:
+		c.JSON(http.StatusOK, gin.H{"known": false})
+		return
+	}
+	if created {
+		jsonData, _ := json.Marshal(msg)
+		h.Hub.RouteMessage(msg, jsonData, userID)
+	}
+	c.JSON(http.StatusOK, gin.H{"known": true, "message": msg})
+}
+
+type fichaManyInput struct {
+	Text      string      `json:"text" binding:"required"`
+	EntityIDs []uuid.UUID `json:"entity_ids" binding:"required"`
+}
+
+// FichaMany: «Pregúntales a los N» (3.64). Lo mismo que AIFicha para varios negocios a la vez, en una sola lectura;
+// no guarda nada (todavía no hay conversación con ellos).
+func (h *ChatHandler) FichaMany(c *gin.Context) {
+	userIDVal, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+	var in fichaManyInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if h.Ficha == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": services.ErrFichaOff.Error()})
+		return
+	}
+	answers, err := h.Ficha.Answer(in.EntityIDs, userIDVal.(uuid.UUID), in.Text, time.Now())
+	if h.fichaError(c, err) {
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"answers": answers})
 }

@@ -341,8 +341,9 @@ func (s *AskService) matchingItems(words []string, minLat, maxLat, minLng, maxLn
 			continue
 		}
 		like := "%" + w + "%"
-		cond = append(cond, "unaccent(lower(service_items.name)) LIKE unaccent(lower(?)) OR unaccent(lower(service_items.section)) LIKE unaccent(lower(?))")
-		args = append(args, like, like)
+		cond = append(cond, "unaccent(lower(service_items.name)) LIKE unaccent(lower(?)) OR unaccent(lower(service_items.section)) LIKE unaccent(lower(?))"+
+			" OR EXISTS (SELECT 1 FROM service_items v WHERE v.parent_id = service_items.id AND v.status = 'active' AND unaccent(lower(coalesce(v.attrs::text, ''))) LIKE unaccent(lower(?)))")
+		args = append(args, like, like, like)
 	}
 	if len(cond) == 0 {
 		return nil

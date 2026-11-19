@@ -336,7 +336,9 @@ func (s *LedgerService) payTab(tx *gorm.DB, entityID, tabID uuid.UUID, in PayTab
 	}
 	// Cobrar la cuenta de una cita la deja atendida, y la venta cuenta como de la agenda.
 	if t.AppointmentID != nil {
-		if err := tx.Model(&models.Sale{}).Where("id = ?", created.ID).Update("source", models.SourceAppointment).Error; err != nil {
+		// Con el id de la cita: Finance puede decir de cuál cita salió cada peso.
+		if err := tx.Model(&models.Sale{}).Where("id = ?", created.ID).
+			Updates(map[string]any{"source": models.SourceAppointment, "source_id": *t.AppointmentID}).Error; err != nil {
 			return err
 		}
 		if err := tx.Model(&models.Appointment{}).Where("id = ? AND entity_id = ? AND status = ?", *t.AppointmentID, entityID, models.ApptConfirmed).

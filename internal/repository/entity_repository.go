@@ -117,23 +117,8 @@ func (r *EntityRepository) FindAll(lat, long, radius float64, categoryID, subcat
 		)
 	}
 
-	// Ocultar del mapa/búsqueda (descubrimiento) los negocios que superaron el
-	// umbral gratis de clientes distintos y no tienen un plan activo, PERO ya
-	// pasó el margen de gracia desde que se les avisó (7 días — mismo valor
-	// que services.TrialGracePeriodDays, se mantiene igual a mano). Un
-	// negocio recién avisado sigue apareciendo durante el margen; uno que ya
-	// pagó nunca entra aquí porque su suscripción queda 'active'. Esto NO
-	// afecta FindByID: un cliente que ya tiene una conversación con el
-	// negocio lo sigue viendo y le puede seguir escribiendo.
-	db = db.Where(
-		`NOT EXISTS (
-			SELECT 1 FROM subscriptions sub
-			WHERE sub.entity_id = entities.id
-				AND sub.status != 'active'
-				AND sub.trial_threshold_notified_at IS NOT NULL
-				AND sub.trial_threshold_notified_at < NOW() - INTERVAL '7 days'
-		)`,
-	)
+	// Base y Empre Pro (2026-11-17): ningún negocio se oculta por no pagar. El plan Base es gratis y sigue a la
+	// vista; lo que cambia con Pro son herramientas, nunca la posición.
 
 	// El total sale de la misma consulta (COUNT(*) OVER() cuenta todas las filas del filtro antes del LIMIT) y las
 	// reseñas, de subconsultas por negocio (índice idx_review_entity_user); las borradas no cuentan, igual que en
@@ -189,17 +174,6 @@ func (r *EntityRepository) FindByBBox(minLat, maxLat, minLng, maxLng float64, ca
 		db = db.Where("latitude BETWEEN ? AND ?", minLat, maxLat).
 			Where("longitude BETWEEN ? AND ?", minLng, maxLng)
 	}
-
-	// Ocultar negocios que superaron el umbral gratis (igual que FindAll).
-	db = db.Where(
-		`NOT EXISTS (
-			SELECT 1 FROM subscriptions sub
-			WHERE sub.entity_id = entities.id
-				AND sub.status != 'active'
-				AND sub.trial_threshold_notified_at IS NOT NULL
-				AND sub.trial_threshold_notified_at < NOW() - INTERVAL '7 days'
-		)`,
-	)
 
 	db.Count(&total)
 

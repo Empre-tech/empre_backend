@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -10,11 +11,14 @@ import (
 	"empre_backend/internal/services"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 type AIHandler struct {
 	AI          *services.AIService
 	CategorySvc *services.CategoryService
+	// Ledger cierra «Redactar con Empre AI» a Empre Pro y lo cuenta en el tope del mes. Sin él (pruebas), no se cierra.
+	Ledger *services.LedgerService
 }
 
 func NewAIHandler(ai *services.AIService, categorySvc *services.CategoryService) *AIHandler {
@@ -282,6 +286,8 @@ type AITextRequest struct {
 	// generic — all optional.
 	BusinessName string `json:"business_name"`
 	CategoryName string `json:"category_name"`
+	// EntityID: el negocio para el que se redacta (oferta, publicación, descripción). Vacío solo al crear el negocio.
+	EntityID string `json:"entity_id"`
 }
 
 type AITextResponse struct {
@@ -329,6 +335,29 @@ func (h *AIHandler) ImproveText(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+
+	// Redactar es de Pro y cuenta en el tope del mes, salvo la descripción del negocio que se está creando.
+	var entityID *uuid.UUID
+	if req.EntityID != "" {
+		id, err := uuid.Parse(req.EntityID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid", "message": "negocio inválido"})
+			return
+		}
+		entityID = &id
+	}
+	var userID uuid.UUID
+	if h.Ledger != nil {
+		uid, ok := currentUser(c)
+		if !ok {
+			return
+		}
+		userID = uid
+		if err := h.Ledger.CheckWriting(userID, entityID, req.Kind); err != nil {
+			writingFail(c, err)
+			return
+		}
 	}
 
 	var systemPrompt string
@@ -395,7 +424,31 @@ func (h *AIHandler) ImproveText(c *gin.Context) {
 		return
 	}
 
+	if h.Ledger != nil {
+		if err := h.Ledger.RecordWriting(userID, entityID, req.Kind); err != nil {
+			log.Println("ai: no se pudo anotar el uso de Redactar:", err)
+		}
+	}
 	c.JSON(http.StatusOK, resp)
+}
+
+// writingFail traduce los cierres de Redactar: Pro (402), tope (429), negocio ajeno (403) o pedido inválido (400).
+func writingFail(c *gin.Context, err error) {
+	var invalid *services.InvalidError
+	switch {
+	case errors.As(err, &invalid):
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid", "message": invalid.Msg})
+	case errors.Is(err, services.ErrProRequired):
+		c.JSON(http.StatusPaymentRequired, gin.H{"error": "pro_required", "message": "Redactar con Empre AI es de Empre Pro."})
+	case errors.Is(err, services.ErrVoiceLimit):
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "voice_limit", "message": "Llegaste al tope de Empre AI de este mes. Puedes seguir escribiendo a mano."})
+	case errors.Is(err, services.ErrLedgerForbidden):
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+	case errors.Is(err, services.ErrLedgerNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"error": "not_found"})
+	default:
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal"})
+	}
 }
 
 func validAIHours(rows []HourRequest) []HourRequest {

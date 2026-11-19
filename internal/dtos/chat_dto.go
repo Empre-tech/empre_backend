@@ -18,6 +18,9 @@ type ConversationResponse struct {
 	// UnreadCount is how many messages from the OTHER side are still unread
 	// in this conversation (not just whether the latest one is read).
 	UnreadCount int64 `json:"unread_count"`
+	// Kind del último mensaje («text», «ai_answer», «appointment»…): el dueño sabe si lo último fue una pregunta del
+	// cliente o una respuesta de Empre AI, sin abrir la conversación (abrirla la marca como leída).
+	Kind string `json:"kind,omitempty"`
 }
 
 // MessageResponse represents a detailed message in a conversation history.

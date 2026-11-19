@@ -19,7 +19,7 @@ const (
 // escribe aquí su precio temporal.
 type ServiceItem struct {
 	ID       uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
-	EntityID uuid.UUID `gorm:"type:uuid;not null;index" json:"entity_id"`
+	EntityID uuid.UUID `gorm:"type:uuid;not null;index;index:idx_items_entity_status_pos,priority:1" json:"entity_id"`
 
 	Name        string `gorm:"size:80;not null" json:"name"`
 	Description string `gorm:"size:600" json:"description"`
@@ -50,8 +50,8 @@ type ServiceItem struct {
 	// Bookable: se puede reservar por Empre. Exige duración (CONVERSACIONES_Y_AGENDA.md, D2: una sola lista de servicios).
 	Bookable bool `gorm:"default:false" json:"bookable"`
 
-	Status   ServiceItemStatus `gorm:"type:varchar(20);not null;default:'active';index" json:"status"`
-	Position int               `gorm:"default:0" json:"position"`
+	Status   ServiceItemStatus `gorm:"type:varchar(20);not null;default:'active';index;index:idx_items_entity_status_pos,priority:2" json:"status"`
+	Position int               `gorm:"default:0;index:idx_items_entity_status_pos,priority:3" json:"position"`
 	// Cost es lo que le cuesta al negocio (pesos). SOLO lo ve el dueño, por el módulo de administración: no sale en
 	// ninguna respuesta pública del catálogo (json:"-").
 	Cost *int `gorm:"check:chk_service_items_cost,cost IS NULL OR (cost >= 0 AND cost <= 10000000)" json:"-"`
@@ -63,6 +63,9 @@ type ServiceItem struct {
 	// «<producto> · <variante>» y VariantLabel es la parte corta. Precio y costo vacíos se heredan del producto.
 	ParentID     *uuid.UUID `gorm:"type:uuid;index" json:"parent_id,omitempty"`
 	VariantLabel string     `gorm:"size:40" json:"variant_label,omitempty"`
+	// Attrs: lo que distingue a una variante (Talla: 40, Color: Vinotinto), en orden. Con ellos el catálogo filtra y
+	// la búsqueda encuentra el producto. VariantLabel se arma con sus valores si el dueño no escribe otro.
+	Attrs []ItemAttr `gorm:"type:jsonb;serializer:json" json:"attrs,omitempty"`
 	// KindChecked: el dueño confirmó el tipo. Falso solo en ítems que la migración clasificó sin una señal clara.
 	KindChecked bool `gorm:"default:false" json:"kind_checked"`
 
@@ -106,4 +109,10 @@ func (it ServiceItem) IsService() bool {
 
 func (ServiceItem) TableName() string {
 	return "service_items"
+}
+
+// ItemAttr es un atributo de una variante: su nombre (Talla, Color, Sabor…) y su valor.
+type ItemAttr struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
 }

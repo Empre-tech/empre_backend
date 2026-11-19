@@ -123,6 +123,29 @@ func (r *ChatRepository) MarkUnanswered(entityID, customerID, messageID uuid.UUI
 	return res.RowsAffected > 0, res.Error
 }
 
+// IsCustomerQuestion dice si el mensaje es una pregunta escrita por el cliente en esta conversación (3.71).
+func (r *ChatRepository) IsCustomerQuestion(entityID, customerID, messageID uuid.UUID) (bool, error) {
+	var n int64
+	err := r.DB.Model(&models.Message{}).
+		Where("id = ? AND entity_id = ? AND user_id = ? AND sender_id = ? AND sent_by_entity = false AND coalesce(kind, 'text') = 'text'", messageID, entityID, customerID, customerID).
+		Count(&n).Error
+	return n > 0, err
+}
+
+// FindAIAnswerFor devuelve la respuesta de Empre AI con esta intención a esa pregunta, o nil (3.71).
+func (r *ChatRepository) FindAIAnswerFor(entityID, customerID, replyTo uuid.UUID, intent string) (*models.Message, error) {
+	var m models.Message
+	err := r.DB.Where("entity_id = ? AND user_id = ? AND kind = ? AND ai_intent = ? AND reply_to_id = ?", entityID, customerID, "ai_answer", intent, replyTo).
+		Order("created_at ASC").First(&m).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
 // ServiceBelongs dice si el servicio del catálogo es de este negocio.
 func (r *ChatRepository) ServiceBelongs(entityID, serviceID uuid.UUID) (bool, error) {
 	var n int64

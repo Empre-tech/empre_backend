@@ -15,6 +15,8 @@ import (
 
 type OfferHandler struct {
 	Service *services.OfferService
+	// Alerts avisa a quien pidió «Avísame» en la zona; vacío = no se avisa.
+	Alerts *services.OfferAlertService
 }
 
 func NewOfferHandler(service *services.OfferService) *OfferHandler {
@@ -101,6 +103,9 @@ func (h *OfferHandler) Publish(c *gin.Context) {
 		return
 	}
 
+	if h.Alerts != nil {
+		go h.Alerts.NotifyFor(offer.ID)
+	}
 	c.JSON(http.StatusCreated, dtos.OfferResponseFrom(offer))
 }
 
@@ -239,6 +244,9 @@ func (h *OfferHandler) Republish(c *gin.Context) {
 		return
 	}
 
+	if h.Alerts != nil {
+		go h.Alerts.NotifyFor(offer.ID)
+	}
 	c.JSON(http.StatusCreated, dtos.OfferResponseFrom(offer))
 }
 

@@ -377,6 +377,8 @@ type InventoryItem struct {
 	Variants     int        `json:"variants"`
 	// LastPurchase: cuántos llegaron en la última compra registrada (para «como la última vez»).
 	LastPurchase *float64 `json:"last_purchase,omitempty"`
+	// Photo: el id de la foto de portada (la variante sin fotos usa la del producto). Vacío = sin foto.
+	Photo string `json:"photo,omitempty"`
 }
 
 // NameStatus es un insumo o plato citado dentro de otro, con su estado.
@@ -508,6 +510,13 @@ func (s *LedgerService) inventory(entityID uuid.UUID) (InventoryOverview, error)
 			it.Mode = ledger.ModeNone
 		}
 		it.ParentID, it.VariantLabel = p.ParentID, p.VariantLabel
+		if len(p.Photos) > 0 {
+			it.Photo = p.Photos[0]
+		} else if p.ParentID != nil {
+			if par, ok := byID[*p.ParentID]; ok && len(par.Photos) > 0 {
+				it.Photo = par.Photos[0]
+			}
+		}
 		if n := children[p.ID]; n > 0 {
 			// Un producto con variantes no se cuenta: agrupa (su estado lo da la app a partir de sus variantes).
 			it.Variants, it.Mode, it.Status, it.Qty, it.StockID = n, ledger.ModeNone, ledger.StatusNone, 0, nil

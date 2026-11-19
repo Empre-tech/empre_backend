@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"empre_backend/internal/services"
@@ -30,6 +31,8 @@ func (h *LedgerHandler) fail(c *gin.Context, err error) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 	case errors.Is(err, services.ErrVoiceDisabled):
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "ai_disabled"})
+	case errors.Is(err, services.ErrProRequired):
+		c.JSON(http.StatusPaymentRequired, gin.H{"error": "pro_required", "message": "Esto es de Empre Pro."})
 	case errors.Is(err, services.ErrVoiceLimit):
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": "voice_limit", "message": "Llegaste al límite de dictados de este mes. Puedes seguir registrando a mano."})
 	default:
@@ -365,6 +368,20 @@ func (h *LedgerHandler) Export(c *gin.Context) {
 
 // ---- voz ----
 
+// VoiceUsage: cuántos dictados lleva el negocio este mes y su tope (para decirlo antes de usar Empre AI).
+func (h *LedgerHandler) VoiceUsage(c *gin.Context) {
+	user, entity, ok := h.ids(c)
+	if !ok {
+		return
+	}
+	out, err := h.svc.VoiceUsageFor(user, entity)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
+}
+
 func (h *LedgerHandler) VoiceParse(c *gin.Context) {
 	user, entity, ok := h.ids(c)
 	if !ok {
@@ -374,12 +391,14 @@ func (h *LedgerHandler) VoiceParse(c *gin.Context) {
 		Text string `json:"text"`
 		// TabID: se dicta desde dentro de una cuenta abierta; lo pedido va a esa cuenta.
 		TabID *uuid.UUID `json:"tab_id"`
+		// Module: dónde se abrió la hoja (finance, inventory, debts). Solo desempata lo que tiene dos lecturas.
+		Module string `json:"module"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid", "message": "datos inválidos"})
 		return
 	}
-	out, err := h.svc.ParseVoiceIn(user, entity, body.Text, body.TabID)
+	out, err := h.svc.ParseVoiceAt(user, entity, body.Text, body.TabID, body.Module)
 	if err != nil {
 		h.fail(c, err)
 		return
@@ -435,6 +454,116 @@ func (h *LedgerHandler) Inventory(c *gin.Context) {
 		return
 	}
 	out, err := h.svc.Inventory(user, entity)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+// InventoryPage: una página de una pestaña del inventario (tablero «Inventario»): ?tab=product|service|supply&q=&section=
+// &state=low|out|nophoto&sort=az|stock|sales&cursor=&limit=. Las variantes de los productos de la página van aparte.
+func (h *LedgerHandler) InventoryPage(c *gin.Context) {
+	user, entity, ok := h.ids(c)
+	if !ok {
+		return
+	}
+	q, err := services.ParseInventoryPageQuery(c.Query("tab"), c.Query("q"), c.Query("section"), c.Query("state"), c.Query("sort"), c.Query("cursor"), c.Query("limit"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid", "message": "consulta inválida"})
+		return
+	}
+	out, err := h.svc.InventoryPage(user, entity, q)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+// InventoryCounts: los números de las tres pestañas y del filtro, sin las filas.
+func (h *LedgerHandler) InventoryCounts(c *gin.Context) {
+	user, entity, ok := h.ids(c)
+	if !ok {
+		return
+	}
+	out, err := h.svc.InventoryCountsFor(user, entity)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+// InventorySummary: lo de arriba de Inventario (avisos, empezar a llevar inventario, revisar qué es cada cosa y la
+// nota de precios) ya contado, sin las filas.
+func (h *LedgerHandler) InventorySummary(c *gin.Context) {
+	user, entity, ok := h.ids(c)
+	if !ok {
+		return
+	}
+	out, err := h.svc.InventorySummaryFor(user, entity, time.Now())
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+// InventoryItems: solo las filas pedidas, ?ids=a,b,c (de la fila o de su ítem del catálogo; hasta 100). Para el aviso
+// de lo que se vendió hoy.
+func (h *LedgerHandler) InventoryItems(c *gin.Context) {
+	user, entity, ok := h.ids(c)
+	if !ok {
+		return
+	}
+	var ids []uuid.UUID
+	for _, raw := range strings.Split(c.Query("ids"), ",") {
+		if raw = strings.TrimSpace(raw); raw == "" {
+			continue
+		}
+		id, err := uuid.Parse(raw)
+		if err != nil || len(ids) >= 100 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid", "message": "ids inválidos"})
+			return
+		}
+		ids = append(ids, id)
+	}
+	out, err := h.svc.InventoryItemsByIDs(user, entity, ids)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"items": out})
+}
+
+// InventoryNames: el nombre y el tipo de cada fila (para que Empre AI entienda lo que se dicta). Se pide al abrirlo.
+func (h *LedgerHandler) InventoryNames(c *gin.Context) {
+	user, entity, ok := h.ids(c)
+	if !ok {
+		return
+	}
+	out, err := h.svc.InventoryNamesFor(user, entity)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"names": out})
+}
+
+// InventoryCount: guarda el conteo de una sección de una vez (tablero «Inventario», teléfonos 9–12). Reenviar el mismo
+// client_id devuelve lo guardado sin aplicar nada otra vez.
+func (h *LedgerHandler) InventoryCount(c *gin.Context) {
+	user, entity, ok := h.ids(c)
+	if !ok {
+		return
+	}
+	var in services.CountInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid", "message": "conteo inválido"})
+		return
+	}
+	out, err := h.svc.CountSection(user, entity, in)
 	if err != nil {
 		h.fail(c, err)
 		return
