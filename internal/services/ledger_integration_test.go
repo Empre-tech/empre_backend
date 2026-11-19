@@ -29,7 +29,33 @@ func ledgerFixture(t *testing.T) (*gorm.DB, *LedgerService, models.User, models.
 	if err := db.Omit("Owner", "Category").Create(&ent).Error; err != nil {
 		t.Fatal(err)
 	}
+	// Empre AI (dictado) es de Empre Pro: el negocio de prueba tiene Pro activo para que las pruebas del dictado
+	// prueben el dictado. TestVoiceRequiresPro cubre el caso de un negocio en Base.
+	until := time.Now().AddDate(0, 1, 0)
+	if err := db.Create(&models.Subscription{EntityID: ent.ID, Status: models.SubscriptionActive, CurrentPeriodEnd: &until}).Error; err != nil {
+		t.Fatal(err)
+	}
 	return db, NewLedgerService(db), owner, other, ent
+}
+
+// TestVoiceRequiresPro: un negocio en Base no puede dictar (ErrProRequired); con Pro vencido tampoco.
+func TestVoiceRequiresPro(t *testing.T) {
+	db, svc, owner, _, ent := ledgerFixture(t)
+	svc.SetVoiceModel(&fakeModel{on: true})
+
+	past := time.Now().AddDate(0, 0, -1)
+	if err := db.Model(&models.Subscription{}).Where("entity_id = ?", ent.ID).Update("current_period_end", past).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ParseVoice(owner.ID, ent.ID, "vendí diez mil"); !errors.Is(err, ErrProRequired) {
+		t.Fatalf("Pro vencido: esperaba ErrProRequired, llegó %v", err)
+	}
+	if err := db.Where("entity_id = ?", ent.ID).Delete(&models.Subscription{}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ParseVoice(owner.ID, ent.ID, "vendí diez mil"); !errors.Is(err, ErrProRequired) {
+		t.Fatalf("Base: esperaba ErrProRequired, llegó %v", err)
+	}
 }
 
 func ip(n int) *int { return &n }
