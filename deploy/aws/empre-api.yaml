@@ -18,6 +18,10 @@ Parameters:
   MonthlyBudgetUSD:
     Type: Number
     Default: 15
+  AssetsBucket:
+    Type: String
+    Default: empre-assets
+    Description: Bucket de S3 de las imagenes. El backend lo usa con el rol de la maquina, sin llaves.
 
 Resources:
   KeyPair:
@@ -53,6 +57,15 @@ Resources:
       ManagedPolicyArns:
         # Session Manager: entrar a la maquina desde la consola sin SSH, por si la llave se pierde.
         - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        # Imagenes: el backend sube (PutObject) y firma enlaces de lectura (GetObject). Sin llaves en el .env.
+        - PolicyName: empre-assets
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [s3:GetObject, s3:PutObject]
+                Resource: !Sub arn:aws:s3:::${AssetsBucket}/*
       Tags:
         - { Key: Project, Value: empre }
 
@@ -74,6 +87,8 @@ Resources:
       MetadataOptions:
         HttpTokens: required
         HttpEndpoint: enabled
+        # 2 saltos: el backend corre en Docker y pide las credenciales del rol desde dentro del contenedor.
+        HttpPutResponseHopLimit: 2
       BlockDeviceMappings:
         - DeviceName: /dev/sda1
           Ebs:
