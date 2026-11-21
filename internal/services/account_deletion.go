@@ -84,6 +84,13 @@ func (s *AccountService) Delete(userID uuid.UUID, password string) error {
 		}).Error; err != nil {
 			return fmt.Errorf("datos personales: %w", err)
 		}
+		// Ya sin la referencia del usuario: la foto de perfil deja de servirse (/api/images/:id responde 404). El
+		// archivo en S3 queda huérfano.
+		if user.ProfileMediaID != nil {
+			if err := tx.Delete(&models.Media{}, "id = ?", *user.ProfileMediaID).Error; err != nil {
+				return fmt.Errorf("foto de perfil: %w", err)
+			}
+		}
 		return tx.Delete(&models.User{}, "id = ?", userID).Error
 	})
 }

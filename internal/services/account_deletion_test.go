@@ -17,7 +17,11 @@ func TestAccountDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 	hash, _ := bcrypt.GenerateFromPassword([]byte("secreta123"), bcrypt.MinCost)
-	owner := models.User{Name: "Rosa", Email: "rosa@x.co", PasswordHash: string(hash), Phone: "3001234567"}
+	photo := models.Media{S3Key: "profiles/rosa.jpg"}
+	if err := db.Create(&photo).Error; err != nil {
+		t.Fatal(err)
+	}
+	owner := models.User{Name: "Rosa", Email: "rosa@x.co", PasswordHash: string(hash), Phone: "3001234567", ProfileMediaID: &photo.ID}
 	other := models.User{Name: "Otro", Email: "otro@x.co", PasswordHash: "x"}
 	for _, u := range []*models.User{&owner, &other} {
 		if err := db.Create(u).Error; err != nil {
@@ -59,6 +63,10 @@ func TestAccountDelete(t *testing.T) {
 	db.Unscoped().First(&gone, "id = ?", owner.ID)
 	if gone.Email == "rosa@x.co" || gone.Name != "Usuario eliminado" || gone.Phone != "" || gone.PasswordHash != "" {
 		t.Fatalf("datos personales sin borrar: %+v", gone)
+	}
+	db.Model(&models.Media{}).Where("id = ?", photo.ID).Count(&n)
+	if n != 0 {
+		t.Fatal("la foto de perfil se sigue sirviendo")
 	}
 	// El correo queda libre.
 	if err := db.Create(&models.User{Name: "Rosa", Email: "rosa@x.co", PasswordHash: "x"}).Error; err != nil {
