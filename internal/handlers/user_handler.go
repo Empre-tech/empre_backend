@@ -4,6 +4,7 @@ import (
 	"empre_backend/internal/dtos"
 	"empre_backend/internal/services"
 	"empre_backend/pkg/utils"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -14,6 +15,35 @@ import (
 type UserHandler struct {
 	Service      *services.UserService
 	MediaService *services.MediaService
+	Account      *services.AccountService
+}
+
+type deleteAccountRequest struct {
+	Password string `json:"password"`
+}
+
+// DeleteMe elimina la cuenta del usuario autenticado (DELETE /api/users/me, body {"password": "..."}).
+// Google Play y la App Store exigen poder hacerlo desde la app.
+func (h *UserHandler) DeleteMe(c *gin.Context) {
+	userID, ok := currentUser(c)
+	if !ok {
+		return
+	}
+	var req deleteAccountRequest
+	// El body es opcional (una cuenta sin contraseña no lo necesita).
+	_ = c.ShouldBindJSON(&req)
+	switch err := h.Account.Delete(userID, req.Password); {
+	case err == nil:
+		c.JSON(http.StatusOK, gin.H{"message": "Tu cuenta fue eliminada."})
+	case errors.Is(err, services.ErrDeletePasswordRequired):
+		c.JSON(http.StatusBadRequest, gin.H{"error": "password_required", "message": "Escribe tu contraseña para confirmar."})
+	case errors.Is(err, services.ErrDeleteWrongPassword):
+		c.JSON(http.StatusForbidden, gin.H{"error": "wrong_password", "message": "La contraseña no es correcta."})
+	case errors.Is(err, services.ErrAccountNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"error": "not_found", "message": "La cuenta no existe."})
+	default:
+		internalError(c, err)
+	}
 }
 
 func NewUserHandler(service *services.UserService, mediaService *services.MediaService) *UserHandler {

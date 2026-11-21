@@ -272,6 +272,7 @@ func main() {
 	// Initialize Handlers
 	authHandler := handlers.NewAuthHandler(authService)
 	userHandler := handlers.NewUserHandler(userService, mediaService)
+	userHandler.Account = services.NewAccountService(database.DB)
 	mediaHandler := handlers.NewMediaHandler(mediaService)
 	entityHandler := handlers.NewEntityHandler(entityService, mediaService, database.DB, reviewService, favoriteService, pushService, signalService)
 	categoryHandler := handlers.NewCategoryHandler(categoryService)
@@ -610,6 +611,8 @@ func main() {
 		usersProtected.Use(middleware.AuthMiddleware(cfg))
 		{
 			usersProtected.GET("/me", userHandler.FindMe)
+			// Eliminar la cuenta (lo exigen las tiendas). Con tope para que no sirva para adivinar la contraseña.
+			usersProtected.DELETE("/me", middleware.RateLimit(5, time.Hour), userHandler.DeleteMe)
 			usersProtected.POST("/profile/image", userHandler.UploadProfileImage)
 			usersProtected.GET("/me/favorites", favoriteHandler.FindMine)
 			usersProtected.GET("/me/novedades", favoriteHandler.Novedades)
