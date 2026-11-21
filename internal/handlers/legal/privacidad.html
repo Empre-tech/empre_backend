@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Política de privacidad · Empre</title>
+<style>
+  :root { --ink:#2B2622; --muted:#6B625B; --red:#D42020; --bg:#FFFFFF; --line:#EEE6E0; }
+  @media (prefers-color-scheme: dark) { :root { --ink:#F2EDE9; --muted:#B8AEA6; --red:#FF5A5A; --bg:#1A1715; --line:#332D29; } }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  main { max-width:760px; margin:0 auto; padding:32px 16px 64px; }
+  h1 { font-size:28px; margin:0 0 4px; } h2 { font-size:19px; margin:32px 0 8px; color:var(--red); }
+  .meta { color:var(--muted); font-size:14px; margin-bottom:24px; }
+  table { width:100%; border-collapse:collapse; font-size:15px; } td, th { text-align:left; vertical-align:top; padding:8px; border-bottom:1px solid var(--line); }
+  a { color:var(--red); }
+</style>
+</head>
+<body>
+<main>
+<h1>Política de privacidad de Empre</h1>
+<p class="meta">Última actualización: {{.Updated}}</p>
+
+<p>Empre es una app para encontrar negocios de tu barrio y para que los emprendedores administren el suyo. Esta política
+explica qué datos recogemos, para qué, con quién los compartimos y cómo puedes consultarlos, corregirlos o borrarlos,
+conforme a la Ley 1581 de 2012 de Colombia y sus decretos reglamentarios.</p>
+
+<h2>1. Responsable</h2>
+<p>El responsable del tratamiento es <strong>{{.Owner}}</strong>. Para cualquier asunto de privacidad escríbenos a
+<a href="mailto:{{.Email}}">{{.Email}}</a>.</p>
+
+<h2>2. Qué datos recogemos y para qué</h2>
+<table>
+<tr><th>Dato</th><th>Para qué</th></tr>
+<tr><td>Nombre, correo, teléfono y contraseña (guardada cifrada)</td><td>Crear y proteger tu cuenta, e iniciar sesión.</td></tr>
+<tr><td>Foto de perfil y fotos o videos que subes</td><td>Mostrarlos en tu perfil, en tu negocio o en tus productos.</td></tr>
+<tr><td>Ubicación aproximada o precisa, solo mientras usas la app</td><td>Mostrarte los negocios y ofertas cercanos. No la guardamos como historial.</td></tr>
+<tr><td>Cámara</td><td>Escanear códigos QR de ofertas y tomar fotos de productos. Solo cuando tú la abres.</td></tr>
+<tr><td>Micrófono y reconocimiento de voz</td><td>Dictar ventas y gastos en «Mi negocio». El audio lo convierte en texto el servicio de voz de tu celular; a Empre llega solo el texto.</td></tr>
+<tr><td>Información de tu negocio (nombre, dirección, horarios, catálogo, ofertas)</td><td>Publicarla en Empre para que te encuentren.</td></tr>
+<tr><td>Registros de tu negocio (ventas, gastos, inventario, deudas, citas)</td><td>Darte las cuentas y reportes de «Mi negocio». Solo los ves tú.</td></tr>
+<tr><td>Mensajes, reseñas y citas</td><td>Que clientes y negocios se comuniquen.</td></tr>
+<tr><td>Token de notificaciones del celular</td><td>Enviarte avisos de mensajes, citas y ofertas.</td></tr>
+<tr><td>Medición anónima de uso (puedes apagarla en Perfil &gt; Ajustes)</td><td>Saber qué se busca y qué funciona, sin identificarte.</td></tr>
+<tr><td>Datos de pago</td><td>Los procesa la tienda de apps o la pasarela de pago. Empre nunca ve ni guarda los datos de tu tarjeta.</td></tr>
+</table>
+
+<h2>3. Inteligencia artificial</h2>
+<p>Algunas funciones (dictado, «Redactar con Empre AI», «Pregúntale a Empre», el asistente para crear tu negocio y las
+respuestas automáticas del chat) envían el texto necesario a un proveedor de modelos de IA para procesarlo. No lo usamos
+para publicidad y no autorizamos al proveedor a usarlo para entrenar sus modelos.</p>
+
+<h2>4. Con quién compartimos datos</h2>
+<p>No vendemos tus datos. Los compartimos solo con los proveedores que necesitamos para operar Empre, que los tratan por
+encargo nuestro:</p>
+<ul>
+<li>Amazon Web Services (servidores y almacenamiento de fotos, Estados Unidos).</li>
+<li>Supabase (base de datos, Estados Unidos).</li>
+<li>El proveedor de modelos de IA (procesamiento de texto).</li>
+<li>Google y Apple (mapas, inicio de sesión, notificaciones y pagos de la tienda) y Wompi (pagos).</li>
+</ul>
+<p>Por eso algunos datos se guardan fuera de Colombia, con medidas de seguridad equivalentes. Lo que publicas en un
+negocio (nombre, dirección, catálogo, reseñas) es público dentro de Empre.</p>
+
+<h2>5. Cuánto tiempo los guardamos</h2>
+<p>Mientras tengas la cuenta. Si la eliminas, borramos tus datos personales y ocultamos tus negocios de inmediato; las
+copias de seguridad se renuevan en un máximo de 30 días. Los mensajes y reseñas que escribiste a otros quedan firmados
+como «Usuario eliminado». Podemos conservar lo que la ley nos obligue (por ejemplo, soportes de pagos).</p>
+
+<h2>6. Tus derechos</h2>
+<p>Puedes conocer, actualizar, corregir y pedir que borremos tus datos, revocar tu autorización y presentar quejas ante
+la Superintendencia de Industria y Comercio. Escríbenos a <a href="mailto:{{.Email}}">{{.Email}}</a>; respondemos en los
+plazos de la ley (10 días hábiles para consultas y 15 para reclamos).</p>
+<p>Para eliminar tu cuenta: en la app, Perfil &gt; Ajustes &gt; Eliminar mi cuenta, o sigue los pasos de
+<a href="/eliminar-cuenta">esta página</a>.</p>
+
+<h2>7. Seguridad</h2>
+<p>Las conexiones van cifradas (HTTPS), las contraseñas se guardan con hash y el acceso a los datos está restringido.</p>
+
+<h2>8. Menores de edad</h2>
+<p>Empre no está dirigida a menores de 14 años. Si crees que un menor nos dio datos, escríbenos y los borramos.</p>
+
+<h2>9. Cambios</h2>
+<p>Si cambiamos esta política, actualizamos la fecha de arriba y te avisamos en la app cuando el cambio sea importante.</p>
+</main>
+</body>
+</html>

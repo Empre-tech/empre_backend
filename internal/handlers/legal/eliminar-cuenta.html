@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Eliminar tu cuenta · Empre</title>
+<style>
+  :root { --ink:#2B2622; --muted:#6B625B; --red:#D42020; --bg:#FFFFFF; --soft:#FDECEC; }
+  @media (prefers-color-scheme: dark) { :root { --ink:#F2EDE9; --muted:#B8AEA6; --red:#FF5A5A; --bg:#1A1715; --soft:#3A2222; } }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  main { max-width:680px; margin:0 auto; padding:32px 16px 64px; }
+  h1 { font-size:28px; margin:0 0 16px; } h2 { font-size:19px; margin:28px 0 8px; color:var(--red); }
+  .box { background:var(--soft); border-radius:14px; padding:12px 16px; }
+  a { color:var(--red); }
+</style>
+</head>
+<body>
+<main>
+<h1>Eliminar tu cuenta de Empre</h1>
+
+<h2>Desde la app (inmediato)</h2>
+<ol>
+<li>Abre Empre e inicia sesión.</li>
+<li>Ve a <strong>Perfil &gt; Ajustes &gt; Eliminar mi cuenta</strong>.</li>
+<li>Escribe tu contraseña y confirma.</li>
+</ol>
+
+<h2>Sin la app</h2>
+<p>Escribe a <a href="mailto:{{.Email}}?subject=Eliminar%20mi%20cuenta">{{.Email}}</a> desde el correo con el que creaste
+la cuenta, con el asunto «Eliminar mi cuenta». La eliminamos en un máximo de 15 días hábiles y te confirmamos por correo.</p>
+
+<h2>Qué se borra y qué queda</h2>
+<div class="box">
+<ul>
+<li>Se borran tu nombre, correo, teléfono, foto y contraseña.</li>
+<li>Tus negocios, sus ofertas y su información dejan de verse en Empre.</li>
+<li>Se cierran tus sesiones en todos tus celulares y se quitan tus notificaciones y favoritos.</li>
+<li>Los mensajes y reseñas que escribiste a otros quedan firmados como «Usuario eliminado».</li>
+<li>Las copias de seguridad se renuevan en un máximo de 30 días. Conservamos solo lo que la ley exija (por ejemplo, soportes de pagos).</li>
+</ul>
+</div>
+<p>Más detalles en la <a href="/privacidad">política de privacidad</a>.</p>
+</main>
+</body>
+</html>
