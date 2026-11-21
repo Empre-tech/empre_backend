@@ -33,6 +33,7 @@ services:
       - "443:443/udp"
     environment:
       DOMAIN: ${DOMAIN:?Falta DOMAIN en el .env}
+      EXTRA_DOMAINS: ${EXTRA_DOMAINS:-}
       ACME_EMAIL: ${ACME_EMAIL:?Falta ACME_EMAIL en el .env}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro

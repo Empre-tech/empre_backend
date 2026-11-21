@@ -5,7 +5,8 @@
 	email {$ACME_EMAIL}
 }
 
-{$DOMAIN} {
+# EXTRA_DOMAINS (opcional): otros nombres que también sirve, separados por espacio (p. ej. el sslip.io temporal).
+{$DOMAIN} {$EXTRA_DOMAINS} {
 	encode zstd gzip
 
 	reverse_proxy api:8080 {
