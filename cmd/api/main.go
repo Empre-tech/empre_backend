@@ -632,7 +632,9 @@ func main() {
 		aiGroup.Use(middleware.AuthMiddleware(cfg))
 		{
 			// El asistente manda toda la conversación en cada turno: tope por usuario (además del tamaño, en el handler).
-			aiGroup.POST("/business-assistant", middleware.RateLimit(20, time.Minute), middleware.RateLimit(150, 24*time.Hour), aiHandler.BusinessAssistant)
+			// Asistente para crear negocio: 20 mensajes al día por usuario (un negocio se crea en ~8-15; si se acaban,
+			// el formulario sigue con lo que lleva el borrador).
+			aiGroup.POST("/business-assistant", middleware.RateLimit(10, time.Minute), middleware.RateLimit(20, 24*time.Hour), aiHandler.BusinessAssistant)
 			aiGroup.POST("/writing-assistant", aiHandler.ImproveText)
 		}
 

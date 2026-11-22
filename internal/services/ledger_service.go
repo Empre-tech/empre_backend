@@ -69,7 +69,7 @@ type LedgerService struct {
 func (s *LedgerService) SetVoiceModel(m VoiceModel) { s.model = m }
 
 func NewLedgerService(db *gorm.DB) *LedgerService {
-	return &LedgerService{db: db, VoiceMonthlyLimit: 1000, PlansEnforced: true}
+	return &LedgerService{db: db, VoiceMonthlyLimit: 800, PlansEnforced: true}
 }
 
 func (s *LedgerService) requireOwner(ownerID, entityID uuid.UUID) error {
