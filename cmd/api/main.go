@@ -118,6 +118,8 @@ func main() {
 		&models.VoiceDraft{},
 		&models.AIWrite{},
 		&models.AIUsage{},
+		&models.AskQuestion{},
+		&models.UserPlan{},
 		&models.Section{},
 		&models.SubcategorySection{},
 		&models.EntitySection{},
@@ -518,7 +520,9 @@ func main() {
 		api.GET("/search", searchHandler.Search)
 		// Pregúntale a Empre llama a la IA (lo que ya entendió se guarda unas horas): tope por IP para que nadie gaste
 		// los créditos en bucle. Con sesión, el tope va por usuario.
+		// Con IA pide cuenta y gasta el cupo del mes (10 gratis, 300 con la suscripción); ai=0 (Vitrina) es público.
 		api.GET("/ask", middleware.OptionalAuth(cfg), middleware.RateLimit(20, time.Minute), middleware.RateLimit(300, 24*time.Hour), askHandler.Ask)
+		api.GET("/ask/quota", middleware.AuthMiddleware(cfg), askHandler.Quota)
 		api.GET("/categories/chips", searchHandler.Chips)
 
 		// Ofertas: acciones del negocio (quick actions, republish) y reclamo
@@ -646,6 +650,7 @@ func main() {
 			adminGroup.GET("/events/summary", eventHandler.Summary)
 			adminGroup.GET("/health", healthHandler.AdminHealth)
 			adminGroup.GET("/ai-usage", (&handlers.AIUsageHandler{Usage: aiUsageService}).Summary)
+			adminGroup.POST("/users/:id/plan", askHandler.GrantPlan)
 			adminGroup.PATCH("/entities/:id/verify", entityHandler.VerifyEntity)
 
 			adminGroup.POST("/categories", categoryHandler.Create)

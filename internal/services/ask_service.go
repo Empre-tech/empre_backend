@@ -73,6 +73,8 @@ type AskInput struct {
 	Question string
 	Lat, Lng float64
 	Filters  AskFilters // las que el cliente activó con un toque; se suman a las que entienda la IA
+	// NoAI: búsqueda solo por palabras, sin IA (la caja de búsqueda de Vitrina). No gasta el cupo de preguntas.
+	NoAI bool
 }
 
 type AskItem struct {
@@ -105,6 +107,8 @@ type AskResponse struct {
 	Widened     bool          `json:"widened"` // no había cerca: se buscó más lejos
 	Suggestions []string      `json:"suggestions"`
 	UsedAI      bool          `json:"used_ai"`
+	// Quota: el cupo del mes de quien pregunta (solo en las preguntas con IA).
+	Quota *AskQuota `json:"quota,omitempty"`
 }
 
 // askIntentTool: lo único que se le pide a la IA.
@@ -133,7 +137,7 @@ func (s *AskService) Ask(in AskInput) (*AskResponse, error) {
 		q = string([]rune(q)[:askMaxQuestion])
 	}
 	res := &AskResponse{Businesses: []AskBusiness{}, Items: []AskItem{}, Suggestions: []string{}, Filters: in.Filters}
-	terms, f, usedAI := s.intent(q)
+	terms, f, usedAI := s.intent(q, !in.NoAI)
 	res.UsedAI = usedAI
 	res.Terms = terms
 	res.Filters = AskFilters{
@@ -173,7 +177,7 @@ const (
 
 // intent: con IA, qué busca y con qué condiciones; sin IA (o si falla), las palabras de la pregunta y las condiciones
 // que se reconocen por palabras clave.
-func (s *AskService) intent(q string) (string, AskFilters, bool) {
+func (s *AskService) intent(q string, useAI bool) (string, AskFilters, bool) {
 	f := keywordFilters(q)
 	key := askCacheKey(q)
 	if s.intents != nil {
@@ -181,7 +185,7 @@ func (s *AskService) intent(q string) (string, AskFilters, bool) {
 			return hit.terms, hit.filters, true
 		}
 	}
-	if s.AI != nil && s.AI.Enabled() {
+	if useAI && s.AI != nil && s.AI.Enabled() {
 		reply, err := s.AI.For(AIUsageMeta{Feature: AIFeaturePregunta}).ChatTool(askSystemPrompt, []AIMessage{{Role: AIRoleUser, Content: q}}, askIntentTool)
 		if err == nil {
 			for _, call := range reply.ToolCalls {
