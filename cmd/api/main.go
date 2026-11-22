@@ -333,8 +333,11 @@ func main() {
 	// Expira los reclamos vencidos y libera sus cupos (vive lo que el proceso).
 	go claimService.RunExpirySweeper(time.Minute, nil)
 	chatHandler := handlers.NewChatHandler(wsHub, chatService)
-	chatHandler.Classifier = services.NewIntentClassifier(aiService, database.DB)
-	chatHandler.Ficha = services.NewFichaAnswerer(aiService, database.DB)
+	// 2026-11-22 (decisión de Giovanni): sin IA en el chat; la IA queda solo en «Pregúntale a Empre». Sin Classifier
+	// ni Ficha, /api/chat/classify, /ai-ficha y /ficha responden 503 y las apps siguen con reglas, lo enseñado y el dueño.
+	// Para volver a encenderlas:
+	//   chatHandler.Classifier = services.NewIntentClassifier(aiService, database.DB)
+	//   chatHandler.Ficha = services.NewFichaAnswerer(aiService, database.DB)
 	businessAnswerHandler := handlers.NewBusinessAnswerHandler(services.NewBusinessAnswerService(database.DB))
 
 	// La agenda empuja cambios por WebSocket y corre su proceso de fondo
