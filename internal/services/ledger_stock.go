@@ -69,6 +69,13 @@ func (s *LedgerService) stockItem(db *gorm.DB, entityID, ref uuid.UUID, create b
 		if mode == ledger.ModeNone {
 			mode = ledger.ModeLight // el dueño pidió activar el control: el semáforo es lo mínimo
 		}
+		if mode == ledger.ModeExact {
+			if ok, err := s.exactAllowed(entityID); err != nil {
+				return nil, err
+			} else if !ok {
+				mode = ledger.ModeLight // en Base, el semáforo
+			}
+		}
 	}
 	it = models.StockItem{ID: uuid.New(), EntityID: entityID, ServiceItemID: &prod.ID, Kind: models.StockProduct, Mode: mode, Level: ledger.LevelOK, Unit: "unidad"}
 	res := db.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "entity_id"}, {Name: "service_item_id"}}, DoNothing: true}).Create(&it)
@@ -703,12 +710,19 @@ func (s *LedgerService) SetupInventory(ownerID, entityID uuid.UUID, choice strin
 	if err != nil {
 		return ov, err
 	}
+	exactOK, err := s.exactAllowed(entityID)
+	if err != nil {
+		return ov, err
+	}
 	err = s.db.Transaction(func(tx *gorm.DB) error {
 		for _, it := range ov.Items {
 			if it.Mode != "unset" || it.ItemID == nil || it.IsService {
 				continue
 			}
 			mode := it.SuggestedMode
+			if mode == ledger.ModeExact && !exactOK {
+				mode = ledger.ModeLight // contar cuántos hay es de Pro: en Base, el semáforo
+			}
 			switch choice {
 			case SetupSimple:
 				mode = ledger.ModeLight
@@ -759,14 +773,29 @@ func (s *LedgerService) UpdateStockSettings(ownerID, entityID, ref uuid.UUID, in
 	if in.LowAt != nil && (*in.LowAt < 0 || *in.LowAt > maxQty) {
 		return InventoryOverview{}, &InvalidError{"umbral inválido"}
 	}
+	exactOK := true
+	if in.Mode != nil && *in.Mode == ledger.ModeExact {
+		ok, err := s.exactAllowed(entityID)
+		if err != nil {
+			return InventoryOverview{}, err
+		}
+		exactOK = ok
+	}
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		mode := ""
 		if in.Mode != nil {
 			mode = *in.Mode
 		}
+		if mode == ledger.ModeExact && !exactOK {
+			mode = ledger.ModeLight
+		}
 		it, err := s.stockItem(tx, entityID, ref, true, mode, true)
 		if err != nil {
 			return err
+		}
+		// Pasar a cantidad exacta es de Empre Pro (lo que ya estaba en exacta se queda así).
+		if in.Mode != nil && *in.Mode == ledger.ModeExact && it.Mode != ledger.ModeExact && !exactOK {
+			return ErrProRequired
 		}
 		upd := map[string]any{}
 		if in.Mode != nil && *in.Mode != it.Mode {
@@ -924,13 +953,27 @@ func (s *LedgerService) adjust(db *gorm.DB, entityID uuid.UUID, in AdjustInput) 
 	if in.Delta != nil && !models.ValidAdjustReason(in.Reason) {
 		return &InvalidError{"elige el motivo del ajuste"}
 	}
+	createMode := ledger.ModeExact
+	exactOK := true
+	if in.Counted != nil {
+		ok, err := s.exactAllowed(entityID)
+		if err != nil {
+			return err
+		}
+		if exactOK = ok; !ok {
+			createMode = ledger.ModeLight
+		}
+	}
 	run := func(tx *gorm.DB) error {
-		it, err := s.stockItem(tx, entityID, in.Ref, true, ledger.ModeExact, true)
+		it, err := s.stockItem(tx, entityID, in.Ref, true, createMode, true)
 		if err != nil {
 			return err
 		}
 		now := nowCO()
 		if in.Counted != nil {
+			if it.Mode != ledger.ModeExact && !exactOK {
+				return ErrProRequired // contar cuántos hay es de Empre Pro
+			}
 			if it.Mode != ledger.ModeExact {
 				it.Mode = ledger.ModeExact // contar es pasar a cantidad exacta
 				if err := tx.Model(&models.StockItem{}).Where("id = ?", it.ID).Update("mode", it.Mode).Error; err != nil {
@@ -1006,6 +1049,13 @@ func (s *LedgerService) CreateSupply(ownerID, entityID uuid.UUID, in SupplyInput
 	}
 	if mode != ledger.ModeLight && mode != ledger.ModeExact {
 		return models.StockItem{}, &InvalidError{"los insumos van en semáforo o cantidad exacta"}
+	}
+	if mode == ledger.ModeExact {
+		if ok, err := s.exactAllowed(entityID); err != nil {
+			return models.StockItem{}, err
+		} else if !ok {
+			return models.StockItem{}, ErrProRequired
+		}
 	}
 	if in.Qty != nil && (*in.Qty < 0 || *in.Qty > maxQty) {
 		return models.StockItem{}, &InvalidError{"cantidad inválida"}

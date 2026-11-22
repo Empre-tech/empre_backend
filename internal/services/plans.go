@@ -34,6 +34,14 @@ func (s *LedgerService) IsPro(entityID uuid.UUID) (bool, error) {
 	return subscriptionIsPro(sub, time.Now()), nil
 }
 
+// exactAllowed: llevar la cantidad exacta (contar cuántos hay) es de Empre Pro; en Base se lleva el semáforo.
+func (s *LedgerService) exactAllowed(entityID uuid.UUID) (bool, error) {
+	if !s.PlansEnforced {
+		return true, nil
+	}
+	return s.IsPro(entityID)
+}
+
 // requirePro cierra lo que es de Pro cuando los planes están activos (EMPRE_PLANS=off los apaga, para desarrollo).
 func (s *LedgerService) requirePro(entityID uuid.UUID) error {
 	if !s.PlansEnforced {

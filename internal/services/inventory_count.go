@@ -98,6 +98,10 @@ func (s *LedgerService) CountSection(ownerID, entityID uuid.UUID, in CountInput)
 	if err := s.requireOwner(ownerID, entityID); err != nil {
 		return CountResult{}, err
 	}
+	// Contar una sección es de Empre Pro.
+	if err := s.requirePro(entityID); err != nil {
+		return CountResult{}, err
+	}
 	in.Section = strings.TrimSpace(in.Section)
 	if r := []rune(in.Section); len(r) > 60 {
 		in.Section = string(r[:60])
