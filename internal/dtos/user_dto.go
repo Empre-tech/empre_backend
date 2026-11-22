@@ -14,4 +14,6 @@ type UserResponse struct {
 	Phone             string      `json:"phone,omitempty"`
 	ProfilePictureURL string      `json:"profile_picture_url"`
 	Role              models.Role `json:"role"`
+	// HasPassword: false si la cuenta entra solo con Google (al eliminarla no se pide contraseña).
+	HasPassword bool `json:"has_password"`
 }

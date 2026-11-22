@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 
 	"empre_backend/internal/models"
@@ -91,6 +92,32 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, tokens)
+}
+
+type GoogleLoginRequest struct {
+	IDToken string `json:"id_token" binding:"required"`
+}
+
+// GoogleLogin: POST /api/auth/google {"id_token": "..."} con el token de «Continuar con Google». Devuelve la misma
+// sesión que el login normal; si no había cuenta con ese correo, la crea.
+func (h *AuthHandler) GoogleLogin(c *gin.Context) {
+	var req GoogleLoginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Falta el token de Google."})
+		return
+	}
+	tokens, err := h.Service.LoginWithGoogle(req.IDToken)
+	switch {
+	case err == nil:
+		c.JSON(http.StatusOK, tokens)
+	case errors.Is(err, services.ErrGoogleNotConfigured):
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "El inicio de sesión con Google no está disponible en este momento."})
+	case errors.Is(err, services.ErrGoogleInvalidToken):
+		c.Error(err)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "No pudimos verificar tu cuenta de Google. Intenta de nuevo."})
+	default:
+		internalError(c, err)
+	}
 }
 
 // RefreshToken handles token refresh requests

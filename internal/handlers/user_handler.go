@@ -90,6 +90,7 @@ func (h *UserHandler) FindMe(c *gin.Context) {
 		Phone:             user.Phone,
 		ProfilePictureURL: user.ProfilePictureURL,
 		Role:              user.Role,
+		HasPassword:       user.PasswordHash != "",
 	}
 
 	c.JSON(http.StatusOK, response)

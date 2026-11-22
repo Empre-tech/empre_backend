@@ -229,6 +229,10 @@ func main() {
 	}
 
 	authService := services.NewAuthService(userRepo, passwordResetRepo, refreshTokenRepo, mailerService, cfg)
+	if len(cfg.GoogleClientIDs) > 0 {
+		authService.Google = services.NewGoogleVerifier(cfg.GoogleClientIDs)
+		log.Printf("Login con Google activo (%d client IDs)", len(cfg.GoogleClientIDs))
+	}
 	userService := services.NewUserService(userRepo, mediaService)
 	entityService := services.NewEntityService(entityRepo, mediaService)
 	zoneService := services.NewZoneService(database.DB)
@@ -345,6 +349,7 @@ func main() {
 			// normal no se acerca: entrar es 1 intento, y el refresco va cada ~hora.
 			auth.POST("/register", middleware.RateLimit(5, 10*time.Minute), authHandler.Register)
 			auth.POST("/login", middleware.RateLimit(10, 5*time.Minute), authHandler.Login)
+			auth.POST("/google", middleware.RateLimit(10, 5*time.Minute), authHandler.GoogleLogin)
 			auth.POST("/refresh", middleware.RateLimit(30, time.Minute), authHandler.RefreshToken)
 			auth.POST("/password-reset/request", middleware.RateLimit(3, 15*time.Minute), authHandler.RequestPasswordReset)
 			auth.POST("/password-reset/reset", middleware.RateLimit(10, 15*time.Minute), authHandler.ResetPassword)

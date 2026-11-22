@@ -3,6 +3,7 @@ package services
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"empre_backend/config"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
 
 type AuthService struct {
@@ -20,6 +22,8 @@ type AuthService struct {
 	RefreshTokenRepo  *repository.RefreshTokenRepository
 	Mailer            MailerService
 	Config            *config.Config
+	// Google comprueba los id_token de «Continuar con Google» (nil = apagado).
+	Google *GoogleVerifier
 }
 
 func NewAuthService(repo *repository.UserRepository, prRepo *repository.PasswordResetRepository, rtRepo *repository.RefreshTokenRepository, mailer MailerService, cfg *config.Config) *AuthService {
@@ -60,7 +64,38 @@ func (s *AuthService) Login(email, password string) (*utils.TokenResponse, error
 		return nil, errors.New("Invalid email or password")
 	}
 
-	// Generate Access Token
+	return s.issueTokens(user)
+}
+
+// LoginWithGoogle inicia sesión con un id_token de Google. Si ya hay una cuenta con ese correo (Google lo dio por
+// verificado) entra a esa cuenta; si no, la crea sin contraseña. Devuelve la misma sesión que el login normal.
+func (s *AuthService) LoginWithGoogle(idToken string) (*utils.TokenResponse, error) {
+	if s.Google == nil {
+		return nil, ErrGoogleNotConfigured
+	}
+	ident, err := s.Google.Verify(idToken)
+	if err != nil {
+		return nil, err
+	}
+	var user models.User
+	err = s.Repo.DB.Where("LOWER(email) = ?", ident.Email).First(&user).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		name := ident.Name
+		if name == "" {
+			name = strings.Split(ident.Email, "@")[0]
+		}
+		user = models.User{Name: name, Email: ident.Email, Role: models.RoleUser}
+		if err := s.Repo.DB.Create(&user).Error; err != nil {
+			return nil, err
+		}
+	} else if err != nil {
+		return nil, err
+	}
+	return s.issueTokens(&user)
+}
+
+// issueTokens crea el access token y un refresh token de 30 días para el usuario.
+func (s *AuthService) issueTokens(user *models.User) (*utils.TokenResponse, error) {
 	accessToken, err := utils.GenerateAccessToken(user.ID, string(user.Role), s.Config.JWTSecret)
 	if err != nil {
 		return nil, err

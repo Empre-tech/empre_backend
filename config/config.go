@@ -43,6 +43,9 @@ type Config struct {
 	AIAPIKey         string
 	AIBaseURL        string
 	AIModel          string
+	// Client IDs de OAuth de Google (web, Android, iOS) separados por coma: el id_token de «Continuar con Google»
+	// tiene que ir dirigido a uno de ellos. Vacío = el login con Google queda apagado.
+	GoogleClientIDs []string
 
 	// Wompi (pasarela de pagos para la suscripción de negocios). Sin
 	// WOMPI_PUBLIC_KEY / WOMPI_INTEGRITY_SECRET, los pagos quedan
@@ -93,6 +96,8 @@ func LoadConfig() *Config {
 		AIAPIKey:  getEnv("AI_API_KEY", ""),
 		AIBaseURL: getEnv("AI_BASE_URL", "https://opencode.ai/zen/v1"),
 		AIModel:   getEnv("AI_MODEL", "claude-haiku-5-5"),
+
+		GoogleClientIDs: splitList(getEnv("GOOGLE_CLIENT_IDS", "")),
 
 		WompiPublicKey:       getEnv("WOMPI_PUBLIC_KEY", ""),
 		WompiIntegritySecret: getEnv("WOMPI_INTEGRITY_SECRET", ""),
@@ -187,6 +192,17 @@ func getEnvInt(key string, fallback int) int {
 		return fallback
 	}
 	return n
+}
+
+// splitList parte "a, b,,c" en ["a","b","c"].
+func splitList(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func getEnv(key, fallback string) string {
