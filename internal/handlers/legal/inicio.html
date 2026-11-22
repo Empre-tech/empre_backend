@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Empre · Todo tu barrio en un solo lugar</title>
+<meta name="description" content="Empre: encuentra los negocios de tu barrio y administra el tuyo desde el celular.">
+<style>
+  :root { --ink:#2B2622; --muted:#6B625B; --red:#FF1D25; --bg:#FFFFFF; --soft:#FFF4F2; }
+  @media (prefers-color-scheme: dark) { :root { --ink:#F2EDE9; --muted:#B8AEA6; --bg:#1A1715; --soft:#2A2220; } }
+  body { margin:0; background:var(--bg); color:var(--ink); font:17px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  main { max-width:720px; margin:0 auto; padding:48px 16px 64px; }
+  .mark { width:72px; height:72px; border-radius:20px; background:var(--red); color:#fff; display:flex; align-items:center; justify-content:center; font:700 44px/1 system-ui,sans-serif; }
+  h1 { font-size:34px; line-height:1.2; margin:24px 0 8px; }
+  .lead { color:var(--muted); font-size:19px; margin:0 0 32px; }
+  .grid { display:grid; gap:12px; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); }
+  .card { background:var(--soft); border-radius:16px; padding:16px; }
+  .card strong { display:block; margin-bottom:4px; }
+  footer { margin-top:48px; color:var(--muted); font-size:14px; }
+  a { color:var(--red); }
+</style>
+</head>
+<body>
+<main>
+  <div class="mark" aria-hidden="true">e</div>
+  <h1>Empre: todo tu barrio en un solo lugar</h1>
+  <p class="lead">Encuentra las tiendas, servicios y ofertas cerca de ti, y si tienes un negocio, adminístralo desde el celular.</p>
+  <div class="grid">
+    <div class="card"><strong>Empre Finder</strong>Descubre lo que está abierto a pasos de ti.</div>
+    <div class="card"><strong>Empre Vitrina</strong>Catálogos y ofertas reales de tu barrio.</div>
+    <div class="card"><strong>Mi negocio</strong>Ventas, gastos, inventario y citas al día.</div>
+    <div class="card"><strong>Empre AI</strong>Dicta tus ventas y deja que Empre te ayude a escribir.</div>
+  </div>
+  <p>Muy pronto en Google Play y en la App Store.</p>
+  <footer>
+    <a href="/privacidad">Política de privacidad</a> · <a href="/eliminar-cuenta">Eliminar tu cuenta</a> ·
+    <a href="mailto:{{.Email}}">{{.Email}}</a>
+  </footer>
+</main>
+</body>
+</html>

@@ -676,6 +676,7 @@ func main() {
 
 	// Salud y métricas (3.53): /health (vive), /ready (la base responde), /metrics (Prometheus, protegido).
 	// Páginas legales públicas: las URL que piden Google Play y la App Store.
+	r.GET("/", handlers.LegalPage("inicio.html"))
 	r.GET("/privacidad", handlers.LegalPage("privacidad.html"))
 	r.GET("/eliminar-cuenta", handlers.LegalPage("eliminar-cuenta.html"))
 	r.GET("/health", healthHandler.Health)
