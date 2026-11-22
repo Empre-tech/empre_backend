@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -96,6 +97,8 @@ type VoiceResult struct {
 	Text    string        `json:"text"`
 	Actions []VoiceAction `json:"actions"`
 	Message string        `json:"message,omitempty"` // lo que dijo la IA si no entendió nada
+	// Answer: si fue una pregunta (¿cuál fue lo que más vendí esta semana?), la respuesta con los datos del negocio.
+	Answer string `json:"answer,omitempty"`
 }
 
 const voiceToolName = "registrar"
@@ -126,7 +129,8 @@ var voiceToolSchema = json.RawMessage(`{
 				"required": ["type"]
 			}
 		},
-		"unclear": {"type": "string", "description": "Si NO entendiste o falta un dato esencial, una frase corta en español para decírselo al dueño. Si entendiste, vacío."}
+		"unclear": {"type": "string", "description": "Si NO entendiste o falta un dato esencial, una frase corta en español para decírselo al dueño. Si entendiste, vacío."},
+		"answer": {"type": "string", "description": "Solo si el dueño PREGUNTA algo sobre sus números o su inventario (no registra nada): la respuesta en una o dos frases, usando SOLO los DATOS DEL NEGOCIO del mensaje de sistema. Si el dato no está ahí, dilo así. Si no preguntó nada, vacío."}
 	},
 	"required": ["actions"]
 }`)
@@ -150,12 +154,13 @@ type modelAction struct {
 type modelOutput struct {
 	Actions []modelAction `json:"actions"`
 	Unclear string        `json:"unclear"`
+	Answer  string        `json:"answer"`
 }
 
 func voiceSystemPrompt(today time.Time, items, customers, suppliers, supplies []string, tabs ...string) string {
 	var b strings.Builder
 	b.WriteString("Eres el asistente de contabilidad de un negocio pequeño en Colombia. El dueño te dicta por voz ventas, gastos y abonos; ")
-	b.WriteString("tú los conviertes en datos llamando SIEMPRE a la herramienta «registrar». Nunca respondas con texto libre.\n")
+	b.WriteString("tú los conviertes en datos llamando SIEMPRE a la herramienta «registrar». Nunca respondas con texto libre. Si en vez de registrar el dueño PREGUNTA por sus números o su inventario, deja «actions» vacío y responde en «answer» con los DATOS DEL NEGOCIO.\n")
 	b.WriteString("Hoy es " + today.Format("2006-01-02") + ". Los montos son pesos colombianos. «Lucas» o «lukas» son miles (veinte lucas = 20.000), «palo» es un millón. ")
 	b.WriteString("«Fiado», «a crédito» o «me debe» = credit. Nequi, Daviplata, transferencia = transfer.\n")
 	b.WriteString("REGLAS: (1) No inventes datos: si no dijo el monto, déjalo en 0 y llena «unclear». (2) Copia en amount_spoken las palabras exactas del monto. ")
@@ -328,6 +333,8 @@ func (s *LedgerService) ParseVoiceAt(ownerID, entityID uuid.UUID, text string, t
 	} else {
 		prompt += voiceModuleLine(module)
 	}
+	// Para responder preguntas (2026-11-22): un resumen corto de los números o del inventario, según dónde se abrió.
+	prompt += s.voiceDataBlock(ownerID, entityID, module, now)
 	var model VoiceModel = s.model
 	if tagged, ok := s.model.(interface{ For(AIUsageMeta) *AICall }); ok {
 		model = tagged.For(AIUsageMeta{Feature: AIFeatureDictado, EntityID: &entityID, UserID: &ownerID})
@@ -349,7 +356,7 @@ func (s *LedgerService) ParseVoiceAt(ownerID, entityID uuid.UUID, text string, t
 		}
 	}
 
-	res := VoiceResult{Text: text, Actions: []VoiceAction{}, Message: strings.TrimSpace(out.Unclear)}
+	res := VoiceResult{Text: text, Actions: []VoiceAction{}, Message: strings.TrimSpace(out.Unclear), Answer: strings.TrimSpace(out.Answer)}
 	textKey := ledger.Normalize(text)
 	for i, ma := range out.Actions {
 		if i >= maxVoiceActions {
@@ -892,4 +899,76 @@ func (s *LedgerService) confirmTab(tx *gorm.DB, entityID uuid.UUID, a VoiceActio
 		return *a.TabID, s.payTab(tx, entityID, *a.TabID, PayTabInput{SaleID: a.ClientID, Method: a.Method, PartyID: partyID, Source: models.SourceVoice})
 	}
 	return uuid.Nil, &InvalidError{"tipo de acción inválido"}
+}
+
+// voiceDataBlock arma los DATOS DEL NEGOCIO con que Empre AI responde preguntas en la hoja de dictado: en Inventario,
+// lo que se acaba; en el resto, ventas, gastos y lo que más se vende hoy y en la semana, y lo que le deben y debe.
+// Si algo falla se omite: dictar sigue funcionando igual.
+func (s *LedgerService) voiceDataBlock(ownerID, entityID uuid.UUID, module string, now time.Time) string {
+	var b strings.Builder
+	b.WriteString("DATOS DEL NEGOCIO (solo para responder preguntas en «answer»; no los registres):\n")
+	if module == VoiceAtInventory {
+		type row struct {
+			Name  string
+			Level string
+			Qty   float64
+			Unit  string
+		}
+		var rows []row
+		err := s.db.Table("stock_items si").
+			Select("COALESCE(NULLIF(si.name, ''), it.name) AS name, si.level, si.qty, si.unit").
+			Joins("LEFT JOIN service_items it ON it.id = si.service_item_id").
+			Where("si.entity_id = ? AND si.archived = false AND si.counted_at IS NOT NULL", entityID).
+			Order("si.level DESC, name").Limit(60).Scan(&rows).Error
+		if err != nil || len(rows) == 0 {
+			b.WriteString("- Inventario: todavía no hay productos contados.\n")
+			return b.String()
+		}
+		var out, low, ok []string
+		for _, r := range rows {
+			item := fmt.Sprintf("%s (%s %s)", r.Name, strconv.FormatFloat(r.Qty, 'f', -1, 64), r.Unit)
+			switch r.Level {
+			case "out":
+				out = append(out, r.Name)
+			case "low":
+				low = append(low, item)
+			default:
+				ok = append(ok, item)
+			}
+		}
+		fmt.Fprintf(&b, "- Agotados: %s\n- Queda poco: %s\n- Con existencia: %s\n", listOrNone(out), listOrNone(low), listOrNone(capList(ok, 25)))
+		return b.String()
+	}
+	for _, p := range []struct{ period, label string }{{"day", "Hoy"}, {"week", "Esta semana"}, {"month", "Este mes"}} {
+		sum, err := s.Summary(ownerID, entityID, p.period, now)
+		if err != nil {
+			continue
+		}
+		var top []string
+		for i, t := range sum.TopItems {
+			if i == 3 {
+				break
+			}
+			top = append(top, fmt.Sprintf("%s (%s, %s)", t.Name, strconv.FormatFloat(t.Qty, 'f', -1, 64), pesos(t.Revenue)))
+		}
+		fmt.Fprintf(&b, "- %s: ventas %s en %d ventas; gastos %s; quedó %s; lo más vendido: %s.\n", p.label, pesos(sum.SalesTotal), sum.SalesCount, pesos(sum.ExpensesTotal), pesos(sum.Profit), listOrNone(top))
+		if p.period == "day" {
+			fmt.Fprintf(&b, "- Le deben al negocio %s; el negocio debe %s.\n", pesos(sum.Receivable), pesos(sum.Payable))
+		}
+	}
+	return b.String()
+}
+
+func listOrNone(l []string) string {
+	if len(l) == 0 {
+		return "ninguno"
+	}
+	return strings.Join(l, ", ")
+}
+
+func capList(l []string, n int) []string {
+	if len(l) > n {
+		return l[:n]
+	}
+	return l
 }
