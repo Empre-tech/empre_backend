@@ -20,6 +20,41 @@ type LedgerHandler struct {
 
 func NewLedgerHandler(svc *services.LedgerService) *LedgerHandler { return &LedgerHandler{svc: svc} }
 
+type setProRequest struct {
+	// Days: cuántos días de Pro desde hoy (1 a 400). 0 lo devuelve a Base.
+	Days *int `json:"days" binding:"required,min=0,max=400"`
+}
+
+// SetPro (solo admin, para pruebas): POST /api/admin/entities/:id/pro {"days": 30} pone el negocio en Empre Pro por
+// esos días; {"days": 0} lo deja en Base.
+func (h *LedgerHandler) SetPro(c *gin.Context) {
+	entityID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid", "message": "id inválido"})
+		return
+	}
+	var req setProRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid", "message": "days debe estar entre 0 y 400"})
+		return
+	}
+	var until *time.Time
+	if *req.Days > 0 {
+		t := time.Now().AddDate(0, 0, *req.Days)
+		until = &t
+	}
+	sub, err := h.svc.SetPro(entityID, until)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	plan := "base"
+	if until != nil {
+		plan = "pro"
+	}
+	c.JSON(http.StatusOK, gin.H{"plan": plan, "status": sub.Status, "current_period_end": sub.CurrentPeriodEnd})
+}
+
 func (h *LedgerHandler) fail(c *gin.Context, err error) {
 	var invalid *services.InvalidError
 	switch {

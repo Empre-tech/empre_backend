@@ -654,6 +654,7 @@ func main() {
 			adminGroup.GET("/health", healthHandler.AdminHealth)
 			adminGroup.GET("/ai-usage", (&handlers.AIUsageHandler{Usage: aiUsageService}).Summary)
 			adminGroup.POST("/users/:id/plan", askHandler.GrantPlan)
+			adminGroup.POST("/entities/:id/pro", ledgerHandler.SetPro)
 			adminGroup.PATCH("/entities/:id/verify", entityHandler.VerifyEntity)
 
 			adminGroup.POST("/categories", categoryHandler.Create)

@@ -3,6 +3,7 @@ package services
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"empre_backend/internal/ledger"
 	"empre_backend/internal/models"
@@ -54,5 +55,27 @@ func TestExactCountIsPro(t *testing.T) {
 	svc.PlansEnforced = false
 	if _, err := svc.UpdateStockSettings(owner.ID, ent.ID, sup.ID, ItemSettings{Mode: &exact}); err != nil {
 		t.Fatalf("sin planes: %v", err)
+	}
+}
+
+// TestSetPro: el atajo de pruebas pone y quita Empre Pro con la misma suscripción que se paga.
+func TestSetPro(t *testing.T) {
+	_, svc, _, _, ent := ledgerFixture(t)
+	if _, err := svc.SetPro(ent.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	if pro, _ := svc.IsPro(ent.ID); pro {
+		t.Fatal("con until nil debía quedar en Base")
+	}
+	until := time.Now().AddDate(0, 0, 30)
+	sub, err := svc.SetPro(ent.ID, &until)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pro, _ := svc.IsPro(ent.ID); !pro || sub.Status != models.SubscriptionActive {
+		t.Fatalf("debía quedar en Pro: %+v", sub)
+	}
+	if _, err := svc.SetPro(uuid.New(), &until); !errors.Is(err, ErrLedgerNotFound) {
+		t.Fatalf("negocio que no existe: %v", err)
 	}
 }

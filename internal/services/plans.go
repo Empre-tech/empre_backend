@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm/clause"
 
 	"empre_backend/internal/models"
 )
@@ -32,6 +33,28 @@ func (s *LedgerService) IsPro(entityID uuid.UUID) (bool, error) {
 		return false, nil
 	}
 	return subscriptionIsPro(sub, time.Now()), nil
+}
+
+// SetPro pone un negocio en Empre Pro hasta `until` (para pruebas, desde /api/admin/entities/:id/pro). Con until nil
+// lo deja en Base. Usa la misma suscripción que se paga con Wompi: la app la ve igual que una pagada.
+func (s *LedgerService) SetPro(entityID uuid.UUID, until *time.Time) (models.Subscription, error) {
+	var ent models.Entity
+	if err := s.db.Select("id").First(&ent, "id = ?", entityID).Error; err != nil {
+		return models.Subscription{}, ErrLedgerNotFound
+	}
+	sub := models.Subscription{EntityID: entityID, Status: models.SubscriptionInactive}
+	if until != nil {
+		sub.Status, sub.CurrentPeriodEnd = models.SubscriptionActive, until
+	}
+	err := s.db.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "entity_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{"status", "current_period_end", "updated_at"}),
+	}).Create(&sub).Error
+	if err != nil {
+		return models.Subscription{}, err
+	}
+	err = s.db.First(&sub, "entity_id = ?", entityID).Error
+	return sub, err
 }
 
 // exactAllowed: llevar la cantidad exacta (contar cuántos hay) es de Empre Pro; en Base se lleva el semáforo.
