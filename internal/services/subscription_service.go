@@ -19,8 +19,11 @@ import (
 // esto pasa a ser una tabla, pero para el MVP un plan fijo es más simple de
 // razonar y de mostrar en la app.
 const (
-	PlanProMonthly        = "pro_monthly"
-	ProMonthlyPriceCOP    = 39900 // pesos colombianos
+	PlanProMonthly     = "pro_monthly"
+	ProMonthlyPriceCOP = 39900 // pesos colombianos
+	// ProExtraPriceCOP: con Pro ya activo en uno de sus negocios, cada negocio más del mismo dueño paga la mitad
+	// (2026-11-22).
+	ProExtraPriceCOP       = ProMonthlyPriceCOP / 2
 	SubscriptionPeriodDays = 30
 
 	// Base y Empre Pro (2026-11-17): el plan Base es gratis y nunca oculta el negocio. Cuando le escriben clientes
@@ -67,6 +70,22 @@ func (s *SubscriptionService) Enabled() bool {
 // otherwise). There is no trial and nothing to pay to stay visible.
 type StatusView struct {
 	Subscription *models.Subscription `json:"subscription"`
+	// PriceCOP: lo que paga este negocio por un mes de Pro. ExtraBusiness: va a mitad de precio porque el dueño ya
+	// tiene Pro en otro de sus negocios.
+	PriceCOP      int  `json:"price_cop"`
+	ExtraBusiness bool `json:"extra_business"`
+}
+
+// PriceFor: el precio de un mes de Pro para este negocio. La mitad si el dueño ya tiene Pro en otro negocio.
+func (s *SubscriptionService) PriceFor(entityID uuid.UUID) (int, bool, error) {
+	extra, err := s.Repo.OwnerHasOtherPro(entityID)
+	if err != nil {
+		return ProMonthlyPriceCOP, false, err
+	}
+	if extra {
+		return ProExtraPriceCOP, true, nil
+	}
+	return ProMonthlyPriceCOP, false, nil
 }
 
 // Status returns the entity's subscription, self-healing an expired "active"
@@ -80,7 +99,11 @@ func (s *SubscriptionService) Status(entityID uuid.UUID) (*StatusView, error) {
 		sub.Status = models.SubscriptionInactive
 	}
 
-	return &StatusView{Subscription: sub}, nil
+	price, extra, err := s.PriceFor(entityID)
+	if err != nil {
+		return nil, err
+	}
+	return &StatusView{Subscription: sub, PriceCOP: price, ExtraBusiness: extra}, nil
 }
 
 // CheckProInvite is called right after a customer's message to a business is saved. When a Base business reaches
@@ -141,7 +164,11 @@ func (s *SubscriptionService) CreateCheckout(entityID uuid.UUID) (*CheckoutData,
 		return nil, err
 	}
 
-	amountInCents := int64(ProMonthlyPriceCOP) * 100
+	price, _, err := s.PriceFor(entityID)
+	if err != nil {
+		return nil, err
+	}
+	amountInCents := int64(price) * 100
 	reference := fmt.Sprintf("empre-%s-%d", entityID.String()[:8], time.Now().UnixNano())
 
 	payment := &models.SubscriptionPayment{

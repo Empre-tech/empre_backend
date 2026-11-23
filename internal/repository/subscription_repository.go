@@ -35,6 +35,20 @@ func (r *SubscriptionRepository) FindOrCreateByEntity(entityID uuid.UUID) (*mode
 	return &sub, nil
 }
 
+// OwnerHasOtherPro: el dueño de este negocio ya tiene Empre Pro activo (y sin vencer) en OTRO de sus negocios.
+func (r *SubscriptionRepository) OwnerHasOtherPro(entityID uuid.UUID) (bool, error) {
+	var n int64
+	err := r.DB.Raw(`
+		SELECT COUNT(*) FROM subscriptions s
+		JOIN entities e ON e.id = s.entity_id
+		WHERE e.owner_id = (SELECT owner_id FROM entities WHERE id = ?)
+		  AND s.entity_id <> ?
+		  AND e.deleted_at IS NULL
+		  AND s.status = ?
+		  AND s.current_period_end > ?`, entityID, entityID, models.SubscriptionActive, time.Now()).Scan(&n).Error
+	return n > 0, err
+}
+
 // CreatePayment records a new checkout attempt (PENDING) for a subscription.
 func (r *SubscriptionRepository) CreatePayment(payment *models.SubscriptionPayment) error {
 	return r.DB.Create(payment).Error
