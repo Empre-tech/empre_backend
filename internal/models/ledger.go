@@ -64,6 +64,10 @@ type Party struct {
 	Phone       string     `gorm:"size:20" json:"phone"`
 	UserID      *uuid.UUID `gorm:"type:uuid" json:"user_id,omitempty"`
 	CreditLimit *int       `json:"credit_limit"`
+	// AcceptsMessages: el cliente autorizó que el negocio guarde su celular y le escriba (Ley 1581 de 2012).
+	// ConsentAt: cuándo lo autorizó. Sin autorización, el negocio no le manda ofertas.
+	AcceptsMessages bool       `gorm:"not null;default:false" json:"accepts_messages"`
+	ConsentAt       *time.Time `json:"consent_at,omitempty"`
 
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`

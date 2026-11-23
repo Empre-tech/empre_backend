@@ -456,6 +456,7 @@ func main() {
 				entitiesProtected.POST("/:id/ledger/cash/close", ledgerHandler.CloseCash)
 				entitiesProtected.POST("/:id/ledger/parties", ledgerHandler.CreateParty)
 				entitiesProtected.GET("/:id/ledger/parties", ledgerHandler.ListParties)
+				entitiesProtected.PATCH("/:id/ledger/parties/:partyId", ledgerHandler.UpdateParty)
 				entitiesProtected.GET("/:id/ledger/parties/:partyId/payments", ledgerHandler.ListPayments)
 				entitiesProtected.POST("/:id/ledger/payments", ledgerHandler.CreatePayment)
 				entitiesProtected.GET("/:id/ledger/items", ledgerHandler.ListItems)
@@ -694,6 +695,8 @@ func main() {
 	// Páginas legales públicas: las URL que piden Google Play y la App Store.
 	r.GET("/", handlers.LegalPage("inicio.html"))
 	r.GET("/privacidad", handlers.LegalPage("privacidad.html"))
+	// El ticket digital de una venta: el negocio lo manda por WhatsApp a su cliente (/t/<id de la venta>).
+	r.GET("/t/:saleId", ledgerHandler.ReceiptPage)
 	r.GET("/eliminar-cuenta", handlers.LegalPage("eliminar-cuenta.html"))
 	r.GET("/health", healthHandler.Health)
 	r.GET("/ready", healthHandler.Ready)

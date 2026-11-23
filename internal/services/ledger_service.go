@@ -132,6 +132,52 @@ type PartyInput struct {
 	Name        string    `json:"name"`
 	Phone       string    `json:"phone"`
 	CreditLimit *int      `json:"credit_limit"`
+	// AcceptsMessages: el cliente autorizó guardar su celular y recibir mensajes del negocio.
+	AcceptsMessages bool `json:"accepts_messages"`
+}
+
+// PartyUpdate: lo que se puede cambiar de un cliente o proveedor. Los campos nulos no se tocan.
+type PartyUpdate struct {
+	Name            *string `json:"name"`
+	Phone           *string `json:"phone"`
+	AcceptsMessages *bool   `json:"accepts_messages"`
+}
+
+// UpdateParty cambia el nombre, el celular o la autorización de mensajes de un tercero (solo el dueño).
+func (s *LedgerService) UpdateParty(ownerID, entityID, partyID uuid.UUID, in PartyUpdate) (models.Party, error) {
+	if err := s.requireOwner(ownerID, entityID); err != nil {
+		return models.Party{}, err
+	}
+	p, err := s.party(entityID, partyID, "")
+	if err != nil {
+		return p, err
+	}
+	upd := map[string]any{}
+	if in.Name != nil {
+		name := cleanText(*in.Name, 80)
+		if name == "" {
+			return p, &InvalidError{"el nombre es obligatorio"}
+		}
+		upd["name"], upd["name_key"] = name, ledger.Normalize(name)
+	}
+	if in.Phone != nil {
+		upd["phone"] = cleanText(*in.Phone, 20)
+	}
+	if in.AcceptsMessages != nil && *in.AcceptsMessages != p.AcceptsMessages {
+		upd["accepts_messages"] = *in.AcceptsMessages
+		if *in.AcceptsMessages {
+			upd["consent_at"] = time.Now()
+		} else {
+			upd["consent_at"] = nil
+		}
+	}
+	if len(upd) == 0 {
+		return p, nil
+	}
+	if err := s.db.Model(&models.Party{}).Where("id = ?", p.ID).Updates(upd).Error; err != nil {
+		return p, err
+	}
+	return s.party(entityID, partyID, "")
 }
 
 // PartyBalance es un tercero con lo que se debe. Para un cliente es lo que él debe al negocio; para un proveedor,
@@ -171,6 +217,11 @@ func (s *LedgerService) createParty(db *gorm.DB, entityID uuid.UUID, in PartyInp
 	p := models.Party{
 		ID: in.ClientID, EntityID: entityID, ClientID: in.ClientID, Kind: kind, Name: name,
 		NameKey: ledger.Normalize(name), Phone: cleanText(in.Phone, 20), CreditLimit: in.CreditLimit,
+		AcceptsMessages: in.AcceptsMessages,
+	}
+	if in.AcceptsMessages {
+		now := time.Now()
+		p.ConsentAt = &now
 	}
 	res := db.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "entity_id"}, {Name: "client_id"}}, DoNothing: true}).Create(&p)
 	if res.Error != nil {
@@ -534,6 +585,7 @@ type ListFilter struct {
 	From, To *time.Time
 	Limit    int
 	Before   *time.Time // paginación: solo lo anterior a esta fecha
+	PartyID  *uuid.UUID // solo las de este cliente (su historial)
 }
 
 func (f ListFilter) limit() int {
@@ -551,6 +603,9 @@ func (s *LedgerService) ListSales(ownerID, entityID uuid.UUID, f ListFilter) ([]
 		return nil, err
 	}
 	q := s.db.Preload("Lines").Preload("Party").Where("entity_id = ?", entityID)
+	if f.PartyID != nil {
+		q = q.Where("party_id = ?", *f.PartyID)
+	}
 	if f.From != nil {
 		q = q.Where("occurred_at >= ?", *f.From)
 	}

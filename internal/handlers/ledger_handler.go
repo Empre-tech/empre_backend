@@ -148,6 +148,9 @@ func parseListFilter(c *gin.Context) services.ListFilter {
 	if t, err := time.Parse(time.RFC3339, c.Query("to")); err == nil {
 		f.To = &t
 	}
+	if id, err := uuid.Parse(c.Query("party_id")); err == nil {
+		f.PartyID = &id
+	}
 	return f
 }
 
@@ -236,6 +239,29 @@ func (h *LedgerHandler) CreateParty(c *gin.Context) {
 		return
 	}
 	created(c, isNew, p)
+}
+
+// UpdateParty: PATCH /entities/:id/ledger/parties/:partyId {name?, phone?, accepts_messages?}.
+func (h *LedgerHandler) UpdateParty(c *gin.Context) {
+	user, entity, ok := h.ids(c)
+	if !ok {
+		return
+	}
+	party, ok := uuidParam(c, "partyId")
+	if !ok {
+		return
+	}
+	var in services.PartyUpdate
+	if err := c.ShouldBindJSON(&in); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid", "message": "datos inválidos"})
+		return
+	}
+	p, err := h.svc.UpdateParty(user, entity, party, in)
+	if err != nil {
+		h.fail(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, p)
 }
 
 func (h *LedgerHandler) ListParties(c *gin.Context) {

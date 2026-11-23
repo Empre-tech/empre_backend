@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Ticket · {{.Business}}</title>
+<style>
+  :root { --ink:#2B2622; --muted:#6B625B; --red:#D42020; --bg:#F5F5F4; --paper:#FFFFFF; --line:#E7E5E4; }
+  @media (prefers-color-scheme: dark) { :root { --ink:#F2EDE9; --muted:#B8AEA6; --red:#FF5A5A; --bg:#121010; --paper:#1F1B19; --line:#3A3330; } }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  main { max-width:420px; margin:0 auto; padding:24px 16px 48px; }
+  .paper { background:var(--paper); border-radius:16px; padding:24px 20px; box-shadow:0 2px 12px rgba(0,0,0,.06); }
+  h1 { font-size:22px; margin:0; text-align:center; }
+  .center { text-align:center; } .muted { color:var(--muted); font-size:13px; }
+  .void { margin:12px 0 0; padding:8px; border-radius:10px; background:#FDECEC; color:#8E2A2A; text-align:center; font-weight:700; }
+  hr { border:0; border-top:1px dashed var(--line); margin:16px 0; }
+  .row { display:flex; gap:8px; justify-content:space-between; margin:6px 0; }
+  .row .q { color:var(--muted); min-width:28px; } .row .n { flex:1; }
+  .total { font-size:20px; font-weight:800; }
+  .foot { margin-top:16px; text-align:center; color:var(--muted); font-size:12px; }
+  .foot b { color:var(--red); }
+</style>
+</head>
+<body>
+<main>
+<div class="paper">
+  <h1>{{.Business}}</h1>
+  {{if .Address}}<p class="center muted" style="margin:4px 0 0">{{.Address}}</p>{{end}}
+  <p class="center muted" style="margin:4px 0 0">Ticket {{.Number}} · {{.When}}</p>
+  {{if .Customer}}<p class="center" style="margin:8px 0 0">Gracias por tu compra, {{.Customer}}</p>{{end}}
+  {{if .Voided}}<p class="void">Esta venta fue anulada</p>{{end}}
+  <hr>
+  {{range .Lines}}<div class="row"><span class="q">{{.Qty}}</span><span class="n">{{.Name}}</span><span>{{.Price}}</span></div>{{end}}
+  {{if .Lines}}<hr>{{end}}
+  <div class="row total"><span>Total</span><span>{{.Total}}</span></div>
+  {{range .Pays}}<div class="row muted"><span>{{.}}</span></div>{{end}}
+  {{if .Note}}<p class="muted">{{.Note}}</p>{{end}}
+  <hr>
+  <p class="center muted" style="margin:0">Este ticket no es una factura electrónica.</p>
+</div>
+<p class="foot">Hecho con <b>Empre</b></p>
+</main>
+</body>
+</html>
