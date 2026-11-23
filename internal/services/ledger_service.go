@@ -63,6 +63,8 @@ type LedgerService struct {
 	VoiceMonthlyLimit int
 	// PlansEnforced: lo de Empre Pro (Empre AI) solo para negocios con Pro activo. EMPRE_PLANS=off lo apaga.
 	PlansEnforced bool
+	// Notify manda push al dueño (el aviso semanal de fiados). nil = sin avisos.
+	Notify Notifier
 }
 
 // SetVoiceModel conecta el modelo de IA que interpreta el dictado. Sin él, la voz responde ErrVoiceDisabled.

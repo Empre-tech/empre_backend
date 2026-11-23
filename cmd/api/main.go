@@ -80,6 +80,7 @@ func main() {
 		&models.EntityPhoto{},
 		&models.PasswordResetToken{},
 		&models.EmailCode{},
+		&models.OwnerNotice{},
 		&models.RefreshToken{},
 		&models.Review{},
 		&models.Favorite{},
@@ -345,6 +346,9 @@ func main() {
 	// (expiración, recordatorios y cierre) cada 30 segundos.
 	agendaService.SetRealtime(wsHub)
 	agendaService.StartAgendaJobs(context.Background())
+	// Los lunes en la mañana, el aviso de lo que le deben a cada dueño.
+	ledgerService.Notify = pushService.Notify
+	ledgerService.StartDebtReminders(context.Background())
 
 	// Routes
 	api := r.Group("/api")
