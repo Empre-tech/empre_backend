@@ -78,6 +78,10 @@ type VoiceAction struct {
 	PartyID   *uuid.UUID  `json:"party_id,omitempty"`
 	PartyName string      `json:"party_name,omitempty"`
 	NewParty  bool        `json:"new_party,omitempty"`
+	// PartyPhone y AcceptsMessages: lo que el dueño agrega en la hoja al confirmar un cliente nuevo (su celular y si
+	// autorizó recibir mensajes, Ley 1581). Solo se usan al crearlo.
+	PartyPhone      string `json:"party_phone,omitempty"`
+	AcceptsMessages bool   `json:"accepts_messages,omitempty"`
 	// Candidates: el nombre dictado encaja con varios; la app muestra para elegir.
 	Candidates []PartyRef `json:"candidates,omitempty"`
 	Warnings   []string   `json:"warnings,omitempty"`
@@ -682,9 +686,11 @@ func (s *LedgerService) ConfirmVoice(ownerID, entityID, draftID uuid.UUID, actio
 				if a.Type == ActionExpense {
 					kind = models.PartySupplier
 				}
-				p, _, err := s.createParty(tx, entityID, PartyInput{
-					ClientID: uuid.NewSHA1(a.ClientID, []byte("party")), Kind: kind, Name: a.PartyName,
-				})
+				in := PartyInput{ClientID: uuid.NewSHA1(a.ClientID, []byte("party")), Kind: kind, Name: a.PartyName}
+				if kind == models.PartyCustomer {
+					in.Phone, in.AcceptsMessages = a.PartyPhone, a.AcceptsMessages
+				}
+				p, _, err := s.createParty(tx, entityID, in)
 				if err != nil {
 					return err
 				}

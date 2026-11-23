@@ -41,4 +41,22 @@ func TestVoiceNamedClientIsCash(t *testing.T) {
 	if !res.Actions[0].NewParty || res.Actions[0].PartyName != "Laura" {
 		t.Fatalf("una clienta nueva en una venta de contado queda para crearse: %+v", res.Actions[0])
 	}
+
+	// Al confirmar, el celular y la autorización que el dueño puso en la hoja quedan en la clienta nueva.
+	acts := res.Actions
+	acts[0].PartyPhone, acts[0].AcceptsMessages = "300 123 4567", true
+	if _, err := svc.ConfirmVoice(owner.ID, ent.ID, res.DraftID, acts); err != nil {
+		t.Fatal(err)
+	}
+	var laura models.Party
+	if err := db.Where("entity_id = ? AND name = ?", ent.ID, "Laura").First(&laura).Error; err != nil {
+		t.Fatal(err)
+	}
+	if laura.Phone != "300 123 4567" || !laura.AcceptsMessages || laura.ConsentAt == nil {
+		t.Fatalf("clienta nueva con su celular y autorización: %+v", laura)
+	}
+	var sale models.Sale
+	if err := db.Where("party_id = ?", laura.ID).First(&sale).Error; err != nil || sale.Method != models.PayCash {
+		t.Fatalf("la venta queda de contado a Laura: %+v %v", sale, err)
+	}
 }
