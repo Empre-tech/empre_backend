@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Restablecer contraseña · Empre</title>
+<style>
+  :root { --ink:#2B2622; --muted:#57534E; --red:#D42020; --bg:#F5F5F4; --paper:#FFFFFF; --line:#E7E5E4; }
+  @media (prefers-color-scheme: dark) { :root { --ink:#F2EDE9; --muted:#B8AEA6; --red:#FF5A5A; --bg:#121010; --paper:#1F1B19; --line:#3A3330; } }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  main { max-width:420px; margin:0 auto; padding:32px 16px; }
+  .card { background:var(--paper); border-radius:16px; padding:24px 20px; }
+  .brand { color:var(--red); font-weight:800; margin:0 0 12px; }
+  h1 { font-size:22px; margin:0 0 8px; }
+  label { display:block; font-weight:600; margin:16px 0 6px; }
+  input { box-sizing:border-box; width:100%; min-height:48px; padding:0 14px; border:1.5px solid var(--line); border-radius:12px; font:inherit; background:var(--paper); color:var(--ink); }
+  button { width:100%; min-height:50px; margin-top:20px; border:0; border-radius:12px; background:var(--red); color:#fff; font:inherit; font-weight:700; }
+  button:disabled { opacity:.6; }
+  .msg { margin-top:16px; padding:12px; border-radius:12px; background:var(--bg); }
+  .muted { color:var(--muted); font-size:14px; }
+</style>
+</head>
+<body>
+<main>
+<div class="card">
+  <p class="brand">Empre</p>
+  <h1>Escribe tu nueva contraseña</h1>
+  <p class="muted">Mínimo 6 letras o números. Al guardarla, se cierran tus sesiones abiertas y entras de nuevo en la app.</p>
+  <form id="f">
+    <label for="p1">Nueva contraseña</label>
+    <input id="p1" type="password" autocomplete="new-password" minlength="6" required>
+    <label for="p2">Repítela</label>
+    <input id="p2" type="password" autocomplete="new-password" minlength="6" required>
+    <button id="b" type="submit">Guardar contraseña</button>
+  </form>
+  <div id="m" class="msg" hidden></div>
+</div>
+</main>
+<script>
+(function () {
+  var token = new URLSearchParams(location.search).get('token') || '';
+  var f = document.getElementById('f'), m = document.getElementById('m'), b = document.getElementById('b');
+  function say(t) { m.textContent = t; m.hidden = false; }
+  if (!token) { f.hidden = true; say('Este enlace no está completo. Pide otro desde la app con «Olvidé mi contraseña».'); return; }
+  f.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var p1 = document.getElementById('p1').value, p2 = document.getElementById('p2').value;
+    if (p1.length < 6) return say('La contraseña necesita mínimo 6 letras o números.');
+    if (p1 !== p2) return say('Las dos contraseñas no son iguales.');
+    b.disabled = true;
+    fetch('/api/auth/password-reset/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: token, password: p1 }) })
+      .then(function (r) {
+        if (r.ok) { f.hidden = true; say('Listo, tu contraseña quedó cambiada. Vuelve a la app de Empre e inicia sesión.'); return; }
+        if (r.status === 429) { say('Muchos intentos. Espera unos minutos.'); b.disabled = false; return; }
+        say('El enlace venció o ya se usó. Pide otro desde la app con «Olvidé mi contraseña».'); b.disabled = false;
+      })
+      .catch(function () { say('No hay conexión. Inténtalo otra vez.'); b.disabled = false; });
+  });
+})();
+</script>
+</body>
+</html>

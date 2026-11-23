@@ -16,4 +16,6 @@ type UserResponse struct {
 	Role              models.Role `json:"role"`
 	// HasPassword: false si la cuenta entra solo con Google (al eliminarla no se pide contraseña).
 	HasPassword bool `json:"has_password"`
+	// EmailVerified: el correo está verificado (código, Google o restablecer la contraseña).
+	EmailVerified bool `json:"email_verified"`
 }

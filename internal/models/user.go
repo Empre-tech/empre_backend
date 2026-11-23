@@ -23,6 +23,8 @@ type User struct {
 	ProfileMediaID    *uuid.UUID `gorm:"type:uuid" json:"profile_media_id,omitempty"`
 	ProfilePictureURL string     `gorm:"-" json:"profile_picture_url"`
 	Role              Role       `gorm:"type:varchar(20);default:'user'" json:"role"`
+	// EmailVerifiedAt: cuándo se verificó el correo (código, Google o restablecer la contraseña). nil = sin verificar.
+	EmailVerifiedAt *time.Time `json:"email_verified_at,omitempty"`
 
 	ProfileMedia *Media         `gorm:"foreignKey:ProfileMediaID" json:"-"`
 	CreatedAt    time.Time      `json:"created_at"`

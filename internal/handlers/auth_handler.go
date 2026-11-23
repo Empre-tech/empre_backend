@@ -147,6 +147,49 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	c.JSON(http.StatusOK, tokens)
 }
 
+// SendEmailCode: POST /api/users/me/verify-email/send, manda un código nuevo al correo de la cuenta.
+func (h *AuthHandler) SendEmailCode(c *gin.Context) {
+	user, ok := currentUser(c)
+	if !ok {
+		return
+	}
+	if err := h.Service.SendEmailCode(user); err != nil {
+		if errors.Is(err, services.ErrEmailCodeTooSoon) {
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": "too_soon", "message": err.Error()})
+			return
+		}
+		c.JSON(http.StatusBadGateway, gin.H{"error": "mail_failed", "message": "No pudimos mandar el correo. Inténtalo en un rato."})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"sent": true})
+}
+
+type verifyEmailRequest struct {
+	Code string `json:"code" binding:"required,len=6,numeric"`
+}
+
+// VerifyEmail: POST /api/users/me/verify-email {"code":"123456"}.
+func (h *AuthHandler) VerifyEmail(c *gin.Context) {
+	user, ok := currentUser(c)
+	if !ok {
+		return
+	}
+	var req verifyEmailRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid", "message": "El código tiene 6 números."})
+		return
+	}
+	if err := h.Service.VerifyEmail(user, req.Code); err != nil {
+		if errors.Is(err, services.ErrEmailCodeWrong) || errors.Is(err, services.ErrEmailCodeExpired) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "bad_code", "message": err.Error()})
+			return
+		}
+		internalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"verified": true})
+}
+
 type ForgotPasswordRequest struct {
 	Email string `json:"email" binding:"required,email"`
 }

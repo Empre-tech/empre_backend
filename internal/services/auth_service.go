@@ -50,7 +50,11 @@ func (s *AuthService) Register(user *models.User) error {
 	user.PasswordHash = string(hashedPassword)
 
 	// Save User
-	return s.Repo.Create(user)
+	if err := s.Repo.Create(user); err != nil {
+		return err
+	}
+	s.sendFirstCode(user.ID)
+	return nil
 }
 
 func (s *AuthService) Login(email, password string) (*utils.TokenResponse, error) {
@@ -84,12 +88,16 @@ func (s *AuthService) LoginWithGoogle(idToken string) (*utils.TokenResponse, err
 		if name == "" {
 			name = strings.Split(ident.Email, "@")[0]
 		}
-		user = models.User{Name: name, Email: ident.Email, Role: models.RoleUser}
+		now := time.Now()
+		user = models.User{Name: name, Email: ident.Email, Role: models.RoleUser, EmailVerifiedAt: &now}
 		if err := s.Repo.DB.Create(&user).Error; err != nil {
 			return nil, err
 		}
 	} else if err != nil {
 		return nil, err
+	} else if user.EmailVerifiedAt == nil {
+		// Google ya comprobó el correo.
+		_ = s.markVerified(user.ID)
 	}
 	return s.issueTokens(&user)
 }
@@ -191,7 +199,8 @@ func (s *AuthService) RequestPasswordReset(email string) error {
 	}
 
 	// 4. Send Email
-	resetURL := fmt.Sprintf("%s/reset-password?token=%s", s.Config.AppURL, token)
+	// La página /restablecer la sirve el backend (APP_URL es su dirección pública).
+	resetURL := fmt.Sprintf("%s/restablecer?token=%s", strings.TrimRight(s.Config.AppURL, "/"), token)
 	return s.Mailer.SendPasswordReset(user.Email, resetURL)
 }
 
@@ -223,6 +232,10 @@ func (s *AuthService) ResetPassword(token, newPassword string) error {
 	if err := s.Repo.Update(user); err != nil {
 		return err
 	}
+	// Con la contraseña nueva, las sesiones abiertas se cierran (si alguien la tenía, deja de entrar) y el correo queda
+	// verificado: quien abrió el enlace tiene ese buzón.
+	_ = s.RefreshTokenRepo.DeleteByUserID(user.ID)
+	_ = s.markVerified(user.ID)
 
 	// 4. Revoke token
 	return s.PasswordResetRepo.Delete(resetToken)

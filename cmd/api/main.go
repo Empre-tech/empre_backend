@@ -79,6 +79,7 @@ func main() {
 		&models.Post{},
 		&models.EntityPhoto{},
 		&models.PasswordResetToken{},
+		&models.EmailCode{},
 		&models.RefreshToken{},
 		&models.Review{},
 		&models.Favorite{},
@@ -626,6 +627,8 @@ func main() {
 			usersProtected.GET("/me", userHandler.FindMe)
 			// Eliminar la cuenta (lo exigen las tiendas). Con tope para que no sirva para adivinar la contraseña.
 			usersProtected.DELETE("/me", middleware.RateLimit(5, time.Hour), userHandler.DeleteMe)
+			usersProtected.POST("/me/verify-email/send", middleware.RateLimit(5, time.Hour), authHandler.SendEmailCode)
+			usersProtected.POST("/me/verify-email", middleware.RateLimit(10, 15*time.Minute), authHandler.VerifyEmail)
 			usersProtected.POST("/profile/image", userHandler.UploadProfileImage)
 			usersProtected.GET("/me/favorites", favoriteHandler.FindMine)
 			usersProtected.GET("/me/novedades", favoriteHandler.Novedades)
@@ -695,6 +698,8 @@ func main() {
 	// Páginas legales públicas: las URL que piden Google Play y la App Store.
 	r.GET("/", handlers.LegalPage("inicio.html"))
 	r.GET("/privacidad", handlers.LegalPage("privacidad.html"))
+	// Restablecer la contraseña desde el enlace del correo (la página llama a /api/auth/password-reset/reset).
+	r.GET("/restablecer", handlers.LegalPage("restablecer.html"))
 	// El ticket digital de una venta: el negocio lo manda por WhatsApp a su cliente (/t/<id de la venta>).
 	r.GET("/t/:saleId", ledgerHandler.ReceiptPage)
 	r.GET("/eliminar-cuenta", handlers.LegalPage("eliminar-cuenta.html"))
