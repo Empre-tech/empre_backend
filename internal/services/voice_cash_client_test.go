@@ -42,6 +42,10 @@ func TestVoiceNamedClientIsCash(t *testing.T) {
 		t.Fatalf("una clienta nueva en una venta de contado queda para crearse: %+v", res.Actions[0])
 	}
 
+	// Sin celular, la clienta nueva no se crea: se pide.
+	if _, err := svc.ConfirmVoice(owner.ID, ent.ID, res.DraftID, res.Actions); !isInvalid(err) {
+		t.Fatalf("cliente nuevo sin celular: %v", err)
+	}
 	// Al confirmar, el celular y la autorización que el dueño puso en la hoja quedan en la clienta nueva.
 	acts := res.Actions
 	acts[0].PartyPhone, acts[0].AcceptsMessages = "300 123 4567", true
@@ -58,5 +62,27 @@ func TestVoiceNamedClientIsCash(t *testing.T) {
 	var sale models.Sale
 	if err := db.Where("party_id = ?", laura.ID).First(&sale).Error; err != nil || sale.Method != models.PayCash {
 		t.Fatalf("la venta queda de contado a Laura: %+v %v", sale, err)
+	}
+}
+
+// TestVoiceSameNameShowsPhoneTail: dos clientes con el mismo nombre salen para elegir, cada uno con los últimos 4
+// dígitos de su celular.
+func TestVoiceSameNameShowsPhoneTail(t *testing.T) {
+	_, svc, owner, _, ent := ledgerFixture(t)
+	svc.CreateParty(owner.ID, ent.ID, PartyInput{ClientID: uuid.New(), Name: "David Montes", Phone: "300 111 4472"})
+	svc.CreateParty(owner.ID, ent.ID, PartyInput{ClientID: uuid.New(), Name: "David Montes", Phone: "315 222 9081"})
+	fm := &fakeModel{on: true, reply: `{"actions":[{"type":"sale","amount_spoken":"veinte mil","amount":20000,"method":"cash","party_name":"David Montes"}]}`}
+	svc.SetVoiceModel(fm)
+	res, err := svc.ParseVoice(owner.ID, ent.ID, "vendí veinte mil a David Montes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := res.Actions[0].Candidates
+	if len(c) != 2 || res.Actions[0].PartyID != nil {
+		t.Fatalf("debían salir los dos para elegir: %+v", res.Actions[0])
+	}
+	tails := map[string]bool{c[0].PhoneTail: true, c[1].PhoneTail: true}
+	if !tails["4472"] || !tails["9081"] {
+		t.Fatalf("últimos dígitos: %+v", c)
 	}
 }

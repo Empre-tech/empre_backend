@@ -291,6 +291,7 @@ func TestLedgerVoice(t *testing.T) {
 
 	// El dueño resuelve al cliente ambiguo y confirma.
 	res.Actions[2].PartyID = &cust.ID
+	res.Actions[1].PartyPhone = "300 111 2233" // un cliente nuevo lleva su celular
 	conf, err := svc.ConfirmVoice(owner.ID, ent.ID, res.DraftID, res.Actions)
 	if err != nil || conf.Already || len(conf.Created) != 4 {
 		t.Fatalf("confirmar: %v %+v", err, conf)

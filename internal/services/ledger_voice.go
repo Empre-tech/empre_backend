@@ -61,6 +61,22 @@ type VoiceLine struct {
 type PartyRef struct {
 	ID   uuid.UUID `json:"id"`
 	Name string    `json:"name"`
+	// PhoneTail: los últimos 4 dígitos del celular, para distinguir a dos clientes con el mismo nombre.
+	PhoneTail string `json:"phone_tail,omitempty"`
+}
+
+// phoneTail devuelve los últimos 4 dígitos de un celular (vacío si no tiene).
+func phoneTail(phone string) string {
+	var d []rune
+	for _, r := range phone {
+		if r >= '0' && r <= '9' {
+			d = append(d, r)
+		}
+	}
+	if len(d) < 4 {
+		return ""
+	}
+	return string(d[len(d)-4:])
 }
 
 // VoiceAction es una cosa que el dueño dijo (una venta, un gasto, un abono). La devuelve el interpretar y la
@@ -176,6 +192,7 @@ func voiceSystemPrompt(today time.Time, items, customers, suppliers, supplies []
 	if len(supplies) > 0 {
 		b.WriteString("Insumos del negocio (no se venden, se gastan): " + strings.Join(supplies, "; ") + ".\n")
 	}
+	b.WriteString("Si el dueño quiere AGREGAR o INCLUIR un producto en su inventario o catálogo («quiero incluir en mi inventario zapatos Nike», «agrega gorras al inventario», «registra el producto X»), NO es una venta ni un gasto: usa type=stock con stock_name (el producto) y stock_level=ok, o stock_counted si dijo cuántos.\n")
 	b.WriteString("Si el dueño habla del inventario sin vender ni gastar («se acabó el jugo», «queda poca lechuga», «llegaron las camisas», «tengo 12 camisas»), usa type=stock con stock_name y stock_level (out/low/ok) o stock_counted si dijo un número. No lleva monto.\n")
 	if TabsEnabled {
 		if len(tabs) > 0 {
@@ -581,7 +598,7 @@ func (s *LedgerService) resolveAction(ma modelAction, textKey string, single boo
 		case amb:
 			for _, p := range pool {
 				if i, _ := ledger.MatchName(name, []string{p.Name}); i == 0 {
-					a.Candidates = append(a.Candidates, PartyRef{ID: p.ID, Name: p.Name})
+					a.Candidates = append(a.Candidates, PartyRef{ID: p.ID, Name: p.Name, PhoneTail: phoneTail(p.Phone)})
 				}
 			}
 			a.Warnings = append(a.Warnings, "Hay varios con ese nombre: elige a quién.")
@@ -688,6 +705,10 @@ func (s *LedgerService) ConfirmVoice(ownerID, entityID, draftID uuid.UUID, actio
 				}
 				in := PartyInput{ClientID: uuid.NewSHA1(a.ClientID, []byte("party")), Kind: kind, Name: a.PartyName}
 				if kind == models.PartyCustomer {
+					// Un cliente nuevo lleva su celular (2026-11-24): así se distingue de otro con el mismo nombre.
+					if phoneTail(a.PartyPhone) == "" {
+						return &InvalidError{"Falta el celular de " + a.PartyName + "."}
+					}
 					in.Phone, in.AcceptsMessages = a.PartyPhone, a.AcceptsMessages
 				}
 				p, _, err := s.createParty(tx, entityID, in)
