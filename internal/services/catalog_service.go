@@ -74,7 +74,15 @@ type ServiceInput struct {
 func ValidateServiceInput(in ServiceInput) (ServiceInput, error) {
 	in.Name = strings.TrimSpace(in.Name)
 	in.Description = strings.TrimSpace(in.Description)
-	if n := utf8.RuneCountInString(in.Name); n < minServiceName || n > maxServiceName {
+	// Una variante puede llamarse con una sola letra («S», «M»): el nombre completo lo arma el servidor con el del padre.
+	minName := minServiceName
+	if in.ParentID != nil || strings.TrimSpace(in.VariantLabel) != "" {
+		minName = 1
+	}
+	if n := utf8.RuneCountInString(in.Name); n < minName || n > maxServiceName {
+		if minName == 1 {
+			return in, invalidService("escribe la variante: hasta 80 caracteres")
+		}
 		return in, invalidService("el nombre debe tener entre 2 y 80 caracteres")
 	}
 	if utf8.RuneCountInString(in.Description) > maxServiceDesc {
