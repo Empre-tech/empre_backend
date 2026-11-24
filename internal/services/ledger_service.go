@@ -136,6 +136,8 @@ type PartyInput struct {
 	CreditLimit *int      `json:"credit_limit"`
 	// AcceptsMessages: el cliente autorizó guardar su celular y recibir mensajes del negocio.
 	AcceptsMessages bool `json:"accepts_messages"`
+	// Note: nota opcional para reconocerlo.
+	Note string `json:"note"`
 }
 
 // PartyUpdate: lo que se puede cambiar de un cliente o proveedor. Los campos nulos no se tocan.
@@ -143,6 +145,7 @@ type PartyUpdate struct {
 	Name            *string `json:"name"`
 	Phone           *string `json:"phone"`
 	AcceptsMessages *bool   `json:"accepts_messages"`
+	Note            *string `json:"note"`
 }
 
 // UpdateParty cambia el nombre, el celular o la autorización de mensajes de un tercero (solo el dueño).
@@ -164,6 +167,9 @@ func (s *LedgerService) UpdateParty(ownerID, entityID, partyID uuid.UUID, in Par
 	}
 	if in.Phone != nil {
 		upd["phone"] = cleanText(*in.Phone, 20)
+	}
+	if in.Note != nil {
+		upd["note"] = cleanText(*in.Note, 120)
 	}
 	if in.AcceptsMessages != nil && *in.AcceptsMessages != p.AcceptsMessages {
 		upd["accepts_messages"] = *in.AcceptsMessages
@@ -219,7 +225,7 @@ func (s *LedgerService) createParty(db *gorm.DB, entityID uuid.UUID, in PartyInp
 	p := models.Party{
 		ID: in.ClientID, EntityID: entityID, ClientID: in.ClientID, Kind: kind, Name: name,
 		NameKey: ledger.Normalize(name), Phone: cleanText(in.Phone, 20), CreditLimit: in.CreditLimit,
-		AcceptsMessages: in.AcceptsMessages,
+		AcceptsMessages: in.AcceptsMessages, Note: cleanText(in.Note, 120),
 	}
 	if in.AcceptsMessages {
 		now := time.Now()

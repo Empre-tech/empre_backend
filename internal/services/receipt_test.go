@@ -14,11 +14,11 @@ import (
 // nombre, renglones, total y medio de pago) y el historial del cliente.
 func TestReceiptAndCustomer(t *testing.T) {
 	_, svc, owner, other, ent := ledgerFixture(t)
-	cli, _, err := svc.CreateParty(owner.ID, ent.ID, PartyInput{ClientID: uuid.New(), Name: "Ana María Pérez", Phone: "300 123 4567", AcceptsMessages: true})
+	cli, _, err := svc.CreateParty(owner.ID, ent.ID, PartyInput{ClientID: uuid.New(), Name: "Ana María Pérez", Phone: "300 123 4567", AcceptsMessages: true, Note: "la vecina del 2"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !cli.AcceptsMessages || cli.ConsentAt == nil {
+	if !cli.AcceptsMessages || cli.ConsentAt == nil || cli.Note != "la vecina del 2" {
 		t.Fatalf("la autorización debía quedar guardada: %+v", cli)
 	}
 	price := 12000
@@ -43,9 +43,9 @@ func TestReceiptAndCustomer(t *testing.T) {
 		t.Fatalf("historial del cliente: %d %v", len(mine), err)
 	}
 
-	off := false
-	upd, err := svc.UpdateParty(owner.ID, ent.ID, cli.ID, PartyUpdate{AcceptsMessages: &off})
-	if err != nil || upd.AcceptsMessages || upd.ConsentAt != nil {
+	off, note := false, "  la del 2B  "
+	upd, err := svc.UpdateParty(owner.ID, ent.ID, cli.ID, PartyUpdate{AcceptsMessages: &off, Note: &note})
+	if err != nil || upd.AcceptsMessages || upd.ConsentAt != nil || upd.Note != "la del 2B" {
 		t.Fatalf("quitar la autorización: %+v %v", upd, err)
 	}
 	if _, err := svc.UpdateParty(other.ID, ent.ID, cli.ID, PartyUpdate{AcceptsMessages: &off}); err == nil {

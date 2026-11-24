@@ -63,6 +63,8 @@ type PartyRef struct {
 	Name string    `json:"name"`
 	// PhoneTail: los últimos 4 dígitos del celular, para distinguir a dos clientes con el mismo nombre.
 	PhoneTail string `json:"phone_tail,omitempty"`
+	// Note: la nota del dueño sobre ese cliente, si tiene.
+	Note string `json:"note,omitempty"`
 }
 
 // phoneTail devuelve los últimos 4 dígitos de un celular (vacío si no tiene).
@@ -598,7 +600,7 @@ func (s *LedgerService) resolveAction(ma modelAction, textKey string, single boo
 		case amb:
 			for _, p := range pool {
 				if i, _ := ledger.MatchName(name, []string{p.Name}); i == 0 {
-					a.Candidates = append(a.Candidates, PartyRef{ID: p.ID, Name: p.Name, PhoneTail: phoneTail(p.Phone)})
+					a.Candidates = append(a.Candidates, PartyRef{ID: p.ID, Name: p.Name, PhoneTail: phoneTail(p.Phone), Note: p.Note})
 				}
 			}
 			a.Warnings = append(a.Warnings, "Hay varios con ese nombre: elige a quién.")

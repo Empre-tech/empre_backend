@@ -68,6 +68,8 @@ type Party struct {
 	// ConsentAt: cuándo lo autorizó. Sin autorización, el negocio no le manda ofertas.
 	AcceptsMessages bool       `gorm:"not null;default:false" json:"accepts_messages"`
 	ConsentAt       *time.Time `json:"consent_at,omitempty"`
+	// Note: una nota opcional del dueño para reconocerlo («el del taller de la esquina»).
+	Note string `gorm:"size:120;not null;default:''" json:"note"`
 
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
