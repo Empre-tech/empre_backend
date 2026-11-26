@@ -181,3 +181,47 @@ func TestOwnerProPlanStatusAndAuth(t *testing.T) {
 		t.Fatalf("negocio ajeno: %v", err)
 	}
 }
+
+// TestWelcomePro: el primer negocio recibe Pro de bienvenida para UN negocio, una sola vez y solo mientras dure la
+// oferta; si compra durante el regalo, no pierde los días que le quedaban.
+func TestWelcomePro(t *testing.T) {
+	db, owner, ents := proFixture(t)
+	now := time.Now()
+	svc := NewProPlanService(db, "s")
+	l := NewLedgerService(db)
+	if ok, _ := svc.WelcomeGrant(owner.ID, now); ok {
+		t.Fatal("con la oferta apagada no se da")
+	}
+	svc.Welcome = ParseWelcomeOffer("90", now.AddDate(0, 1, 0).Format("2006-01-02"))
+	if ok, err := svc.WelcomeGrant(owner.ID, now); !ok || err != nil {
+		t.Fatalf("bienvenida: %v %v", ok, err)
+	}
+	if !isPro(t, l, ents[0].ID) || isPro(t, l, ents[1].ID) {
+		t.Fatal("cubre solo un negocio (el primero)")
+	}
+	if ok, _ := svc.WelcomeGrant(owner.ID, now); ok {
+		t.Fatal("una sola vez")
+	}
+	ov, _ := svc.Overview(owner.ID, now)
+	if !ov.Active || ov.Plan.Store != StoreWelcome || ov.Plan.Tier != 1 {
+		t.Fatalf("plan de bienvenida: %+v", ov.Plan)
+	}
+	// Compra un plan de 2 negocios durante el regalo: queda en 2 y conserva los 90 días.
+	svc.HandleRevenueCat(rcEvent("w1", "INITIAL_PURCHASE", owner.ID, "empre_pro_2", now.AddDate(0, 1, 0), now.Add(time.Minute)), now)
+	var plan models.OwnerProPlan
+	db.First(&plan, "user_id = ?", owner.ID)
+	if plan.Tier != 2 || plan.CurrentPeriodEnd.Before(now.AddDate(0, 0, 89)) || !isPro(t, l, ents[1].ID) {
+		t.Fatalf("compra durante el regalo: %+v", plan)
+	}
+	// Después de la fecha límite nadie más la recibe.
+	other := models.User{Name: "Nuevo", Email: "nuevo@x.co", PasswordHash: "x"}
+	db.Create(&other)
+	e := models.Entity{OwnerID: other.ID, Name: "Tienda Nueva", CategoryID: ents[0].CategoryID}
+	db.Omit("Owner", "Category").Create(&e)
+	if ok, _ := svc.WelcomeGrant(other.ID, now.AddDate(0, 2, 0)); ok {
+		t.Fatal("vencida la oferta no se da")
+	}
+	if (ParseWelcomeOffer("0", "2027-01-01") != WelcomeOffer{}) || (ParseWelcomeOffer("90", "mañana") != WelcomeOffer{}) {
+		t.Fatal("configuración inválida queda apagada")
+	}
+}

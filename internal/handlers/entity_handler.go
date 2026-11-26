@@ -7,9 +7,11 @@ import (
 	"empre_backend/internal/services"
 	"empre_backend/pkg/utils"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
@@ -38,6 +40,8 @@ type EntityHandler struct {
 	FavoriteService *services.FavoriteService
 	PushService     *services.PushService
 	SignalService   *services.SignalService
+	// ProPlans: para el Pro de bienvenida de la beta al crear el primer negocio (puede ser nil).
+	ProPlans *services.ProPlanService
 }
 
 func NewEntityHandler(
@@ -246,6 +250,13 @@ func (h *EntityHandler) Create(c *gin.Context) {
 		if err := h.Service.SetEntityHours(&entity, hoursFromRequest(req.Hours)); err != nil {
 			internalError(c, err)
 			return
+		}
+	}
+
+	// Pro de bienvenida de la beta: el primer negocio de cada persona (no bloquea la creación si falla).
+	if h.ProPlans != nil {
+		if _, err := h.ProPlans.WelcomeGrant(entity.OwnerID, time.Now()); err != nil {
+			log.Printf("welcome pro %s: %v", entity.OwnerID, err)
 		}
 	}
 

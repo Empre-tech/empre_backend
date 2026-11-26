@@ -3,6 +3,7 @@ package services
 import (
 	"crypto/subtle"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
@@ -88,6 +89,8 @@ type ProPlanService struct {
 	DB *gorm.DB
 	// WebhookSecret: el valor que RevenueCat manda en la cabecera Authorization (se configura en su panel).
 	WebhookSecret string
+	// Welcome: el Pro de bienvenida de la beta (apagado si Days es 0).
+	Welcome WelcomeOffer
 }
 
 func NewProPlanService(db *gorm.DB, webhookSecret string) *ProPlanService {
@@ -254,9 +257,14 @@ func applyPro(tx *gorm.DB, userID uuid.UUID, tier int, product string, ev Revenu
 			// Bajar de nivel aplica al renovar (la tienda cobra el nivel nuevo desde entonces): llega con la RENEWAL.
 			return false, nil
 		}
+		end := *exp
+		// Compró mientras tenía el Pro de bienvenida: no pierde los días regalados que le quedaban.
+		if found && cur.Store == StoreWelcome && cur.CurrentPeriodEnd.After(end) {
+			end = cur.CurrentPeriodEnd
+		}
 		plan := models.OwnerProPlan{
 			UserID: userID, Tier: tier, ProductID: product, Store: storeName(ev.Store),
-			WillRenew: !strings.EqualFold(ev.Type, "BILLING_ISSUE") || cur.WillRenew, CurrentPeriodEnd: *exp, LastEventAt: at,
+			WillRenew: !strings.EqualFold(ev.Type, "BILLING_ISSUE") || cur.WillRenew, CurrentPeriodEnd: end, LastEventAt: at,
 		}
 		if err := tx.Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "user_id"}},
@@ -459,4 +467,69 @@ func (s *ProPlanService) SetCoverage(userID uuid.UUID, entityIDs []uuid.UUID, no
 		return ProOverview{}, err
 	}
 	return s.Overview(userID, now)
+}
+
+// Pro de bienvenida (2026-11-26, prueba cerrada): mientras dure la beta, quien crea su PRIMER negocio recibe Pro para
+// un negocio por WELCOME_PRO_DAYS días, sin tarjeta. La oferta se acaba en WELCOME_PRO_UNTIL (AAAA-MM-DD, hora de
+// Colombia): después de esa fecha nadie más la recibe, pero quien ya la tiene la conserva hasta que venza. Se da una
+// sola vez por persona: si ya tuvo cualquier plan, no se repite.
+
+// StoreWelcome: el plan es el regalo de bienvenida (no lo cobró ninguna tienda).
+const StoreWelcome = "welcome"
+
+// WelcomeOffer: cuántos días y hasta cuándo se ofrece. Days 0 = apagado.
+type WelcomeOffer struct {
+	Days  int
+	Until time.Time
+}
+
+// ParseWelcomeOffer lee WELCOME_PRO_DAYS y WELCOME_PRO_UNTIL. Si falta alguno o no se entiende, queda apagado.
+func ParseWelcomeOffer(days, until string) WelcomeOffer {
+	d, err := strconv.Atoi(strings.TrimSpace(days))
+	if err != nil || d <= 0 || d > 366 {
+		return WelcomeOffer{}
+	}
+	t, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(until), bogota)
+	if err != nil {
+		return WelcomeOffer{}
+	}
+	return WelcomeOffer{Days: d, Until: t.AddDate(0, 0, 1)} // incluye todo el último día
+}
+
+// Active: la oferta está vigente en este momento.
+func (w WelcomeOffer) Active(now time.Time) bool {
+	return w.Days > 0 && now.Before(w.Until)
+}
+
+// WelcomeGrant da el Pro de bienvenida a un dueño que acaba de crear su primer negocio. Devuelve true si lo dio.
+func (s *ProPlanService) WelcomeGrant(userID uuid.UUID, now time.Time) (bool, error) {
+	if !s.Welcome.Active(now) {
+		return false, nil
+	}
+	granted := false
+	err := s.DB.Transaction(func(tx *gorm.DB) error {
+		var n int64
+		if err := tx.Model(&models.OwnerProPlan{}).Where("user_id = ?", userID).Count(&n).Error; err != nil {
+			return err
+		}
+		if n > 0 {
+			return nil // ya tuvo un plan (de bienvenida o pagado): no se repite
+		}
+		var owned int64
+		if err := tx.Model(&models.Entity{}).Where("owner_id = ?", userID).Count(&owned).Error; err != nil {
+			return err
+		}
+		if owned == 0 {
+			return nil
+		}
+		plan := models.OwnerProPlan{UserID: userID, Tier: 1, ProductID: StoreWelcome, Store: StoreWelcome, WillRenew: false,
+			CurrentPeriodEnd: now.AddDate(0, 0, s.Welcome.Days), LastEventAt: now}
+		res := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&plan)
+		if res.Error != nil || res.RowsAffected == 0 {
+			return res.Error
+		}
+		granted = true
+		return fitCoverage(tx, userID, 1)
+	})
+	return granted, err
 }

@@ -299,6 +299,12 @@ func main() {
 		log.Println("Pagos: compras de las tiendas (RevenueCat) habilitadas")
 	}
 	proPlanHandler := handlers.NewProPlanHandler(proPlanService)
+	// Pro de bienvenida de la beta: WELCOME_PRO_DAYS días para el primer negocio, mientras no pase WELCOME_PRO_UNTIL.
+	proPlanService.Welcome = services.ParseWelcomeOffer(os.Getenv("WELCOME_PRO_DAYS"), os.Getenv("WELCOME_PRO_UNTIL"))
+	if proPlanService.Welcome.Days > 0 {
+		log.Printf("Pro de bienvenida: %d días hasta %s", proPlanService.Welcome.Days, proPlanService.Welcome.Until.Format("2006-01-02"))
+	}
+	entityHandler.ProPlans = proPlanService
 	offerHandler := handlers.NewOfferHandler(offerService)
 	// «Avísame» de Ofertas: al publicar, avisa a quien lo pidió en la zona del negocio.
 	offerAlertService := services.NewOfferAlertService(database.DB, pushService)
