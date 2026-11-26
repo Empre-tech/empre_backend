@@ -25,6 +25,10 @@ type User struct {
 	Role              Role       `gorm:"type:varchar(20);default:'user'" json:"role"`
 	// EmailVerifiedAt: cuándo se verificó el correo (código, Google o restablecer la contraseña). nil = sin verificar.
 	EmailVerifiedAt *time.Time `json:"email_verified_at,omitempty"`
+	// TermsVersion y TermsAcceptedAt: qué versión de la Política de privacidad y los Términos aceptó y cuándo. Es la
+	// prueba de la autorización que pide la Ley 1581 de 2012 (art. 9). Vacío = no ha aceptado la versión vigente.
+	TermsVersion    string     `gorm:"type:varchar(20)" json:"terms_version,omitempty"`
+	TermsAcceptedAt *time.Time `json:"terms_accepted_at,omitempty"`
 
 	ProfileMedia *Media         `gorm:"foreignKey:ProfileMediaID" json:"-"`
 	CreatedAt    time.Time      `json:"created_at"`

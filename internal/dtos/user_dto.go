@@ -18,4 +18,7 @@ type UserResponse struct {
 	HasPassword bool `json:"has_password"`
 	// EmailVerified: el correo está verificado (código, Google o restablecer la contraseña).
 	EmailVerified bool `json:"email_verified"`
+	// TermsVersion: la versión de la política y los términos que aceptó; la app la compara con LegalVersion.
+	TermsVersion string `json:"terms_version"`
+	LegalVersion string `json:"legal_version"`
 }

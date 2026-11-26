@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Política de privacidad · Empre</title>
+<title>Política de tratamiento de datos · Empre</title>
 <style>
   :root { --ink:#2B2622; --muted:#6B625B; --red:#D42020; --bg:#FFFFFF; --line:#EEE6E0; }
   @media (prefers-color-scheme: dark) { :root { --ink:#F2EDE9; --muted:#B8AEA6; --red:#FF5A5A; --bg:#1A1715; --line:#332D29; } }
@@ -17,70 +17,112 @@
 </head>
 <body>
 <main>
-<h1>Política de privacidad de Empre</h1>
-<p class="meta">Última actualización: {{.Updated}}</p>
+<h1>Política de tratamiento de datos personales de Empre</h1>
+<p class="meta">Versión {{.Version}} · Última actualización: {{.Updated}}</p>
 
-<p>Empre es una app para encontrar negocios de tu barrio y para que los emprendedores administren el suyo. Esta política
-explica qué datos recogemos, para qué, con quién los compartimos y cómo puedes consultarlos, corregirlos o borrarlos,
-conforme a la Ley 1581 de 2012 de Colombia y sus decretos reglamentarios.</p>
+<p>Empre es una app para encontrar negocios del barrio y para que los emprendedores administren el suyo. Esta política
+explica qué datos personales tratamos, para qué, con quién los compartimos y cómo ejercer tus derechos, conforme a la
+Ley 1581 de 2012, el Decreto 1074 de 2015 (que recoge el Decreto 1377 de 2013) y la Ley 2300 de 2023.</p>
 
-<h2>1. Responsable</h2>
-<p>El responsable del tratamiento es <strong>{{.Owner}}</strong>. Para cualquier asunto de privacidad escríbenos a
-<a href="mailto:{{.Email}}">{{.Email}}</a>.</p>
+<h2>1. Responsable del tratamiento</h2>
+<p>El responsable del tratamiento es <strong>{{.Owner}}</strong>{{if .ID}}, identificado con {{.ID}}{{end}}{{if .Address}}, con domicilio en {{.Address}}{{end}}.
+Correo: <a href="mailto:{{.Email}}">{{.Email}}</a>{{if .Phone}} · Teléfono: {{.Phone}}{{end}}.</p>
+<p>Las consultas y reclamos sobre datos personales los atiende el equipo de privacidad de Empre en ese correo.</p>
 
-<h2>2. Qué datos recogemos y para qué</h2>
+<h2>2. Autorización</h2>
+<p>Al crear tu cuenta marcas que tienes 18 años o más y que aceptas esta política y los <a href="/terminos">Términos</a>.
+Guardamos la versión que aceptaste y la fecha, como prueba de tu autorización. Si cambiamos algo importante, te
+pediremos aceptarla otra vez en la app. Puedes revocar tu autorización en cualquier momento (ver sección 8); como la
+cuenta no funciona sin estos datos, revocarla implica eliminar la cuenta, salvo lo que la ley nos obligue a conservar.</p>
+<p>No pedimos datos sensibles (salud, origen étnico, orientación política o religiosa, biométricos). No estás obligado a
+darnos datos sensibles ni datos de niños, niñas o adolescentes.</p>
+
+<h2>3. Qué datos tratamos y para qué</h2>
 <table>
 <tr><th>Dato</th><th>Para qué</th></tr>
-<tr><td>Nombre, correo, teléfono y contraseña (guardada cifrada)</td><td>Crear y proteger tu cuenta, e iniciar sesión.</td></tr>
+<tr><td>Nombre, correo, teléfono y contraseña (guardada cifrada)</td><td>Crear y proteger tu cuenta, iniciar sesión, verificar tu correo y recuperar la contraseña.</td></tr>
 <tr><td>Foto de perfil y fotos o videos que subes</td><td>Mostrarlos en tu perfil, en tu negocio o en tus productos.</td></tr>
-<tr><td>Ubicación aproximada o precisa, solo mientras usas la app</td><td>Mostrarte los negocios y ofertas cercanos. No la guardamos como historial.</td></tr>
-<tr><td>Cámara</td><td>Escanear códigos QR de ofertas y tomar fotos de productos. Solo cuando tú la abres.</td></tr>
-<tr><td>Micrófono y reconocimiento de voz</td><td>Dictar ventas y gastos en «Mi negocio». El audio lo convierte en texto el servicio de voz de tu celular; a Empre llega solo el texto.</td></tr>
-<tr><td>Información de tu negocio (nombre, dirección, horarios, catálogo, ofertas)</td><td>Publicarla en Empre para que te encuentren.</td></tr>
-<tr><td>Registros de tu negocio (ventas, gastos, inventario, deudas, citas)</td><td>Darte las cuentas y reportes de «Mi negocio». Solo los ves tú.</td></tr>
-<tr><td>Mensajes, reseñas y citas</td><td>Que clientes y negocios se comuniquen.</td></tr>
-<tr><td>Token de notificaciones del celular</td><td>Enviarte avisos de mensajes, citas y ofertas.</td></tr>
-<tr><td>Medición anónima de uso (puedes apagarla en Perfil &gt; Ajustes)</td><td>Saber qué se busca y qué funciona, sin identificarte.</td></tr>
-<tr><td>Datos de pago</td><td>Los procesa la tienda de apps o la pasarela de pago. Empre nunca ve ni guarda los datos de tu tarjeta.</td></tr>
+<tr><td>Ubicación aproximada o precisa, solo mientras usas la app</td><td>Mostrarte negocios y ofertas cercanos. No la guardamos como historial.</td></tr>
+<tr><td>Cámara</td><td>Escanear códigos QR de ofertas y tomar fotos de productos, solo cuando tú la abres.</td></tr>
+<tr><td>Micrófono y reconocimiento de voz</td><td>Dictar ventas y gastos. El audio lo convierte en texto tu celular; a Empre llega solo el texto.</td></tr>
+<tr><td>Información de tu negocio (nombre, dirección, horarios, catálogo, ofertas)</td><td>Publicarla para que te encuentren.</td></tr>
+<tr><td>Registros de tu negocio (ventas, gastos, inventario, deudas, citas, clientes)</td><td>Darte las cuentas y reportes de «Mi negocio». Solo los ven tú y las personas que autorices.</td></tr>
+<tr><td>Mensajes, reseñas y citas</td><td>Que clientes y negocios se comuniquen y reserven.</td></tr>
+<tr><td>Token de notificaciones del celular</td><td>Enviarte avisos de mensajes, citas, recordatorios y ofertas que pediste.</td></tr>
+<tr><td>Medición de uso sin identificarte (puedes apagarla en Perfil &gt; Ajustes)</td><td>Saber qué se busca y qué funciona para mejorar la app.</td></tr>
+<tr><td>Datos de pago</td><td>Los procesa la tienda de apps o la pasarela de pago. Empre no ve ni guarda los datos de tu tarjeta.</td></tr>
 </table>
 
-<h2>3. Inteligencia artificial</h2>
-<p>Algunas funciones (dictado, «Redactar con Empre AI», «Pregúntale a Empre» y el asistente para crear tu negocio)
-envían el texto necesario a un proveedor de modelos de IA para procesarlo. No lo usamos
-para publicidad y no autorizamos al proveedor a usarlo para entrenar sus modelos.</p>
+<h2>4. Datos de los clientes de cada negocio</h2>
+<p>Cuando un negocio anota en «Mi negocio» el nombre, el celular o una nota de sus clientes, <strong>el negocio es el
+responsable de esos datos</strong> y Empre los trata solo por su encargo: los guarda, se los muestra y le ayuda a
+mandar el ticket, recordatorios o, si el cliente lo autorizó, ofertas. Empre no usa esos datos para sus propios fines,
+no los vende ni escribe por su cuenta a esos clientes.</p>
+<p>El negocio debe pedirle al cliente su autorización antes de guardar su número y antes de mandarle mensajes
+comerciales, y dejarla marcada en la app («Aceptó que guarde su número y le escriba»). Si eres cliente de un negocio y
+quieres que borre tus datos o deje de escribirte, pídeselo al negocio; también puedes escribirnos y se lo trasladamos.</p>
 
-<h2>4. Con quién compartimos datos</h2>
-<p>No vendemos tus datos. Los compartimos solo con los proveedores que necesitamos para operar Empre, que los tratan por
-encargo nuestro:</p>
+<h2>5. Mensajes comerciales y de cobro (Ley 2300 de 2023)</h2>
+<ul>
+<li>Las ofertas a clientes solo se pueden mandar a quien autorizó recibir mensajes y por el canal que autorizó.</li>
+<li>Los mensajes de ofertas y de cobro solo se pueden enviar de lunes a viernes de 7:00 a. m. a 7:00 p. m. y los sábados
+de 8:00 a. m. a 3:00 p. m.; nunca domingos ni festivos; y no más de una vez al día por persona. La app ayuda al negocio a
+cumplirlo.</li>
+<li>Todo mensaje de oferta dice cómo dejar de recibirlos. El ticket de una compra no es un mensaje comercial: es la
+información de lo que el cliente compró.</li>
+<li>Empre no te manda publicidad por SMS, correo o llamadas. Las notificaciones de la app las puedes apagar desde tu celular.</li>
+</ul>
+
+<h2>6. Inteligencia artificial</h2>
+<p>Algunas funciones (dictado, «Redactar con Empre AI», «Pregúntale a Empre» y el asistente para crear tu negocio)
+envían el texto necesario a un proveedor de modelos de IA para procesarlo. No lo usamos para publicidad y no
+autorizamos al proveedor a usarlo para entrenar sus modelos.</p>
+
+<h2>7. Con quién compartimos datos y dónde se guardan</h2>
+<p>No vendemos ni alquilamos datos personales. Los compartimos solo con los proveedores que necesitamos para operar Empre,
+que los tratan por nuestro encargo y bajo contratos que los obligan a protegerlos (transmisión de datos):</p>
 <ul>
 <li>Amazon Web Services (servidores y almacenamiento de fotos, Estados Unidos).</li>
 <li>Supabase (base de datos, Estados Unidos).</li>
 <li>El proveedor de modelos de IA (procesamiento de texto).</li>
-<li>Google y Apple (mapas, inicio de sesión, notificaciones y pagos de la tienda) y Wompi (pagos).</li>
+<li>Google y Apple (mapas, inicio de sesión, notificaciones y pagos de la tienda), Google Workspace (correo) y Wompi (pagos).</li>
 </ul>
-<p>Por eso algunos datos se guardan fuera de Colombia, con medidas de seguridad equivalentes. Lo que publicas en un
-negocio (nombre, dirección, catálogo, reseñas) es público dentro de Empre.</p>
+<p>Por eso algunos datos se guardan fuera de Colombia, en países y con proveedores que ofrecen niveles adecuados de
+protección. Con tu aceptación autorizas esa transmisión internacional. Lo que publicas en un negocio (nombre,
+dirección, catálogo, reseñas) es público dentro de Empre. Solo entregamos datos a una autoridad cuando la ley lo exige.</p>
 
-<h2>5. Cuánto tiempo los guardamos</h2>
+<h2>8. Tus derechos y cómo ejercerlos</h2>
+<p>Como titular puedes: conocer, actualizar y rectificar tus datos; pedir prueba de la autorización que nos diste; saber
+qué uso les damos; revocar la autorización o pedir que los borremos cuando no haya un deber legal de conservarlos;
+acceder gratis a ellos; y presentar quejas ante la Superintendencia de Industria y Comercio después de haber hecho tu
+consulta o reclamo ante nosotros.</p>
+<p><strong>Consultas:</strong> escríbenos a <a href="mailto:{{.Email}}">{{.Email}}</a> desde el correo de tu cuenta. Te
+respondemos en máximo 10 días hábiles; si no alcanzamos, te avisamos el motivo y respondemos en máximo 5 días hábiles más.</p>
+<p><strong>Reclamos</strong> (corregir, actualizar, suprimir o revocar): escríbenos con tu nombre, el correo de tu cuenta,
+qué pides y por qué, y los documentos que quieras aportar. Si falta algo, te lo pedimos en 5 días hábiles; si no lo
+completas en 2 meses, entendemos que desististe. Respondemos en máximo 15 días hábiles; si no alcanzamos, te avisamos
+y respondemos en máximo 8 días hábiles más. Mientras se resuelve, el dato queda marcado «reclamo en trámite».</p>
+<p>También puedes ver y editar tus datos en la app y eliminar tu cuenta en Perfil &gt; Ajustes &gt; Eliminar mi cuenta,
+o con los pasos de <a href="/eliminar-cuenta">esta página</a>.</p>
+
+<h2>9. Cuánto tiempo los guardamos</h2>
 <p>Mientras tengas la cuenta. Si la eliminas, borramos tus datos personales y ocultamos tus negocios de inmediato; las
-copias de seguridad de la base de datos se renuevan solas en un máximo de 7 días. Los mensajes y reseñas que escribiste a otros quedan firmados
-como «Usuario eliminado». Podemos conservar lo que la ley nos obligue (por ejemplo, soportes de pagos).</p>
+copias de seguridad se renuevan solas en un máximo de 7 días. Los mensajes y reseñas que escribiste quedan firmados como
+«Usuario eliminado». Conservamos lo que la ley nos obligue (por ejemplo, soportes contables de pagos).</p>
 
-<h2>6. Tus derechos</h2>
-<p>Puedes conocer, actualizar, corregir y pedir que borremos tus datos, revocar tu autorización y presentar quejas ante
-la Superintendencia de Industria y Comercio. Escríbenos a <a href="mailto:{{.Email}}">{{.Email}}</a>; respondemos en los
-plazos de la ley (10 días hábiles para consultas y 15 para reclamos).</p>
-<p>Para eliminar tu cuenta: en la app, Perfil &gt; Ajustes &gt; Eliminar mi cuenta, o sigue los pasos de
-<a href="/eliminar-cuenta">esta página</a>.</p>
+<h2>10. Seguridad</h2>
+<p>Las conexiones van cifradas (HTTPS), las contraseñas se guardan con hash, el acceso a los datos está restringido y
+registramos los incidentes de seguridad. Si ocurre uno que afecte tus datos, te avisamos y lo reportamos a la
+Superintendencia de Industria y Comercio cuando corresponda.</p>
 
-<h2>7. Seguridad</h2>
-<p>Las conexiones van cifradas (HTTPS), las contraseñas se guardan con hash y el acceso a los datos está restringido.</p>
+<h2>11. Menores de edad</h2>
+<p>Para crear una cuenta en Empre debes tener 18 años o más. No recogemos a sabiendas datos de menores; si crees que un
+menor nos dio datos, escríbenos y los borramos.</p>
 
-<h2>8. Menores de edad</h2>
-<p>Empre no está dirigida a menores de 14 años. Si crees que un menor nos dio datos, escríbenos y los borramos.</p>
+<h2>12. Cambios y vigencia</h2>
+<p>Esta política rige desde la fecha de arriba y mientras Empre funcione. Si la cambiamos, actualizamos la versión y la
+fecha, y si el cambio es importante te pedimos aceptarla de nuevo en la app.</p>
 
-<h2>9. Cambios</h2>
-<p>Si cambiamos esta política, actualizamos la fecha de arriba y te avisamos en la app cuando el cambio sea importante.</p>
 </main>
 </body>
 </html>

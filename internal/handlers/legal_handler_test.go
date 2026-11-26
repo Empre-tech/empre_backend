@@ -15,8 +15,9 @@ func TestLegalPages(t *testing.T) {
 	r := gin.New()
 	r.GET("/", LegalPage("inicio.html"))
 	r.GET("/privacidad", LegalPage("privacidad.html"))
+	r.GET("/terminos", LegalPage("terminos.html"))
 	r.GET("/eliminar-cuenta", LegalPage("eliminar-cuenta.html"))
-	for path, want := range map[string]string{"/": "todo tu barrio", "/privacidad": "Política de privacidad", "/eliminar-cuenta": "Eliminar mi cuenta"} {
+	for path, want := range map[string]string{"/": "todo tu barrio", "/privacidad": "Política de tratamiento de datos personales", "/terminos": "Términos y condiciones", "/eliminar-cuenta": "Eliminar mi cuenta"} {
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
 		body := w.Body.String()

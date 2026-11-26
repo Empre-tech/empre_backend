@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"empre_backend/internal/models"
 	"empre_backend/internal/services"
@@ -23,6 +24,9 @@ type RegisterRequest struct {
 	Email    string `json:"email" binding:"required,email"`
 	Password string `json:"password" binding:"required,min=6"`
 	Phone    string `json:"phone"`
+	// AcceptTerms: marcó «Tengo 18 años o más y acepto la Política de tratamiento de datos y los Términos». Sin esto no
+	// se crea la cuenta (Ley 1581 de 2012: autorización previa, expresa e informada).
+	AcceptTerms bool `json:"accept_terms"`
 }
 
 type LoginRequest struct {
@@ -52,11 +56,18 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
+	if !req.AcceptTerms {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Para crear tu cuenta tienes que aceptar la Política de tratamiento de datos y los Términos."})
+		return
+	}
+	now := time.Now()
 	user := models.User{
-		Name:         req.Name,
-		Email:        req.Email,
-		PasswordHash: req.Password, // Temp storage before hashing
-		Phone:        req.Phone,
+		Name:            req.Name,
+		Email:           req.Email,
+		PasswordHash:    req.Password, // Temp storage before hashing
+		Phone:           req.Phone,
+		TermsVersion:    services.LegalVersion,
+		TermsAcceptedAt: &now,
 	}
 
 	if err := h.Service.Register(&user); err != nil {
@@ -96,6 +107,9 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 type GoogleLoginRequest struct {
 	IDToken string `json:"id_token" binding:"required"`
+	// AcceptTerms: aceptó la política y los términos en la pantalla de registro. Si la cuenta es nueva y no los aceptó
+	// aquí, la app los pide antes de dejarla entrar.
+	AcceptTerms bool `json:"accept_terms"`
 }
 
 // GoogleLogin: POST /api/auth/google {"id_token": "..."} con el token de «Continuar con Google». Devuelve la misma
@@ -106,7 +120,7 @@ func (h *AuthHandler) GoogleLogin(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Falta el token de Google."})
 		return
 	}
-	tokens, err := h.Service.LoginWithGoogle(req.IDToken)
+	tokens, err := h.Service.LoginWithGoogle(req.IDToken, req.AcceptTerms)
 	switch {
 	case err == nil:
 		c.JSON(http.StatusOK, tokens)

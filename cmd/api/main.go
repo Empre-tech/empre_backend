@@ -629,6 +629,7 @@ func main() {
 		usersProtected.Use(middleware.AuthMiddleware(cfg))
 		{
 			usersProtected.GET("/me", userHandler.FindMe)
+			usersProtected.POST("/me/accept-terms", userHandler.AcceptTerms)
 			// Eliminar la cuenta (lo exigen las tiendas). Con tope para que no sirva para adivinar la contraseña.
 			usersProtected.DELETE("/me", middleware.RateLimit(5, time.Hour), userHandler.DeleteMe)
 			usersProtected.POST("/me/verify-email/send", middleware.RateLimit(5, time.Hour), authHandler.SendEmailCode)
@@ -702,6 +703,7 @@ func main() {
 	// Páginas legales públicas: las URL que piden Google Play y la App Store.
 	r.GET("/", handlers.LegalPage("inicio.html"))
 	r.GET("/privacidad", handlers.LegalPage("privacidad.html"))
+	r.GET("/terminos", handlers.LegalPage("terminos.html"))
 	// Restablecer la contraseña desde el enlace del correo (la página llama a /api/auth/password-reset/reset).
 	r.GET("/restablecer", handlers.LegalPage("restablecer.html"))
 	// El ticket digital de una venta: el negocio lo manda por WhatsApp a su cliente (/t/<id de la venta>).

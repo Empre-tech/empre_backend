@@ -73,7 +73,7 @@ func (s *AuthService) Login(email, password string) (*utils.TokenResponse, error
 
 // LoginWithGoogle inicia sesión con un id_token de Google. Si ya hay una cuenta con ese correo (Google lo dio por
 // verificado) entra a esa cuenta; si no, la crea sin contraseña. Devuelve la misma sesión que el login normal.
-func (s *AuthService) LoginWithGoogle(idToken string) (*utils.TokenResponse, error) {
+func (s *AuthService) LoginWithGoogle(idToken string, acceptTerms bool) (*utils.TokenResponse, error) {
 	if s.Google == nil {
 		return nil, ErrGoogleNotConfigured
 	}
@@ -90,6 +90,9 @@ func (s *AuthService) LoginWithGoogle(idToken string) (*utils.TokenResponse, err
 		}
 		now := time.Now()
 		user = models.User{Name: name, Email: ident.Email, Role: models.RoleUser, EmailVerifiedAt: &now}
+		if acceptTerms {
+			user.TermsVersion, user.TermsAcceptedAt = LegalVersion, &now
+		}
 		if err := s.Repo.DB.Create(&user).Error; err != nil {
 			return nil, err
 		}

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -92,9 +93,35 @@ func (h *UserHandler) FindMe(c *gin.Context) {
 		Role:              user.Role,
 		HasPassword:       user.PasswordHash != "",
 		EmailVerified:     user.EmailVerifiedAt != nil,
+		TermsVersion:      user.TermsVersion,
+		LegalVersion:      services.LegalVersion,
 	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+type acceptTermsRequest struct {
+	Version string `json:"version" binding:"required"`
+}
+
+// AcceptTerms: POST /api/users/me/accept-terms {"version": "..."}. Guarda que aceptó la Política de privacidad y los
+// Términos vigentes (versión y fecha): la prueba de la autorización (Ley 1581 de 2012).
+func (h *UserHandler) AcceptTerms(c *gin.Context) {
+	var req acceptTermsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Falta la versión que aceptas."})
+		return
+	}
+	if req.Version != services.LegalVersion {
+		c.JSON(http.StatusConflict, gin.H{"error": "La política cambió: vuelve a abrirla y acéptala.", "legal_version": services.LegalVersion})
+		return
+	}
+	userID := c.MustGet("userID").(uuid.UUID)
+	if err := h.Service.AcceptTerms(userID, time.Now()); err != nil {
+		internalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"terms_version": services.LegalVersion})
 }
 
 // UploadProfileImage handles user profile picture upload

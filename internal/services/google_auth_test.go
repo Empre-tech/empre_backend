@@ -131,7 +131,7 @@ func TestLoginWithGoogle(t *testing.T) {
 		Config: &config.Config{JWTSecret: "secreto-de-prueba-suficientemente-largo"}, Google: g.verifier()}
 
 	// Cuenta nueva: se crea sin contraseña.
-	tokens, err := svc.LoginWithGoogle(g.token(t, goodClaims("nueva@gmail.com")))
+	tokens, err := svc.LoginWithGoogle(g.token(t, goodClaims("nueva@gmail.com")), true)
 	if err != nil || tokens.AccessToken == "" || tokens.RefreshToken == "" {
 		t.Fatalf("tokens=%+v err=%v", tokens, err)
 	}
@@ -150,7 +150,7 @@ func TestLoginWithGoogle(t *testing.T) {
 	// Cuenta existente (registrada con mayúsculas): entra a la misma, sin duplicar.
 	existing := models.User{Name: "Ana", Email: "Ana@Empre.co", PasswordHash: "x"}
 	db.Create(&existing)
-	if _, err := svc.LoginWithGoogle(g.token(t, goodClaims("ana@empre.co"))); err != nil {
+	if _, err := svc.LoginWithGoogle(g.token(t, goodClaims("ana@empre.co")), false); err != nil {
 		t.Fatal(err)
 	}
 	var n int64
