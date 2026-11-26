@@ -29,10 +29,13 @@ func (s *LedgerService) IsPro(entityID uuid.UUID) (bool, error) {
 	if res.Error != nil {
 		return false, res.Error
 	}
-	if res.RowsAffected == 0 {
-		return false, nil
+	now := time.Now()
+	if res.RowsAffected > 0 && subscriptionIsPro(sub, now) {
+		return true, nil
 	}
-	return subscriptionIsPro(sub, time.Now()), nil
+	// O lo cubre el plan del dueño, comprado en la tienda (2026-11-26).
+	until, err := ownerPlanCovers(s.db, entityID, now)
+	return until != nil, err
 }
 
 // SetPro pone un negocio en Empre Pro hasta `until` (para pruebas, desde /api/admin/entities/:id/pro). Con until nil

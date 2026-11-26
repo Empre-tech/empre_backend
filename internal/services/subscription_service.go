@@ -74,6 +74,9 @@ type StatusView struct {
 	// tiene Pro en otro de sus negocios.
 	PriceCOP      int  `json:"price_cop"`
 	ExtraBusiness bool `json:"extra_business"`
+	// Source: de dónde sale el Pro de este negocio: «store» si lo cubre el plan del dueño comprado en la tienda
+	// (2026-11-26); vacío si es la suscripción del negocio (Wompi o puesta a mano).
+	Source string `json:"source,omitempty"`
 }
 
 // PriceFor: el precio de un mes de Pro para este negocio. La mitad si el dueño ya tiene Pro en otro negocio.
@@ -103,7 +106,21 @@ func (s *SubscriptionService) Status(entityID uuid.UUID) (*StatusView, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &StatusView{Subscription: sub, PriceCOP: price, ExtraBusiness: extra}, nil
+	view := &StatusView{Subscription: sub, PriceCOP: price, ExtraBusiness: extra}
+	// Si lo cubre el plan del dueño (tienda) y la suscripción propia no está vigente, se muestra activa hasta que venza
+	// el plan: las apps (también las versiones viejas) leen el Pro de aquí.
+	if !(sub.Status == models.SubscriptionActive && sub.CurrentPeriodEnd != nil && sub.CurrentPeriodEnd.After(time.Now())) {
+		until, err := ownerPlanCovers(s.Repo.DB, entityID, time.Now())
+		if err != nil {
+			return nil, err
+		}
+		if until != nil {
+			cp := *sub
+			cp.Status, cp.CurrentPeriodEnd = models.SubscriptionActive, until
+			view.Subscription, view.Source = &cp, "store"
+		}
+	}
+	return view, nil
 }
 
 // CheckProInvite is called right after a customer's message to a business is saved. When a Base business reaches

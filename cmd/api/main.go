@@ -122,6 +122,9 @@ func main() {
 		&models.AIUsage{},
 		&models.AskQuestion{},
 		&models.UserPlan{},
+		&models.OwnerProPlan{},
+		&models.ProCoverage{},
+		&models.StoreEvent{},
 		&models.Section{},
 		&models.SubcategorySection{},
 		&models.EntitySection{},
@@ -289,6 +292,13 @@ func main() {
 	pushHandler := handlers.NewPushHandler(pushService)
 	aiHandler := handlers.NewAIHandler(aiService, categoryService)
 	paymentHandler := handlers.NewPaymentHandler(subscriptionService, entityService)
+	// Empre Pro del dueño comprado en Google Play / App Store (RevenueCat). REVENUECAT_WEBHOOK_SECRET es el valor de la
+	// cabecera Authorization que se configura en el webhook de RevenueCat.
+	proPlanService := services.NewProPlanService(database.DB, os.Getenv("REVENUECAT_WEBHOOK_SECRET"))
+	if proPlanService.Enabled() {
+		log.Println("Pagos: compras de las tiendas (RevenueCat) habilitadas")
+	}
+	proPlanHandler := handlers.NewProPlanHandler(proPlanService)
 	offerHandler := handlers.NewOfferHandler(offerService)
 	// «Avísame» de Ofertas: al publicar, avisa a quien lo pidió en la zona del negocio.
 	offerAlertService := services.NewOfferAlertService(database.DB, pushService)
@@ -630,6 +640,8 @@ func main() {
 		{
 			usersProtected.GET("/me", userHandler.FindMe)
 			usersProtected.POST("/me/accept-terms", userHandler.AcceptTerms)
+			usersProtected.GET("/me/pro", proPlanHandler.Overview)
+			usersProtected.PUT("/me/pro/coverage", proPlanHandler.SetCoverage)
 			// Eliminar la cuenta (lo exigen las tiendas). Con tope para que no sirva para adivinar la contraseña.
 			usersProtected.DELETE("/me", middleware.RateLimit(5, time.Hour), userHandler.DeleteMe)
 			usersProtected.POST("/me/verify-email/send", middleware.RateLimit(5, time.Hour), authHandler.SendEmailCode)
@@ -690,6 +702,7 @@ func main() {
 		paymentsGroup := api.Group("/payments")
 		{
 			paymentsGroup.POST("/wompi/webhook", paymentHandler.Webhook)
+			paymentsGroup.POST("/revenuecat/webhook", middleware.RateLimit(120, time.Minute), proPlanHandler.RevenueCatWebhook)
 		}
 
 		// Swagger Documentation
