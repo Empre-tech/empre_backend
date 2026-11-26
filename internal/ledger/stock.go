@@ -83,10 +83,10 @@ var categoryKeywords = []struct {
 	words []string
 	kind  string
 }{
-	{[]string{"restaurante", "comida", "pizzer", "hamburguesa", "asadero", "pollo", "parrilla", "cafeteria", "heladeria", "sushi", "empanada", "almuerzo", "fritanga", "cocina"}, KindFood},
-	{[]string{"peluquer", "barber", "spa", "salon", "belleza", "estetica", "unas", "manicur", "masaje", "taller", "lavander", "tatuaje", "clinica", "odontolog", "veterinar", "gimnasio"}, KindService},
-	{[]string{"perfum", "celular", "tecnolog", "joyer", "licor", "ropa", "calzado", "zapat", "boutique", "cosmetic", "juguet", "electrodomest", "relojer", "optica", "accesorios", "bolso", "maquillaje", "tenis", "moda"}, KindValuable},
-	{[]string{"tienda", "minimercado", "supermercado", "abarrote", "panader", "fruter", "verdura", "carnicer", "ferreter", "drogueri", "papeler", "miscelanea", "mercado", "graneria", "lacteo", "bodega", "pescader", "farmacia", "dulceri", "cigarrer"}, KindShop},
+	{[]string{"restaurante", "comida", "pizzer", "hamburguesa", "asadero", "pollo", "parrilla", "cafeteria", "heladeria", "sushi", "empanada", "almuerzo", "fritanga", "cocina", "estadero"}, KindFood},
+	{[]string{"peluquer", "barber", "spa", "salon", "belleza", "estetica", "unas", "manicur", "masaje", "taller", "lavander", "tatuaje", "clinica", "odontolog", "veterinar", "gimnasio", "montallanta", "sastreri", "cerrajeri", "fisioterap", "cejas", "pestan", "pintura", "plomeri", "electricidad", "contabilidad", "abogad"}, KindService},
+	{[]string{"perfum", "celular", "tecnolog", "joyer", "licor", "ropa", "calzado", "zapat", "boutique", "cosmetic", "juguet", "electrodomest", "relojer", "optica", "accesorios", "bolso", "maquillaje", "tenis", "moda", "bisuter", "mueble"}, KindValuable},
+	{[]string{"tienda", "minimercado", "supermercado", "abarrote", "panader", "fruter", "verdura", "carnicer", "ferreter", "drogueri", "papeler", "miscelanea", "mercado", "graneria", "lacteo", "bodega", "pescader", "farmacia", "dulceri", "cigarrer", "distribuidora", "materiales", "pinater", "fotocopia"}, KindShop},
 }
 
 // KindForName adivina el tipo de negocio por el nombre de una categoría. Solo se usa para llenar datos que faltan

@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"empre_backend/internal/database"
 	"empre_backend/internal/models"
 
 	"github.com/google/uuid"
@@ -135,8 +136,9 @@ func TestBuildNeighbors(t *testing.T) {
 
 func TestExploreGroupOf(t *testing.T) {
 	// Los mismos grupos que empre_app/src/lib/categoryGroups.ts.
-	for name, want := range map[string]string{"Restaurantes": "comer", "Cafeterías y postres": "comer", "Belleza y peluquería": "salud",
-		"Educación": "servicios", "Servicios del hogar": "servicios", "Eventos y fiestas": "planes", "Tecnología": "compras", "Una nueva": "servicios"} {
+	for name, want := range map[string]string{"Comida y restaurantes": "comer", "Panadería, café y postres": "comer", "Belleza": "salud",
+		"Educación y clases": "servicios", "Hogar y construcción": "servicios", "Eventos y fiestas": "planes", "Tecnología": "compras",
+		"Moda y accesorios": "compras", "Vehículos": "servicios", "Una nueva": "servicios"} {
 		if got := ExploreGroupOf(name); got != want {
 			t.Errorf("%s: %s, quería %s", name, got, want)
 		}
@@ -146,8 +148,17 @@ func TestExploreGroupOf(t *testing.T) {
 	lunch := barrioCand("Almuerzo", uuid.New(), uuid.New(), 0, 0, 14000, 28000, time.Hour, time.Hour, now)
 	coffee := barrioCand("Capuchino", uuid.New(), uuid.New(), 0, 0, 8000, 16000, time.Hour, time.Hour, now)
 	class := barrioCand("Clase", uuid.New(), uuid.New(), 0, 0, 25000, 50000, time.Hour, time.Hour, now)
-	lunch.Offer.Entity.Category.Name, coffee.Offer.Entity.Category.Name, class.Offer.Entity.Category.Name = "Restaurantes", "Cafeterías y postres", "Educación"
+	lunch.Offer.Entity.Category.Name, coffee.Offer.Entity.Category.Name, class.Offer.Entity.Category.Name = "Comida y restaurantes", "Panadería, café y postres", "Educación y clases"
 	if got := PickBento([]MarketCandidate{lunch, coffee, class}, map[uuid.UUID]bool{}, BentoMax, false); len(got) != 2 {
 		t.Fatalf("un solo «Comer y beber» y una clase: %d piezas", len(got))
+	}
+}
+
+// TestExploreGroupsCoverCatalog: toda categoría del catálogo cae en un grupo a propósito (no por descarte).
+func TestExploreGroupsCoverCatalog(t *testing.T) {
+	for _, name := range database.DefaultCategoryNames() {
+		if _, ok := exploreGroups[FoldText(name)]; !ok {
+			t.Errorf("%s no tiene grupo de Explorar", name)
+		}
 	}
 }

@@ -21,21 +21,25 @@ type defaultCategory struct {
 // so a fresh database is usable right away (the app needs at least one
 // category to register a business).
 var defaultCategories = []defaultCategory{
-	{"Restaurantes", "restaurant-outline", "#F58220"},
-	{"Cafeterías, panaderías y postres", "cafe-outline", "#F59A4B"},
-	{"Bares y vida nocturna", "beer-outline", "#D96A0C"},
-	{"Tiendas y comercio", "storefront-outline", "#2468C6"},
-	{"Belleza y peluquería", "cut-outline", "#0B8A8F"},
+	// Catálogo redefinido con Giovanni (2026-11-26): 18 categorías, sin repetidos y con los negocios de barrio que
+	// faltaban (carnicería, montallantas, miscelánea, sastrería, cerrajería, estadero, piñatería…).
+	{"Comida y restaurantes", "restaurant-outline", "#F58220"},
+	{"Panadería, café y postres", "cafe-outline", "#F59A4B"},
+	{"Bares y noche", "beer-outline", "#D96A0C"},
+	{"Mercado y tienda", "basket-outline", "#2468C6"},
+	{"Moda y accesorios", "shirt-outline", "#1A4F9C"},
+	{"Belleza", "cut-outline", "#0B8A8F"},
 	{"Salud y bienestar", "medkit-outline", "#0F6E73"},
-	{"Servicios del hogar", "hammer-outline", "#3B78D1"},
-	{"Tecnología", "hardware-chip-outline", "#1A4F9C"},
-	{"Turismo y hospedaje", "bed-outline", "#4A86D8"},
-	{"Educación", "school-outline", "#1E5CA8"},
-	{"Automotriz", "car-outline", "#5A8FD8"},
+	{"Hogar y construcción", "hammer-outline", "#3B78D1"},
+	{"Tecnología", "phone-portrait-outline", "#1E5CA8"},
+	{"Papelería y variedades", "pricetags-outline", "#5A8FD8"},
+	{"Vehículos", "car-outline", "#4A86D8"},
 	{"Mascotas", "paw-outline", "#2BA3A0"},
-	{"Eventos y fiestas", "gift-outline", "#C97A2E"},
-	{"Fotografía y diseño", "camera-outline", "#12848C"},
-	{"Deporte y recreación", "basketball-outline", "#1FA2A8"},
+	{"Eventos y fiestas", "balloon-outline", "#C97A2E"},
+	{"Educación y clases", "school-outline", "#1E5CA8"},
+	{"Deporte", "basketball-outline", "#1FA2A8"},
+	{"Turismo y hospedaje", "bed-outline", "#4A86D8"},
+	{"Servicios profesionales", "briefcase-outline", "#12848C"},
 	{"Otros", "ellipsis-horizontal-circle-outline", "#66768D"},
 }
 
@@ -65,106 +69,24 @@ func SeedCategories(db *gorm.DB) {
 // subcategories it starts with. A category not listed here simply gets none;
 // admins can add more later from the admin panel.
 var defaultSubcategories = map[string][]string{
-	"Restaurantes": {
-		"Corrientazo y almuerzos",
-		"Comida rápida",
-		"Comida típica",
-		"Pescados y mariscos",
-		"Asaderos y pollo",
-		"Comida internacional",
-		"Saludable y vegetariana",
-	},
-	"Cafeterías, panaderías y postres": {
-		"Cafetería",
-		"Panadería",
-		"Repostería y postres",
-		"Heladería",
-		"Jugos y fruterías",
-	},
-	"Bares y vida nocturna": {
-		"Bar",
-		"Discoteca",
-		"Karaoke",
-		"Billar y juegos",
-	},
-	"Tiendas y comercio": {
-		"Tienda de barrio y minimercado",
-		"Fruver",
-		"Licorera",
-		"Ropa y calzado",
-		"Artesanías y regalos",
-		"Papelería",
-		"Ferretería",
-	},
-	"Tecnología": {
-		"Celulares y accesorios",
-		"Reparación de celulares",
-		"Reparación de computadores",
-	},
-	"Belleza y peluquería": {
-		"Peluquería",
-		"Barbería",
-		"Spa y masajes",
-		"Uñas",
-	},
-	"Salud y bienestar": {
-		"Consultorio médico",
-		"Odontología",
-		"Droguería",
-		"Psicología y terapias",
-		"Óptica",
-	},
-	"Servicios del hogar": {
-		"Plomería",
-		"Electricidad",
-		"Limpieza",
-		"Jardinería",
-		"Mudanzas",
-		"Fumigación",
-	},
-	"Turismo y hospedaje": {
-		"Hotel",
-		"Hostal",
-		"Tours y excursiones",
-		"Alquiler vacacional",
-	},
-	"Educación": {
-		"Academia o instituto",
-		"Refuerzo escolar",
-		"Idiomas",
-	},
-	"Automotriz": {
-		"Taller mecánico",
-		"Lavadero",
-		"Repuestos y accesorios",
-		"Alquiler de vehículos",
-	},
-	"Mascotas": {
-		"Veterinaria",
-		"Peluquería canina",
-		"Tienda de mascotas",
-		"Guardería y paseos",
-	},
-	"Eventos y fiestas": {
-		"Decoración y alquiler",
-		"Catering",
-		"DJ y sonido",
-		"Organización de eventos",
-	},
-	"Fotografía y diseño": {
-		"Fotografía y video",
-		"Diseño gráfico",
-		"Impresión y publicidad",
-	},
-	"Deporte y recreación": {
-		"Gimnasio y crossfit",
-		"Entrenadores y clases deportivas",
-		"Alquiler de canchas",
-		"Tienda deportiva",
-	},
-	"Otros": {
-		"Otros",
-	},
+	"Comida y restaurantes":     {"Corrientazo y almuerzos", "Comida rápida", "Comida típica", "Asaderos y pollo", "Fritos y empanadas", "Pescados y mariscos", "Comida internacional", "Saludable y vegetariana"},
+	"Panadería, café y postres": {"Panadería", "Cafetería", "Repostería y tortas", "Heladería", "Jugos y fruterías"},
+	"Bares y noche":             {"Bar", "Estadero", "Discoteca", "Karaoke", "Billar"},
+	"Mercado y tienda":          {"Tienda de barrio", "Minimercado", "Fruver", "Carnicería y pollería", "Pescadería", "Licorera", "Distribuidora"},
+	"Moda y accesorios":         {"Ropa", "Calzado", "Accesorios y bisutería", "Sastrería y arreglos"},
+	"Belleza":                   {"Peluquería", "Barbería", "Uñas", "Cejas y pestañas", "Maquillaje", "Estética"},
+	"Salud y bienestar":         {"Droguería", "Consultorio médico", "Odontología", "Óptica", "Psicología", "Fisioterapia", "Spa y masajes"},
+	"Hogar y construcción":      {"Ferretería", "Materiales de construcción", "Muebles y decoración", "Electrodomésticos", "Plomería", "Electricidad", "Pintura", "Cerrajería", "Limpieza y lavandería", "Fumigación", "Jardinería", "Mudanzas"},
+	"Tecnología":                {"Celulares y accesorios", "Reparación de celulares", "Computadores y reparación"},
+	"Papelería y variedades":    {"Papelería", "Miscelánea", "Regalos y artesanías", "Impresión y fotocopias"},
+	"Vehículos":                 {"Taller mecánico", "Taller de motos", "Montallantas", "Lavadero", "Repuestos y accesorios", "Alquiler de vehículos"},
+	"Mascotas":                  {"Veterinaria", "Peluquería canina", "Tienda de mascotas", "Guardería y paseos"},
+	"Eventos y fiestas":         {"Decoración y alquiler", "Catering y banquetes", "DJ y sonido", "Fotografía y video", "Piñatería", "Organización de eventos"},
+	"Educación y clases":        {"Refuerzo escolar", "Idiomas", "Música y arte", "Academias"},
+	"Deporte":                   {"Gimnasio", "Entrenador personal", "Canchas", "Clases deportivas", "Tienda deportiva"},
+	"Turismo y hospedaje":       {"Hotel", "Hostal", "Alquiler vacacional", "Tours y excursiones"},
+	"Servicios profesionales":   {"Contabilidad", "Abogados", "Diseño y publicidad"},
+	"Otros":                     {"Otros"},
 }
 
 // SeedSubcategories inserts the default subcategories if none exist yet. It
@@ -315,4 +237,14 @@ func ResetEverythingExceptAdmins(db *gorm.DB) error {
 
 		return nil
 	})
+}
+
+// DefaultCategoryNames: los nombres de las categorías predeterminadas (para las pruebas que verifican que cada una
+// tenga su grupo de Explorar y sus plantillas).
+func DefaultCategoryNames() []string {
+	out := make([]string, 0, len(defaultCategories))
+	for _, c := range defaultCategories {
+		out = append(out, c.Name)
+	}
+	return out
 }

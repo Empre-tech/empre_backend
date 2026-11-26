@@ -28,7 +28,7 @@ func TestOfferMarketIntegration(t *testing.T) {
 		return u
 	}
 	owner, viewer, other := mkUser("duena"), mkUser("ana"), mkUser("beto")
-	food := models.Category{Name: "Restaurantes"}
+	food := models.Category{Name: "Comida y restaurantes"}
 	beauty := models.Category{Name: "Belleza"}
 	db.Create(&food)
 	db.Create(&beauty)

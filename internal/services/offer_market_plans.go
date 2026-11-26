@@ -51,12 +51,13 @@ type planTheme struct {
 }
 
 var planThemes = []planTheme{
-	{Key: ThemePamper, Slots: []planSlot{{"belleza y peluqueria", "salud y bienestar"}, {"cafeterias y postres", "restaurantes"}, {}}, Optional: true, From: 13, To: 19},
-	{Key: ThemeErrands, Slots: []planSlot{{"servicios del hogar", "automotriz", "tecnologia"}, {"restaurantes"}, {"tiendas y comercio", "mascotas", "otros"}}, Optional: true, From: 8, To: 18},
-	{Key: ThemeActive, Slots: []planSlot{{"deporte y recreacion"}, {"cafeterias y postres", "restaurantes"}, {}}, Optional: true, From: 5, To: 11},
-	{Key: ThemeNight, Slots: []planSlot{{"restaurantes"}, {"bares y vida nocturna", "eventos y fiestas"}, {}}, Optional: true, From: 17, To: 24},
-	{Key: ThemeSweet, Slots: []planSlot{{"cafeterias y postres"}, {"cafeterias y postres"}, {"cafeterias y postres"}}, From: 0, To: 24, SameKindOK: true},
-	{Key: ThemePet, Slots: []planSlot{{"mascotas"}, {"cafeterias y postres", "restaurantes", "turismo y hospedaje"}}, From: 0, To: 24},
+	// Nombres de categoría del catálogo del 2026-11-26 (sin tildes ni comas, como los deja FoldText).
+	{Key: ThemePamper, Slots: []planSlot{{"belleza", "salud y bienestar"}, {"panaderia cafe y postres", "comida y restaurantes"}, {}}, Optional: true, From: 13, To: 19},
+	{Key: ThemeErrands, Slots: []planSlot{{"hogar y construccion", "vehiculos", "tecnologia"}, {"comida y restaurantes"}, {"mercado y tienda", "moda y accesorios", "papeleria y variedades", "mascotas", "otros"}}, Optional: true, From: 8, To: 18},
+	{Key: ThemeActive, Slots: []planSlot{{"deporte"}, {"panaderia cafe y postres", "comida y restaurantes"}, {}}, Optional: true, From: 5, To: 11},
+	{Key: ThemeNight, Slots: []planSlot{{"comida y restaurantes"}, {"bares y noche", "eventos y fiestas"}, {}}, Optional: true, From: 17, To: 24},
+	{Key: ThemeSweet, Slots: []planSlot{{"panaderia cafe y postres"}, {"panaderia cafe y postres"}, {"panaderia cafe y postres"}}, From: 0, To: 24, SameKindOK: true},
+	{Key: ThemePet, Slots: []planSlot{{"mascotas"}, {"panaderia cafe y postres", "comida y restaurantes", "turismo y hospedaje"}}, From: 0, To: 24},
 }
 
 // Momentos de «tu día»: la hora sugerida de cada uno.

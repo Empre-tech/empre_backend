@@ -27,7 +27,7 @@ func TestFoldAndMatch(t *testing.T) {
 	if FoldText("  Barbería   El-Parque! ") != "barberia el parque" {
 		t.Fatalf("fold: %q", FoldText("  Barbería   El-Parque! "))
 	}
-	o := mkOffer("Corte + barba", "Barbería El Parque", "Belleza y peluquería", time.Hour, 28000, 37000)
+	o := mkOffer("Corte + barba", "Barbería El Parque", "Belleza", time.Hour, 28000, 37000)
 	o.Items = []models.OfferItem{{Name: "Arreglo de barba"}}
 	for term, want := range map[string]bool{"barberia": true, "corte": true, "Arreglo": true, "corte barba": true, "almuerzo": false, "arte": false} {
 		if MatchesTerm(o, term) != want {
@@ -37,13 +37,13 @@ func TestFoldAndMatch(t *testing.T) {
 }
 
 func TestBuildMarket(t *testing.T) {
-	alm := MarketCandidate{Offer: mkOffer("Almuerzo ejecutivo", "La Sazón", "Restaurantes", 2*time.Hour, 18000, 22000), DistanceM: 350, Rating: 4.7}
+	alm := MarketCandidate{Offer: mkOffer("Almuerzo ejecutivo", "La Sazón", "Comida y restaurantes", 2*time.Hour, 18000, 22000), DistanceM: 350, Rating: 4.7}
 	corte := MarketCandidate{Offer: mkOffer("Corte + barba", "Barbería El Parque", "Belleza", 7*time.Hour, 28000, 37000), DistanceM: 600, Trend: 3, Reason: "Sigues a Barbería El Parque", Rating: 4.5}
 	cafe := MarketCandidate{Offer: mkOffer("2x1 capuchino", "Café Sierra", "Cafeterías", 40*time.Minute, 8000, 16000), DistanceM: 900, Trend: 1, Rating: 4.8}
 	bar := MarketCandidate{Offer: mkOffer("Cóctel a mitad", "Bar Muralla", "Bares", 3*time.Hour, 12000, 24000), DistanceM: 1100, Trend: 3}
-	pizza := MarketCandidate{Offer: mkOffer("Pizza mediana", "Pizzería Bahía", "Restaurantes", 4*time.Hour, 25000, 34000), DistanceM: 2400, Trend: 2.5}
+	pizza := MarketCandidate{Offer: mkOffer("Pizza mediana", "Pizzería Bahía", "Comida y restaurantes", 4*time.Hour, 25000, 34000), DistanceM: 2400, Trend: 2.5}
 	spa := MarketCandidate{Offer: mkOffer("Masaje 45 min", "Spa Mamatoco", "Belleza", 5*time.Hour, 60000, 80000), DistanceM: 2600, Trend: 2}
-	far := MarketCandidate{Offer: mkOffer("Lejana", "Otro pueblo", "Restaurantes", time.Hour, 1000, 2000), DistanceM: 50000, Trend: 9}
+	far := MarketCandidate{Offer: mkOffer("Lejana", "Otro pueblo", "Comida y restaurantes", time.Hour, 1000, 2000), DistanceM: 50000, Trend: 9}
 	all := []MarketCandidate{alm, corte, cafe, bar, pizza, spa, far}
 
 	s := BuildMarket(all, MarketOptions{HasLocation: true, Term: "almuerzo", Personal: true})

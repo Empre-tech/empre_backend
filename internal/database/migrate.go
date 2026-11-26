@@ -48,10 +48,9 @@ func Slugify(s string) string {
 // (categories.parent_id) y rellena business_categories: primarias desde
 // entities.category_id y secundarias desde entity_subcategories. Idempotente.
 func MigrateHierarchy(db *gorm.DB) error {
-	// 1. Subcategorías → categorías hijas.
-	var existingChildren int64
-	db.Model(&models.Category{}).Where("parent_id IS NOT NULL").Count(&existingChildren)
-	if existingChildren == 0 {
+	// 1. Subcategorías → categorías hijas: APAGADO (2026-11-26). Duplicaba cada subcategoría como categoría y la app
+	// las mostraba repetidas. Las subcategorías viven solo en su tabla.
+	if false {
 		var subs []models.Subcategory
 		if err := db.Find(&subs).Error; err != nil {
 			return err
@@ -209,22 +208,24 @@ func SeedFamilies(db *gorm.DB) error {
 // Solo toca categorías que aún no tienen sinónimos. Idempotente.
 func SeedSynonyms(db *gorm.DB) error {
 	table := map[string][]string{
-		"Restaurantes":         {"restaurante", "restaurant", "comida", "almuerzo", "cenar"},
-		"Cafeterías, panaderías y postres": {"cafeteria", "cafe", "café", "postre", "postres", "panaderia", "panadería", "heladeria"},
-		"Bares y vida nocturna": {"bar", "discoteca", "rumba", "cerveza", "copas", "karaoke"},
-		"Tiendas y comercio":    {"tienda", "almacen", "almacén", "comercio", "ropa", "supermercado"},
-		"Belleza y peluquería":  {"peluqueria", "peluquería", "barberia", "barbería", "spa", "unas", "uñas", "corte"},
-		"Salud y bienestar":     {"farmacia", "drogueria", "droguería", "medico", "médico", "doctor", "gimnasio"},
-		"Servicios del hogar":   {"plomeria", "plomería", "electricista", "limpieza", "hogar", "jardineria"},
-		"Tecnología":            {"tecnologia", "tecnología", "celulares", "computadores", "reparacion", "reparación", "telefono"},
-		"Turismo y hospedaje":   {"hotel", "hostal", "turismo", "hospedaje", "alojamiento", "tour"},
-		"Educación":             {"educacion", "educación", "clases", "academia", "colegio", "idiomas", "cursos"},
-		"Automotriz":            {"taller", "mecanico", "mecánico", "lavadero", "carros", "motos", "repuestos"},
-		"Mascotas":              {"veterinaria", "mascotas", "perros", "gatos", "peluqueria canina"},
-		"Eventos y fiestas":     {"eventos", "fiestas", "decoracion", "decoración", "catering", "fiesta"},
-		"Fotografía y diseño":   {"fotografia", "fotografía", "foto", "fotos", "diseño", "diseño grafico", "impresion"},
-		"Deporte y recreación":  {"deporte", "gimnasio", "crossfit", "canchas", "entrenador", "deportes"},
-		"Otros":                 {"otros", "varios", "diversos"},
+		"Comida y restaurantes":     {"restaurante", "restaurant", "comida", "almuerzo", "corrientazo", "cenar", "pollo", "empanadas"},
+		"Panadería, café y postres": {"panaderia", "panadería", "pan", "cafeteria", "cafe", "café", "postre", "postres", "tortas", "heladeria", "jugos"},
+		"Bares y noche":             {"bar", "estadero", "discoteca", "rumba", "cerveza", "copas", "karaoke", "billar"},
+		"Mercado y tienda":          {"tienda", "minimercado", "supermercado", "mercado", "fruver", "carniceria", "carnicería", "pescaderia", "licorera", "distribuidora"},
+		"Moda y accesorios":         {"ropa", "calzado", "zapatos", "tenis", "boutique", "bisuteria", "bisutería", "sastreria", "sastrería", "arreglos"},
+		"Belleza":                   {"peluqueria", "peluquería", "barberia", "barbería", "unas", "uñas", "cejas", "pestañas", "maquillaje", "estetica", "corte"},
+		"Salud y bienestar":         {"farmacia", "drogueria", "droguería", "medico", "médico", "doctor", "odontologo", "optica", "psicologo", "fisioterapia", "spa", "masajes"},
+		"Hogar y construcción":      {"ferreteria", "ferretería", "materiales", "muebles", "electrodomesticos", "plomero", "plomeria", "electricista", "pintor", "cerrajero", "cerrajeria", "limpieza", "lavanderia", "fumigacion", "jardinero", "mudanza"},
+		"Tecnología":                {"tecnologia", "tecnología", "celulares", "celular", "computadores", "reparacion", "reparación", "telefono"},
+		"Papelería y variedades":    {"papeleria", "papelería", "miscelanea", "miscelánea", "variedades", "regalos", "artesanias", "fotocopias", "impresiones"},
+		"Vehículos":                 {"taller", "mecanico", "mecánico", "motos", "montallantas", "llantas", "lavadero", "carros", "repuestos"},
+		"Mascotas":                  {"veterinaria", "mascotas", "perros", "gatos", "peluqueria canina"},
+		"Eventos y fiestas":         {"eventos", "fiestas", "fiesta", "decoracion", "decoración", "catering", "dj", "fotografo", "piñateria", "piñatas"},
+		"Educación y clases":        {"educacion", "educación", "clases", "academia", "refuerzo", "idiomas", "ingles", "musica", "cursos"},
+		"Deporte":                   {"deporte", "deportes", "gimnasio", "gym", "crossfit", "canchas", "entrenador", "natacion", "futbol"},
+		"Turismo y hospedaje":       {"hotel", "hostal", "turismo", "hospedaje", "alojamiento", "tour", "tours", "islas"},
+		"Servicios profesionales":   {"contador", "contabilidad", "abogado", "abogados", "diseño", "publicidad", "asesoria"},
+		"Otros":                     {"otros", "varios", "diversos"},
 	}
 	for name, syns := range table {
 		var cat models.Category

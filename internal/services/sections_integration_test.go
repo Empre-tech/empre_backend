@@ -23,11 +23,11 @@ func sectionsFixture(t *testing.T) (*gorm.DB, models.User, models.User, models.E
 			t.Fatal(err)
 		}
 	}
-	cat := models.Category{Name: "Tiendas y comercio"}
+	cat := models.Category{Name: "Mercado y tienda"}
 	if err := db.Create(&cat).Error; err != nil {
 		t.Fatal(err)
 	}
-	sub := models.Subcategory{Name: "Tienda de barrio y minimercado", CategoryID: cat.ID}
+	sub := models.Subcategory{Name: "Tienda de barrio", CategoryID: cat.ID}
 	fruver := models.Subcategory{Name: "Fruver", CategoryID: cat.ID}
 	for _, s := range []*models.Subcategory{&sub, &fruver} {
 		if err := db.Create(s).Error; err != nil {
@@ -284,7 +284,7 @@ func TestResetCatalogWipesBusinessData(t *testing.T) {
 
 func TestAudienceAndClothingTemplate(t *testing.T) {
 	db, owner, _, ent, sub := sectionsFixture(t)
-	ropa := models.Subcategory{Name: "Ropa y calzado", CategoryID: sub.CategoryID}
+	ropa := models.Subcategory{Name: "Ropa", CategoryID: sub.CategoryID}
 	if err := db.Create(&ropa).Error; err != nil {
 		t.Fatal(err)
 	}

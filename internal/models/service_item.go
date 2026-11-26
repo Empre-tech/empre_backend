@@ -88,7 +88,7 @@ const (
 var AudienceValues = []string{AudienceMen, AudienceWomen, AudienceKids, AudienceUnisex}
 
 // AudienceSubcategories: las subcategorías cuyos negocios dicen para quién es cada producto.
-var AudienceSubcategories = []string{"Ropa y calzado", "Tienda deportiva"}
+var AudienceSubcategories = []string{"Ropa", "Calzado", "Tienda deportiva"}
 
 // Tipos de ítem del catálogo.
 const (

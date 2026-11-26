@@ -23,7 +23,8 @@ func (r *CategoryRepository) FindAll(page, pageSize int) ([]models.Category, int
 	var categories []models.Category
 	var total int64
 
-	db := r.DB.Model(&models.Category{})
+	// Solo las categorías principales: las «hijas» viejas (subcategorías copiadas como categorías) no se muestran.
+	db := r.DB.Model(&models.Category{}).Where("parent_id IS NULL")
 	db.Count(&total)
 
 	offset := (page - 1) * pageSize
